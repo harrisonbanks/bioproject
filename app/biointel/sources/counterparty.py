@@ -307,11 +307,6 @@ def _nlp():
     return None
 
 
-def ner_status() -> str:
-    _nlp()
-    return _NLP_NAME or "regex-only (spaCy model not installed)"
-
-
 # Anchors that introduce a counterparty inside a bounded section.
 ANCHOR_RE = re.compile(r"(?i)\b(?:by and (?:between|among)|with|from|into)\s")
 

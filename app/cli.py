@@ -28,7 +28,6 @@
   python cli.py features                   M1: feature_panel.csv + model_panel.csv
   python cli.py predict [QUARTER]          M3/M4: ranked M&A predictions
   python cli.py universe-probe             P1a: test EDGAR browse parsing (run FIRST)
-  python cli.py patents-probe              PAT: test PatentsView bulk route (run FIRST)
   python cli.py patents-sql                PAT: generate BigQuery query from your company list
   python cli.py patents-import             PAT: consume BigQuery CSV export -> silver/patents.csv
   python cli.py pairs-substrate [MODE]     paired substrate comparison (patents|targets)
@@ -309,20 +308,6 @@ def main(argv):
         if r["status"] != "ok":
             return 1
 
-    elif cmd == "patents-probe":
-        from biointel.sources.patents import probe as pat_probe
-        r = pat_probe()
-        print(r["message"])
-        if r["status"] != "ok":
-            return 1
-
-    elif cmd == "patents-ingest":
-        from biointel.sources.patents import ingest as pat_ingest
-        r = pat_ingest()
-        print(r["message"])
-        if r["status"] != "ok":
-            return 1
-
     elif cmd == "patents-sql":
         from biointel.sources.patents import write_sql
         r = write_sql()
@@ -338,7 +323,7 @@ def main(argv):
             return 1
 
     elif cmd == "pairs-substrate":
-        from biointel.pairs import pairs_substrates
+        from biointel.baselines import pairs_substrates
         mode = argv[2] if len(argv) > 2 else "patents"
         r = pairs_substrates(mode=mode)
         if r["status"] != "ok":
@@ -468,7 +453,8 @@ def main(argv):
         print(r["message"])
 
     elif cmd == "pairs":
-        from biointel.pairs import evaluate_pairs, build_pair_feature
+        from biointel.baselines import evaluate_pairs
+        from biointel.pairs import build_pair_feature
         r1 = build_pair_feature()
         print(r1["message"])
         r2 = evaluate_pairs()
@@ -477,14 +463,14 @@ def main(argv):
             return 1
 
     elif cmd == "pairs-fit":
-        from biointel.pairs import supervised_pairs
+        from biointel.baselines import supervised_pairs
         r = supervised_pairs()
         print(r["message"])
         if r["status"] != "ok":
             return 1
 
     elif cmd == "pairs-protocol":
-        from biointel.pairs import pairs_protocol
+        from biointel.baselines import pairs_protocol
         r = pairs_protocol()
         if r["status"] != "ok":
             print(r["message"]); return 1

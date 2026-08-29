@@ -44,11 +44,6 @@ def _rets(bars: list[dict]) -> list[float | None]:
     return out
 
 
-def _pair_by_date(stock: list[dict], bench: list[dict]) -> list[tuple[dict, dict]]:
-    bidx = {b["Date"]: b for b in bench}
-    return [(s, bidx[s["Date"]]) for s in stock if s["Date"] in bidx]
-
-
 def _ols(x: list[float], y: list[float]) -> tuple[float, float]:
     """Slope, intercept of y on x. Market model: R_i = a + b * R_m."""
     n = len(x)
