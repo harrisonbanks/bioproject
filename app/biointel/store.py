@@ -53,7 +53,7 @@ def fetch_json(url: str, params: dict | None = None, headers: dict | None = None
             time.sleep(config.SEC_RATE_LIMIT - gap)
         _last_sec_call = time.time()
 
-    hdrs = {"User-Agent": config.USER_AGENT}
+    hdrs = {"User-Agent": config.require("BIOINTEL_USER_AGENT")}
     if headers:
         hdrs.update(headers)
 

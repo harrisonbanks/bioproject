@@ -42,7 +42,7 @@ def _download(force: bool = False) -> bytes:
     EOB_ZIP.parent.mkdir(parents=True, exist_ok=True)
     if EOB_ZIP.exists() and not force:
         return EOB_ZIP.read_bytes()
-    r = requests.get(EOB_URL, headers={"User-Agent": config.USER_AGENT},
+    r = requests.get(EOB_URL, headers={"User-Agent": config.require("BIOINTEL_USER_AGENT")},
                      timeout=120)
     r.raise_for_status()
     EOB_ZIP.write_bytes(r.content)

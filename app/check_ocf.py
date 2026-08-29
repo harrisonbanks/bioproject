@@ -8,7 +8,7 @@ c = next(x for x in read_companies() if str(x["IID"]) == IID)
 cik = str(c["CIK"]).zfill(10)
 
 url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
-req = urllib.request.Request(url, headers={"User-Agent": config.USER_AGENT})
+req = urllib.request.Request(url, headers={"User-Agent": config.require("BIOINTEL_USER_AGENT")})
 data = json.load(urllib.request.urlopen(req))
 
 tag = "NetCashProvidedByUsedInOperatingActivities"

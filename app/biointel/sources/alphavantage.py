@@ -14,7 +14,7 @@ def description(ticker: str) -> str:
         av = fetch_json(config.AV_QUERY, params={
             "function": "OVERVIEW",
             "symbol": ticker.strip().upper(),
-            "apikey": config.ALPHA_VANTAGE_KEY,
+            "apikey": config.require("BIOINTEL_ALPHA_VANTAGE_KEY"),
         }, tag="alphavantage_overview")
     except Exception:
         return "UNAVAILABLE - check the API key"

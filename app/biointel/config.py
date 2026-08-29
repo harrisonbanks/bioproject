@@ -1,12 +1,34 @@
-"""Configuration. Edit USER_AGENT and ALPHA_VANTAGE_KEY before first run."""
+"""Configuration: paths, endpoints, behaviour; credentials from the environment."""
+import os
 from pathlib import Path
 
-# --- credentials -----------------------------------------------------------
-# SEC requires a descriptive User-Agent with a contact email or returns 403.
-USER_AGENT = "Harrison Banks harrybanksm02@gmail.com"
+# --- settings from the environment ----------------------------------------
+# Values come from os.environ; <repo-root>/.env is loaded if present
+# (names and placeholders in .env.example). Nothing secret lives in code.
+_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
-# Alpha Vantage free tier: 25 calls/day. Used only for company descriptions.
-ALPHA_VANTAGE_KEY = "HMSYBCQS3CPO2P02"
+
+def _load_dotenv() -> None:
+    if not _ENV_FILE.exists():
+        return
+    for line in _ENV_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+def require(name: str) -> str:
+    """Return the environment variable or fail fast naming it (6.4)."""
+    v = os.environ.get(name, "")
+    if not v:
+        raise RuntimeError(
+            f"{name} is not set. Copy .env.example to .env at the repository "
+            f"root and fill in {name}.")
+    return v
+
+
+_load_dotenv()
 
 # --- paths -----------------------------------------------------------------
 ROOT   = Path(__file__).resolve().parent.parent
