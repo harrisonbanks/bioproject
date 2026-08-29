@@ -47,7 +47,7 @@ def _download(force: bool = False) -> bytes:
     r.raise_for_status()
     EOB_ZIP.write_bytes(r.content)
     (EOB_ZIP.parent / "eob.meta.json").write_text(
-        f'{{"url": "{r.url}", "status": {r.status_code}, '
+        f'{{"tag": "orangebook", "url": "{r.url}", "status": {r.status_code}, '
         f'"bytes": {len(r.content)}, '
         f'"fetched_at": "{datetime.now(timezone.utc).isoformat(timespec="seconds")}"}}',
         encoding="utf-8")

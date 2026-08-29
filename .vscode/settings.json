@@ -2,7 +2,7 @@
   "terminal.integrated.profiles.windows": {
     "PowerShell venv": {
       "path": "powershell.exe",
-      "args": ["-NoExit", "-ExecutionPolicy", "Bypass", "-Command", "& 'C:\\Users\\bocchirock\\Documents\\dev\\bioindustry\\.venv\\Scripts\\Activate.ps1'"]
+      "args": ["-NoExit", "-ExecutionPolicy", "Bypass", "-Command", "& '${workspaceFolder}\\.venv\\Scripts\\Activate.ps1'"]
     }
   },
   "terminal.integrated.defaultProfile.windows": "PowerShell venv"

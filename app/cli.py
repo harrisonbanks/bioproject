@@ -564,7 +564,7 @@ def main(argv):
 
     elif cmd == "coverage":
         for m in coverage_report():
-            print(f"  {m['fetched_at']}  {m['tag']:<22} {m['status']}  {m['url'][:90]}")
+            print(f"  {m['fetched_at']}  {m.get('tag', '-'):<22} {m['status']}  {m['url'][:90]}")
 
     else:
         print(__doc__); return 1
