@@ -1,10 +1,11 @@
-docs/20260830_v1_Ontology_and_Matching_Design.md
+docs/20260830_v2_Ontology_and_Matching_Design.md
 
 # Ontology and M&A matching design
 
-Bioindustry Intelligence Platform · design document v1 · 2026-08-30
-Status: proposed, for review by J. Banks and H. Banks. Supersedes the
-implicit design in the v0.68–0.81 code. Principles P1–P12 apply.
+Bioindustry Intelligence Platform · design document v2 · 2026-08-30
+Status: proposed, for review by J. Banks and H. Banks. Supersedes v1 (adds
+the Regulatory-event extension for Model 2, §3.1 and §3.6) and the implicit
+design in the v0.68–0.81 code. Principles P1–P12 apply.
 
 ---
 
@@ -84,7 +85,7 @@ cannot express.
 | Financial buyer | PE, hedge funds, royalty buyers | absent | new entity rows; attributes largely manual |
 | Asset (drug program) | one per (company, molecule/indication) | implicit in `trials.csv`, `events.csv` | optional explicit table |
 | Trial | ClinicalTrials.gov record | `trials.csv` | none |
-| Regulatory event | approval, CRL, designation | `events.csv` | designations partial |
+| Regulatory event | approval, CRL (by deficiency type), designation, PDUFA goal date, AdCom, filing milestone, extension/delay, resubmission, post-approval action | `events.csv` (approvals, CRLs) | forward calendar absent; CRL deficiency type; disclosure timestamp; AdCom votes — see §3.6 and docs/20260830_v1_FDA_Catalyst_Research.md §4 |
 | Deal | acquisition, licence, partnership | `ma_events.csv`, `deals.csv`, `partners.csv` | objective label absent |
 | Patent | Orange Book listing, CPC patent | `patents.csv`, Orange Book cache | none |
 | Person | founders, executives, board | absent | optional, manual |
@@ -117,6 +118,20 @@ attribute; machine value retained as `<attribute>_auto`; provenance
 columns mandatory; validated on load; committed to git. Uses: new entities
 (private, funds), augmentation/correction of any attribute, hunter
 objectives and flags.
+
+### 3.6 Regulatory-event extension (shared with Model 2)
+The Regulatory-event entity is one table used by both models: Model 1
+reads realised outcomes (approvals, CRLs) as target attributes; Model 2
+reads the same table plus forward-dated rows (scheduled PDUFA goal dates,
+AdCom dates, expected readouts) and disclosure timestamps. Columns per
+row: entity, asset, indication, event class, scheduled date, disclosure
+datetime, outcome state, outcome sub-type (e.g. CRL deficiency type),
+source URL, provenance. Forward-dated rows are populated by the
+forward-calendar builder from sponsor 8-Ks and press releases (already
+ingested), FDA AdCom notices, and ClinicalTrials.gov completion dates;
+the manual layer (§3.4) may add or correct any row. The event taxonomy
+and outcome states are defined in the FDA Catalyst Research note §4 and
+are binding for both models (P1: one table, model-agnostic).
 
 ### 3.5 Schema as code
 `src/biointel/schema.py`: entity types, attribute names, types, allowed
@@ -217,6 +232,9 @@ language explanation and objective matches as the "who and why".
 4. Whether Person entities are worth maintaining manually.
 5. Snapshot policy: whether the shared repository carries silver/gold so
    both contributors evaluate on one data snapshot.
+6. Ownership of the forward-calendar builder: a Model 2 deliverable that
+   Model 1 also consumes (catalyst proximity as a target attribute);
+   sequence it in roadmap step C or as its own step.
 
 ## 9. References
 
