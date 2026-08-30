@@ -1,8 +1,8 @@
-docs/20260830_v1_FDA_Catalyst_Research.md
+docs/20260830_v2_FDA_Catalyst_Research.md
 
 # FDA catalyst price-reaction analysis — research synthesis
 
-Bioindustry Intelligence Platform · research note v1 · 2026-08-30
+Bioindustry Intelligence Platform · research note v2 · 2026-08-30 (v2: §6 sources of record decided; §10 product design written)
 Purpose: establish the formal name, the evidence base, the thesis, the
 event taxonomy, candidate models, decision rules, data sources and the
 evaluation protocol for a daily product that forecasts and ranks stock
@@ -214,11 +214,14 @@ options-implied move where available; (c) "no drift" (zero).
 | Calendar crowding | derivable once the calendar exists | — | — |
 | Peer sets | disease vectors, `relationships.csv` | — | — |
 
-The forward calendar is the critical new asset: it does not exist in any
-FDA publication (21 CFR 314.430) and is compiled by every vendor from
-sponsor disclosures [P: BiopharmaWatch, NovaPharmaNews, Wikipedia]. We
-have the same raw material (8-K and press text) and the entity registry to
-attach it to.
+The forward calendar is the critical new asset. Decision 2026-08-30 (P13):
+past decisions from the FDA as built; forward goal dates from sponsor
+8-K/press exhibits found via the SEC EDGAR full-text search JSON endpoint
+(efts.sec.gov, no key, User-Agent required, undocumented, probe-gated);
+AdComs from the FDA calendar; readout windows from CT.gov primary-
+completion dates; one aggregator (pdufa.bio, free, source-linked) as a
+cross-check only. Paid APIs surveyed (BiopharmaWatch 49-endpoint REST,
+BPIQ, RTTNews feeds) are not sources of record.
 
 ## 7. Decision rules (candidate rule set, each testable on history)
 
@@ -276,12 +279,11 @@ R8. Rank daily: expected value × confidence ÷ crowding, liquidity-
 - Structural: FDA policy shifts (real-time CRL publication, fewer AdComs)
   change the information environment; models must be dated.
 
-## 10. Next document
+## 10. Product design
 
-`FDA Catalyst Product Design` (requirements): entity/event schema
-extensions, forward-calendar builder, model registrations M2.1–M2.7, rule
-engine, daily run and report format, evaluation ledger, open decisions.
-Written after this note is reviewed.
+Requirements are in docs/20260830_v1_FDA_Catalyst_Product_Design.md;
+attributes, events, calendar sources, benchmarks and Model 4 are in the
+Ontology and Matching Design v3.
 
 ## References (abbreviated)
 Hirshleifer, Lim, Teoh (2009) JF 64(5). · Hwang (2013) PLOS One 8(8)

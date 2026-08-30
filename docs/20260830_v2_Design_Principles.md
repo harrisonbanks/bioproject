@@ -1,6 +1,6 @@
-docs/20260830_v1_Design_Principles.md
+docs/20260830_v2_Design_Principles.md
 
-# Design principles — Bioindustry Intelligence Platform
+# Design principles — Bioindustry Intelligence Platform (v2, 2026-08-30)
 
 Binding for every session. Loaded at session start with the handoff. Each
 principle records the decision, its date, and the reason it was taken.
@@ -86,3 +86,24 @@ what public data cannot. No vendor feeds.
 Commands are absolute-path, annotated with expected results, one block
 per turn; regression hashes prove behaviour unchanged; output drops in
 pasted terminals are known and never treated as proof either way.
+
+## P13. Calendar sources of record are official, free and machine-accessible (2026-08-30)
+Past decisions from the FDA (Drugs@FDA, CRL endpoint, CRL letters);
+forward goal dates from sponsor 8-Ks and press exhibits via the SEC EDGAR
+full-text search endpoint; advisory committees from the FDA calendar;
+readout windows from ClinicalTrials.gov. Aggregator calendars are
+cross-checks, never the feed. Every event row links to its source
+document.
+
+## P14. Daily bars only; no intraday; no trade automation (2026-08-30)
+Model 2 forecasts run-up and post-event paths from daily closes. The
+system never trades and never uses intraday data. Positions and exits are
+human decisions outside the system.
+
+## P15. Global universe, stub entities, configurable benchmarks (2026-08-30)
+Any jurisdiction with a US-traded line (ADRs included), no size or
+liquidity floor; entities without market data exist as stubs filled by
+the manual layer; abnormal returns are measured against XBI by default
+and any user-defined benchmark side by side. Rankings across competing
+events carry full attribution and assume nothing about the reader's
+purpose or instruments.

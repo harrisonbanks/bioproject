@@ -1,11 +1,13 @@
-docs/20260830_v2_Ontology_and_Matching_Design.md
+docs/20260830_v3_Ontology_and_Matching_Design.md
 
 # Ontology and M&A matching design
 
-Bioindustry Intelligence Platform · design document v2 · 2026-08-30
-Status: proposed, for review by J. Banks and H. Banks. Supersedes v1 (adds
-the Regulatory-event extension for Model 2, §3.1 and §3.6) and the implicit
-design in the v0.68–0.81 code. Principles P1–P12 apply.
+Bioindustry Intelligence Platform · design document v3 · 2026-08-30
+Status: proposed, for review by J. Banks and H. Banks. Supersedes v2: adds
+the global universe and stub entities (§3.1a), the price-action attribute
+group (§3.2a), the forward-calendar sources of record (§3.6), the manual
+notes template (§3.4), benchmarks (§3.7), and Model 4 Horizon Scanning
+(§3.8). Principles P1–P15 apply.
 
 ---
 
@@ -90,6 +92,15 @@ cannot express.
 | Patent | Orange Book listing, CPC patent | `patents.csv`, Orange Book cache | none |
 | Person | founders, executives, board | absent | optional, manual |
 
+### 3.1a Universe and stub entities (decision 2026-08-30)
+The registry is global: any company with a US-traded line (common stock or
+ADR) from any jurisdiction (Japan, Europe, elsewhere) is in scope, with no
+market-cap or liquidity floor. Entities without market data (private
+companies, research groups, companies discovered by Model 4) are held as
+stub rows with `listed=0` and `has_prices=0`; the manual layer fills what
+public data lacks. Every model declares whether it requires prices and
+skips stubs accordingly; nothing else changes.
+
 ### 3.2 Attributes (per entity, with source)
 | Attribute group | Examples | Source | Status |
 |---|---|---|---|
@@ -104,6 +115,21 @@ cannot express.
 | Strategy / intent | stated objectives, in-play flags, rumours | manual, press releases | absent |
 | Objectives (hunters) | list from §4 with weights | manual, deal history | absent |
 
+### 3.2a Price-action attribute group (Model 2 inputs; any model may read)
+| Attribute | Definition | Source | Status |
+|---|---|---|---|
+| Event dependence | share of pipeline value in the asset under decision (single-asset flag; count of clinical assets; lead-asset phase) | trials, events, manual | derivable |
+| Stage class | pre-revenue / first-approval pending / commercial / big pharma | events, financials | derivable |
+| Size | market cap, float (if available), average daily dollar volume | prices; manual for float | partial |
+| Capital position | cash, burn, runway months, shelf/ATM on file, months since last raise | financials, 8-K/S-3 | runway present; shelf flag to add |
+| Event history | prior events for the stock by class and outcome; prior run-up and post-event paths | event table + prices | derivable once the event table exists |
+| Sponsor track record | prior CRLs, prior approvals, prior delays across all assets | events | derivable |
+| Designation | Fast Track, Breakthrough, Orphan, Priority Review, Accelerated | events, 8-K text | partial |
+| Peer set | same-indication competitors (disease vectors), alliance partners (relationships) | trials, relationships | derivable |
+| Disclosure behaviour | typical disclosure timing (after close / pre-market), press-release cadence | 8-K timestamps | to add |
+| Listing | exchange, ADR ratio, home market, currency | SEC, manual | to add for ADRs |
+Every attribute is stored once on the entity (P1) and dated; models read a declared subset (P2).
+
 ### 3.3 Relationship types
 `sponsors`, `co_sponsors`, `licenses_to/from`, `partners_with`,
 `acquired`, `acquired_by`, `invested_in`, `founded`, `supplies` — stored
@@ -113,13 +139,17 @@ in one edge table (`relationships.csv` extended with `type`, `date`,
 ### 3.4 Manual layer (P5)
 `manual_attributes.csv`: `entity_key, attribute, value, valid_from,
 source, entered_by, entered_on, note`. `manual_entities.csv`: new entity
-rows with the identity attributes. Rules: manual overrides machine per
+rows with the identity attributes. `manual_notes.csv` (templated notes,
+decision 2026-08-30): `note_id, entity_key, event_id (optional), date,
+title, text, source_url, entered_by, entered_on, tags` — any information
+you gather, attached to an entity or an event, readable by any model as
+text and surfaced in reports with its provenance. Rules: manual overrides machine per
 attribute; machine value retained as `<attribute>_auto`; provenance
 columns mandatory; validated on load; committed to git. Uses: new entities
 (private, funds), augmentation/correction of any attribute, hunter
 objectives and flags.
 
-### 3.6 Regulatory-event extension (shared with Model 2)
+### 3.6 Regulatory-event extension and forward calendar (shared with Model 2)
 The Regulatory-event entity is one table used by both models: Model 1
 reads realised outcomes (approvals, CRLs) as target attributes; Model 2
 reads the same table plus forward-dated rows (scheduled PDUFA goal dates,
@@ -132,6 +162,49 @@ ingested), FDA AdCom notices, and ClinicalTrials.gov completion dates;
 the manual layer (§3.4) may add or correct any row. The event taxonomy
 and outcome states are defined in the FDA Catalyst Research note §4 and
 are binding for both models (P1: one table, model-agnostic).
+
+Sources of record (decision 2026-08-30; all official, free, machine-
+accessible; P13):
+- Past decisions: Drugs@FDA (approvals) and the openFDA CRL endpoint,
+  plus the FDA's published CRL letters for deficiency type — as built.
+- Forward goal dates (PDUFA), filing milestones, delays, resubmissions,
+  readout guidance: sponsor 8-Ks and press-release exhibits found through
+  the SEC EDGAR full-text search JSON endpoint
+  (`https://efts.sec.gov/LATEST/search-index`; no key; descriptive
+  User-Agent required; undocumented, probe-gated; results partitioned by
+  form type and date; dedupe on accession), with the date parsed from the
+  exhibit text and the exhibit URL stored on the row.
+- Advisory committees: the FDA Advisory Committee calendar (dates,
+  briefing documents).
+- Expected readouts: ClinicalTrials.gov primary-completion dates (field to
+  add to the existing v2 pull).
+- Cross-check only, not a feed: one aggregator (default pdufa.bio, free,
+  source-linked); paid APIs (BiopharmaWatch, BPIQ, RTTNews) only if
+  chosen later. The daily maintenance job reconciles counts and flags
+  disagreements for manual review.
+The existing `calendar IID` command becomes a per-entity view over this
+table (trials + past FDA actions + forward rows), not a separate builder.
+
+### 3.7 Benchmarks (decision 2026-08-30)
+Abnormal returns are computed against a configurable benchmark set:
+XBI (SPDR S&P Biotech ETF) by default, plus any user-defined benchmark —
+SPX, another index, or a named basket of entities — evaluated side by
+side and reported per benchmark. Benchmark definitions live in a
+committed table (`benchmarks.csv`: name, type, constituents or ticker).
+
+### 3.8 Model 4 — Horizon Scanning (entity and actor discovery)
+Purpose: find interesting companies, research groups, people and assets
+from research papers, news, articles, preprints, conference abstracts,
+patents and filings, and record the entities involved with the source
+document. Formal basis: horizon scanning (OECD definition: systematic
+examination of early signs of important developments) and technology
+scouting; method: scientific named-entity recognition and relation
+extraction over ingested documents. Output: new or enriched registry rows
+(stubs allowed, §3.1a), relationships (§3.3), and notes (§3.4) with
+provenance; a human review queue like today's label QA. It feeds all
+other models and is evaluated on precision of extracted entities and on
+how many later became targets, sponsors, or catalyst holders. Detailed
+requirements: a separate Model 4 design document (not yet written).
 
 ### 3.5 Schema as code
 `src/biointel/schema.py`: entity types, attribute names, types, allowed
@@ -235,6 +308,7 @@ language explanation and objective matches as the "who and why".
 6. Ownership of the forward-calendar builder: a Model 2 deliverable that
    Model 1 also consumes (catalyst proximity as a target attribute);
    sequence it in roadmap step C or as its own step.
+7. Model 3 number is unassigned (decision pending).
 
 ## 9. References
 

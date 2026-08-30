@@ -4,9 +4,9 @@ docs/README.md
 
 Nightly-refreshable M&A intelligence for ~1,400 listed drug companies from
 free public data: an M&A target screen and buyer–target pairing (Model 1)
-and an FDA-decision event study (Model 2; research basis for the catalyst product: `docs/20260830_v1_FDA_Catalyst_Research.md`). Design: see
-`docs/20260830_v1_Ontology_and_Matching_Design.md`; rules:
-`docs/20260830_v1_Design_Principles.md`; state: `docs/PROJECT_STATUS.md`;
+and an FDA-catalyst price-action model (Model 2; research: `docs/20260830_v2_FDA_Catalyst_Research.md`, requirements: `docs/20260830_v1_FDA_Catalyst_Product_Design.md`); Model 4 Horizon Scanning (entity discovery) is scoped in the ontology. Design: see
+`docs/20260830_v3_Ontology_and_Matching_Design.md`; rules:
+`docs/20260830_v2_Design_Principles.md`; state: `docs/PROJECT_STATUS.md`;
 diagram: `docs/20260829_v1_System_Diagram.png`.
 
 ## Install (Windows, Python 3.13, venv + pip)
