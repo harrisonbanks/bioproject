@@ -4,7 +4,7 @@ docs/README.md
 
 Nightly-refreshable M&A intelligence for ~1,400 listed drug companies from
 free public data: an M&A target screen and buyer–target pairing (Model 1)
-and an FDA-decision event study (Model 2). Design: see
+and an FDA-decision event study (Model 2; research basis for the catalyst product: `docs/20260830_v1_FDA_Catalyst_Research.md`). Design: see
 `docs/20260830_v1_Ontology_and_Matching_Design.md`; rules:
 `docs/20260830_v1_Design_Principles.md`; state: `docs/PROJECT_STATUS.md`;
 diagram: `docs/20260829_v1_System_Diagram.png`.
