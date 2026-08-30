@@ -53,6 +53,7 @@ python -m biointel coverage                   what was fetched, and when
 """
 
 import csv
+import logging
 import sys
 
 from biointel import (
@@ -80,6 +81,7 @@ from biointel import (
 
 
 def main(argv):
+    logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
     if len(argv) < 2:
         print(__doc__)
         return 1

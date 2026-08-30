@@ -25,11 +25,14 @@ IMPROVEMENTS over the baseline logistic:
 from __future__ import annotations
 
 import csv as _csv
+import logging
 from collections import defaultdict
 from datetime import date, timedelta
 
 from biointel import config
 from biointel.fit import FEATURES, _auc_pr, _auc_roc, _events_for_robust, _n
+
+log = logging.getLogger(__name__)
 
 DEV_END = "2022-12-31"  # development world ends here
 ORIGINS = ["2016-12-31", "2017-12-31", "2018-12-31", "2019-12-31", "2020-12-31", "2021-12-31"]
@@ -106,7 +109,7 @@ def _activist_dates():
         comps = list(_c.DictReader(f))
     for i, c in enumerate(comps, 1):
         if i % 100 == 0:
-            print(f"  activist scan {i}/{len(comps)}", flush=True)
+            log.info(f"  activist scan {i}/{len(comps)}")
         cik = str(c.get("CIK", "")).zfill(10)
         if not cik.strip("0"):
             continue
@@ -378,16 +381,14 @@ def develop() -> dict:
     try:
         D, row_doc = _text_assets(rows)
     except Exception as exc:
-        print(f"  (text assets unavailable: {type(exc).__name__})", flush=True)
+        log.info(f"  (text assets unavailable: {type(exc).__name__})")
     if D is not None and row_doc and any(i >= 0 for i in row_doc):
         tscores = _text_scores_oof(rows, events, None, D, row_doc)
         for r, ts in zip(rows, tscores):
             r["_textScore"] = ts
         specs.append(("fund+eng+text", BASE_FUND + ENGINEERED + ["_textScore"]))
         cov = sum(1 for i in row_doc if i >= 0) / len(row_doc)
-        print(
-            f"  text coverage: {cov:.1%} of firm-quarters have a usable 10-K document", flush=True
-        )
+        log.info(f"  text coverage: {cov:.1%} of firm-quarters have a usable 10-K document")
     lines = [
         "PURGED WALK-FORWARD DEVELOPMENT (holdout 2023+ untouched)",
         f"origins {ORIGINS[0][:4]}..{ORIGINS[-1][:4]}, purge {PURGE_Q}q, pooled out-of-fold AUC-PR",
@@ -425,7 +426,7 @@ def develop() -> dict:
                         f"lift {ap / br:.1f}x  "
                         f"ROC {_auc_roc(pool_s, pool_y):.3f}"
                     )
-                    print(lines[-1], flush=True)
+                    log.info(lines[-1])
                 continue
             pool_s, pool_y = [], []
             for o in ORIGINS:
@@ -452,7 +453,7 @@ def develop() -> dict:
                 f"pos={sum(pool_y):<5}AUC-PR {ap:.3f}  "
                 f"lift {ap / br:.1f}x  ROC {_auc_roc(pool_s, pool_y):.3f}"
             )
-            print(lines[-1], flush=True)
+            log.info(lines[-1])
     report = "\n".join(lines)
     (config.GOLD / "development_report.txt").write_text(report, encoding="utf-8")
     return {"status": "ok", "message": report}
@@ -500,7 +501,7 @@ def text_sweep() -> dict:
         br = sum(pool_y) / len(pool_y)
         ap = _auc_pr(pool_s, pool_y)
         lines.append(f"  alpha={alpha:<8} AUC-PR {ap:.4f}  lift {ap / br:.2f}x")
-        print(lines[-1], flush=True)
+        log.info(lines[-1])
     (config.GOLD / "text_sweep_report.txt").write_text("\n".join(lines), encoding="utf-8")
     return {"status": "ok", "message": "\n".join(lines)}
 
@@ -545,7 +546,7 @@ def tune() -> dict:
         ap = _auc_pr(pool_s, pool_y)
         br = sum(pool_y) / len(pool_y)
         lines.append(f"  depth={d} lr={lr:<5} leaf={leaf:<3} AUC-PR {ap:.4f}  lift {ap / br:.2f}x")
-        print(lines[-1], flush=True)
+        log.info(lines[-1])
         if best is None or ap > best[0]:
             best = (ap, {"max_depth": d, "learning_rate": lr, "min_samples_leaf": leaf})
     if best:
@@ -564,7 +565,7 @@ def tune() -> dict:
         lines.append(
             f"BEST -> {best[1]} (dev AUC-PR {best[0]:.4f}), persisted to gold/best_config.json"
         )
-        print(lines[-1], flush=True)
+        log.info(lines[-1])
     (config.GOLD / "tuning_report.txt").write_text("\n".join(lines), encoding="utf-8")
     return {"status": "ok", "message": "\n".join(lines)}
 

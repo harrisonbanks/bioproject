@@ -12,12 +12,15 @@ Ledger (PROJECT_STATUS 0.5 / v0.67 / v0.75 / v0.79):
 from __future__ import annotations
 
 import csv as _csv
+import logging
 import re
 from collections import defaultdict
 from datetime import date, timedelta
 
 from biointel import config
 from biointel.pairs import _acquirer_side_iids, _firm_docs, _sim_matrix, _size_factor, _tfidf_matrix
+
+log = logging.getLogger(__name__)
 
 
 def evaluate_pairs() -> dict:
@@ -190,7 +193,7 @@ def supervised_pairs() -> dict:
     ctx = {"fp": fp, "rel": rel, "appetite": appetite, "cat": cat}
 
     # ---- similarity matrices per cutoff year (reuse portfolio builder) --
-    print("  building similarity by year...", flush=True)
+    log.info("  building similarity by year...")
     sim_by_year = {}
     docs_by_year = {}
     years = sorted({e[2][:4] for e in events})
@@ -261,7 +264,7 @@ def supervised_pairs() -> dict:
         ranks.append(pos)
         h10 += pos <= 10
         h25 += pos <= 25
-        print(f"    {y} event: true target rank {pos}/{len(cands)}", flush=True)
+        log.info(f"    {y} event: true target rank {pos}/{len(cands)}")
     import statistics
 
     n = len(ranks)
@@ -421,7 +424,7 @@ def pairs_protocol(
                     repeats,
                 )
             )
-            print(out_lines[-1], flush=True)
+            log.info(out_lines[-1])
     # hybrid: per-event rank-mean of MASS-inspired and latent (rep 0)
     a = per_event_ranks.get("MASS-inspired", {})
     b = per_event_ranks.get("latent-SVD", {})
@@ -443,7 +446,7 @@ def pairs_protocol(
             "(%d events, rank-fusion, single draw)"
             % ("hybrid", h5 / len(common), h10 / len(common), len(common))
         )
-        print(out_lines[-1], flush=True)
+        log.info(out_lines[-1])
     msg = "FIELD-PROTOCOL PAIR EVALUATION\n" + "\n".join(out_lines)
     (config.GOLD / "pair_protocol_report.txt").write_text(msg, encoding="utf-8")
     return {"status": "ok" if out_lines else "empty", "message": msg}
@@ -640,6 +643,6 @@ def pairs_substrates(
                     % (s, m, statistics.mean(h5s), statistics.pstdev(h5s), statistics.mean(h10s))
                 )
     msg = "\n".join(lines)
-    print(msg, flush=True)
+    log.info(msg)
     (config.GOLD / "pair_substrate_report.txt").write_text(msg, encoding="utf-8")
     return {"status": "ok", "message": msg}

@@ -30,9 +30,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+from biointel import config
 from biointel.store import fetch_json
 
-FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik10}.json"
+FACTS_URL = config.SEC_XBRL_FACTS
 
 # Ordered by preference. First tag a company actually reports wins.
 SYNONYMS = {

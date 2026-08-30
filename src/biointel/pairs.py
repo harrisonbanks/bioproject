@@ -22,11 +22,14 @@ Outputs:
 from __future__ import annotations
 
 import csv as _csv
+import logging
 import re
 from collections import defaultdict
 from datetime import date
 
 from biointel import config
+
+log = logging.getLogger(__name__)
 
 _STOP = {
     "the",
@@ -128,7 +131,7 @@ def build_pair_feature() -> dict:
         mx = np.asarray(S.max(axis=0).todense()).ravel()
         for tid, v in zip(tgt, mx):
             rows.append({"IID": tid, "YearEnd": cutoff, "MaxSimToAcq": f"{float(v):.4f}"})
-        print(f"  pair-feature {cutoff}: {len(tgt)} targets vs {len(acq)} acquirers", flush=True)
+        log.info(f"  pair-feature {cutoff}: {len(tgt)} targets vs {len(acq)} acquirers")
     with out.open("w", newline="", encoding="utf-8") as f:
         w = _csv.DictWriter(f, fieldnames=["IID", "YearEnd", "MaxSimToAcq"])
         w.writeheader()
@@ -340,7 +343,7 @@ def pairs_exact(negatives: int = 200, repeats: int = 20, seed: int = 7) -> dict:
             % (m, statistics.mean(h5s), statistics.pstdev(h5s), statistics.mean(h10s))
         )
     msg = "\n".join(lines)
-    print(msg, flush=True)
+    log.info(msg)
     (config.GOLD / "pair_exact_report.txt").write_text(msg, encoding="utf-8")
     return {"status": "ok", "message": msg}
 
@@ -437,6 +440,6 @@ def pairs_full_exact() -> dict:
             sum(1 for x in r if x <= 25) / len(r),
         )
     )
-    print(msg, flush=True)
+    log.info(msg)
     (config.GOLD / "pair_full_exact_report.txt").write_text(msg, encoding="utf-8")
     return {"status": "ok", "message": msg}

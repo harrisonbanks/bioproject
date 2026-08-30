@@ -33,7 +33,7 @@ from biointel import config
 
 # The FDA's stable "Orange Book Data Files" media link. If it 404s or
 # redirects to HTML, the probe prints what came back for repointing.
-EOB_URL = "https://www.fda.gov/media/76860/download?attachment"
+EOB_URL = config.FDA_ORANGE_BOOK
 
 EOB_ZIP = config.BRONZE / "orangebook" / "eob.zip"
 PROBE_MARKER = config.BRONZE / "orangebook" / "PROBE_OK"

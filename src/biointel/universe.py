@@ -32,16 +32,17 @@ never assumed -- the counterparty rewrite earned that rule.
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date
 
 from biointel import config
 from biointel.store import fetch_json
 
+log = logging.getLogger(__name__)
+
 BROWSE = (
-    "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany"
-    "&SIC={sic}&type=10-K&owner=include&count=100&start={start}"
-    "&output=atom"
+    config.SEC_BROWSE + "&SIC={sic}&type=10-K&owner=include&count=100&start={start}&output=atom"
 )
 SICS = ("2836", "2834")
 WINDOW_START = "2001-01-01"
@@ -159,9 +160,7 @@ def probe() -> dict:
 
 def _submission_detail(cik10: str) -> dict:
     try:
-        data = fetch_json(
-            f"https://data.sec.gov/submissions/CIK{cik10}.json", tag="sec_submissions"
-        )
+        data = fetch_json(config.SEC_SUBS.format(cik10=cik10), tag="sec_submissions")
     except Exception:
         return {}
     rec = (data.get("filings") or {}).get("recent") or {}
@@ -210,10 +209,7 @@ def build(read_companies, max_pages_per_sic: int = 40, detail_limit: int | None 
                 break
             for e in entries:
                 candidates.setdefault(e["cik"], {"name": e["name"], "sic_seen": sic})
-            print(
-                f"  SIC {sic} page {page + 1}: {len(candidates)} unique candidates so far",
-                flush=True,
-            )
+            log.info(f"  SIC {sic} page {page + 1}: {len(candidates)} unique candidates so far")
     rows, checked = [], 0
     for cik10, base in sorted(candidates.items()):
         pass_name = base["name"]
@@ -221,9 +217,8 @@ def build(read_companies, max_pages_per_sic: int = 40, detail_limit: int | None 
             break
         checked += 1
         if checked % 50 == 0:
-            print(
-                f"  screening {checked}/{len(candidates)}: {len(rows)} members admitted so far",
-                flush=True,
+            log.info(
+                f"  screening {checked}/{len(candidates)}: {len(rows)} members admitted so far"
             )
         d = _submission_detail(cik10)
         if d and not pass_name:

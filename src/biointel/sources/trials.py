@@ -21,9 +21,10 @@ from __future__ import annotations
 
 import re
 
+from biointel import config
 from biointel.store import fetch_json
 
-BASE = "https://clinicaltrials.gov"
+BASE = config.CTGOV_BASE
 STUDIES = "api/v2/studies"
 
 MONTHS = {

@@ -30,10 +30,11 @@ from __future__ import annotations
 
 import re
 
+from biointel import config
 from biointel.store import fetch_json
 
-SUBS_URL = "https://data.sec.gov/submissions/CIK{cik10}.json"
-ARCHIVE = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}"
+SUBS_URL = config.SEC_SUBS
+ARCHIVE = config.SEC_ARCHIVE
 
 ITEM_LABELS = {
     "1.01": "Material agreement entered",
@@ -84,9 +85,7 @@ def all_filings(cik10: str) -> list[dict]:
         if not name:
             continue
         try:
-            more = fetch_json(
-                f"https://data.sec.gov/submissions/{name}", tag="sec_submissions_page"
-            )
+            more = fetch_json(config.SEC_SUBS_PAGE.format(name=name), tag="sec_submissions_page")
         except Exception:
             continue
         rows += _zip_recent(more if isinstance(more, dict) else {})

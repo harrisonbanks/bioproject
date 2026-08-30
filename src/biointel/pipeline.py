@@ -8,12 +8,15 @@ price_window(...)     <- PriceWindow query
 from __future__ import annotations
 
 import csv
+import logging
 import re
 from datetime import date
 from pathlib import Path
 
 from biointel import config, network
 from biointel.sources import alphavantage, counterparty, deals, fda, financials, prices, sec, trials
+
+log = logging.getLogger(__name__)
 
 COMPANY_COLS = [
     "IID",
@@ -973,10 +976,9 @@ def ingest_universe(limit: int = 50) -> dict:
             except Exception as exc:
                 parts.append(f"{label}:EXC({type(exc).__name__})")
         done += 1
-        print(
+        log.info(
             f"  [{done}/{len(batch)}] {m['Name'][:38]:<40} "
-            f"{'DELISTED ' if m.get('Delisted') else ''}{' '.join(parts)}",
-            flush=True,
+            f"{'DELISTED ' if m.get('Delisted') else ''}{' '.join(parts)}"
         )
 
     remaining = len(todo) - len(batch)
@@ -1050,16 +1052,13 @@ def text_ingest(limit: int = 100) -> dict:
                 continue
             if fetched >= limit:
                 break
-            url = (
-                f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{acc.replace('-', '')}/{doc}"
-            )
+            url = config.SEC_ARCHIVE_DOC.format(cik=int(cik10), acc=acc.replace("-", ""), doc=doc)
             raw = fetch_text(url)
             fetched += 1
             if fetched % 20 == 0:
-                print(
+                log.info(
                     f"  text-ingest: {fetched} fetched this tranche "
-                    f"({done} already stored, {skipped} unparsable)",
-                    flush=True,
+                    f"({done} already stored, {skipped} unparsable)"
                 )
             item1 = extract_item1(raw or "")
             if len(item1) < 1500:

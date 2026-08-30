@@ -39,12 +39,15 @@ the lender, instead of Vertex, the buyer).
 
 from __future__ import annotations
 
+import logging
 import re
 from collections import defaultdict
 from datetime import date, timedelta
 
 from biointel import config
 from biointel.store import fetch_json
+
+log = logging.getLogger(__name__)
 
 SHELL_RE = re.compile(
     r"(?i)\b(?:acquisition|merger)\s+(?:sub|subsidiary|corp|corporation|"
@@ -117,7 +120,7 @@ VERIFIED_COLS = [
 
 # ------------------------------------------------------------ SEC trails
 def _submissions(cik10: str) -> dict:
-    url = f"https://data.sec.gov/submissions/CIK{cik10}.json"
+    url = config.SEC_SUBS.format(cik10=cik10)
     try:
         return fetch_json(url, tag="sec_submissions")
     except Exception:
@@ -453,7 +456,7 @@ def harvest_universe() -> dict:
     rows = []
     for i, m in enumerate(members, 1):
         if i % 100 == 0:
-            print(f"  harvesting {i}/{len(members)}: {len(rows)} proposals so far", flush=True)
+            log.info(f"  harvesting {i}/{len(members)}: {len(rows)} proposals so far")
         cik10 = str(m["CIK"]).zfill(10)
         trail = merger_trail(cik10)
         proxies = sorted(d for f, d in trail if f in TARGET_PROXY_FORMS)
@@ -586,7 +589,7 @@ def verify_fill() -> dict:
     filled = fetched = 0
     for i, r in enumerate(rows, 1):
         if i % 25 == 0:
-            print(f"  verifying {i}/{len(rows)}: {filled} acquirers filled", flush=True)
+            log.info(f"  verifying {i}/{len(rows)}: {filled} acquirers filled")
         if r.get("Acquirer") and PLACEHOLDER_RE.match(r["Acquirer"]):
             r["Acquirer"] = ""
             r["Verified"] = ""
@@ -607,9 +610,7 @@ def verify_fill() -> dict:
             if f in TARGET_PROXY_FORMS and near <= 400 and doc:
                 cand.append((near, acc, doc))
         for near, acc, doc in sorted(cand)[:2]:
-            url = (
-                f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{acc.replace('-', '')}/{doc}"
-            )
+            url = config.SEC_ARCHIVE_DOC.format(cik=int(cik10), acc=acc.replace("-", ""), doc=doc)
             text = fetch_text(url)
             if not text:
                 continue
@@ -709,7 +710,7 @@ def merged_events(read_companies, read_deals, read_cparty) -> list[dict]:
     # acquirer-role events from the dev builder ride along unchanged
     acq = [e for e in base if e["Role"] != "target"]
     if n_skip:
-        print(f"  note: {n_skip} harvest events skipped (CIK not ingested)")
+        log.info(f"  note: {n_skip} harvest events skipped (CIK not ingested)")
     return list(out.values()) + acq
 
 
@@ -796,7 +797,7 @@ def qa_pass(sample_n: int = 60, seed: int = 11) -> dict:
     n_date = n_class = 0
     for i, r in enumerate(rows, 1):
         if i % 25 == 0:
-            print(f"  qa {i}/{len(rows)}: {n_date} agreement dates, {n_class} classed", flush=True)
+            log.info(f"  qa {i}/{len(rows)}: {n_date} agreement dates, {n_class} classed")
         r.setdefault("AgreementDate", "")
         r.setdefault("EventClass", "")
         r.setdefault("QAFlag", "")
@@ -827,9 +828,7 @@ def qa_pass(sample_n: int = 60, seed: int = 11) -> dict:
                 )
         text = ""
         for _, acc, doc in sorted(cand)[:2]:
-            url = (
-                f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{acc.replace('-', '')}/{doc}"
-            )
+            url = config.SEC_ARCHIVE_DOC.format(cik=int(cik10), acc=acc.replace("-", ""), doc=doc)
             text = fetch_text(url)
             if text:
                 break
@@ -917,9 +916,7 @@ def _filings_reaching(cik10: str, anchor: str):
         if not name:
             continue
         try:
-            page = fetch_json(
-                f"https://data.sec.gov/submissions/{name}", tag="sec_submissions_extra"
-            )
+            page = fetch_json(config.SEC_SUBS_PAGE.format(name=name), tag="sec_submissions_extra")
         except Exception:
             break
         quads += list(
@@ -976,7 +973,7 @@ def _acquirer_cik(name: str, read_companies) -> str:
         if k == key:
             return cik
     try:
-        data = fetch_json("https://www.sec.gov/files/company_tickers.json", tag="sec_ticker_map")
+        data = fetch_json(config.SEC_TICKERS, tag="sec_ticker_map")
     except Exception:
         data = {}
     tmap = [
@@ -1032,9 +1029,8 @@ def qa_corroborate(read_companies) -> dict:
     cik_cache = {}
     for i, r in enumerate(rows, 1):
         if i % 25 == 0:
-            print(
-                f"  corroborating {i}/{len(rows)}: {strong} strong / {weak} weak / {none} none",
-                flush=True,
+            log.info(
+                f"  corroborating {i}/{len(rows)}: {strong} strong / {weak} weak / {none} none"
             )
         acq = (r.get("Acquirer") or "").strip()
         if not acq or acq.startswith("("):
@@ -1068,7 +1064,7 @@ def qa_corroborate(read_companies) -> dict:
         tgt_tok = tgt_key.split()[0] if tgt_key.split() else ""
         hit = False
         for gap, acc, doc in sorted(near)[:2]:
-            url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc.replace('-', '')}/{doc}"
+            url = config.SEC_ARCHIVE_DOC.format(cik=int(cik), acc=acc.replace("-", ""), doc=doc)
             text = fetch_text(url)
             if text and tgt_tok and tgt_tok.lower() in text[:60000].lower():
                 hit = True
@@ -1139,7 +1135,7 @@ def qa_wiki(read_companies) -> dict:
     def wiki_extract(query: str) -> str:
         try:
             js = fetch_json(
-                "https://en.wikipedia.org/w/api.php?action=query&list=search"
+                config.WIKI_API + "?action=query&list=search"
                 f"&srsearch={query.replace(' ', '%20')}&format=json&srlimit=2",
                 tag="wiki_search",
             )
@@ -1148,7 +1144,7 @@ def qa_wiki(read_companies) -> dict:
                 return ""
             title = hits[0]["title"].replace(" ", "%20")
             pg = fetch_json(
-                "https://en.wikipedia.org/w/api.php?action=query&prop=extracts"
+                config.WIKI_API + "?action=query&prop=extracts"
                 f"&explaintext=1&titles={title}&format=json",
                 tag="wiki_page",
             )
@@ -1165,7 +1161,7 @@ def qa_wiki(read_companies) -> dict:
             continue
         checked += 1
         if checked % 10 == 0:
-            print(f"  wiki {checked} checked, {confirmed} confirmed", flush=True)
+            log.info(f"  wiki {checked} checked, {confirmed} confirmed")
         text = wiki_extract(f"{r['Name']} acquisition")
         if not text:
             text = wiki_extract(r["Name"])

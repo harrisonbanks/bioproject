@@ -25,6 +25,7 @@ and unlocks `chembl-ingest` only when the live response parses.
 from __future__ import annotations
 
 import csv
+import logging
 import re
 import time
 from datetime import date
@@ -32,7 +33,9 @@ from datetime import date
 from biointel import config
 from biointel.store import fetch_json
 
-API = "https://www.ebi.ac.uk/chembl/api/data"
+log = logging.getLogger(__name__)
+
+API = config.CHEMBL_API
 CHEMBL_DIR = config.BRONZE / "chembl"
 PROBE_MARKER = CHEMBL_DIR / "PROBE_OK"
 DRUG_TARGETS_CSV = config.SILVER / "drug_targets.csv"
@@ -184,7 +187,7 @@ def _batched_set(resource: str, ids: list, only: str, key: str):
             continue
         out.extend(data.get(key) or [])
         if (i // 100) % 10 == 9:
-            print(f"  {resource}: {i + 100}/{len(ids)}", flush=True)
+            log.info(f"  {resource}: {i + 100}/{len(ids)}")
     return out
 
 
@@ -199,7 +202,7 @@ def ingest() -> dict:
             "status": "fail",
             "message": "Refusing: run `python -m biointel chembl-probe` first (rule 0.6.3).",
         }
-    print("Fetching full mechanism table...")
+    log.info("Fetching full mechanism table...")
     mechs = list(_paginate("mechanism.json", {}, "mechanisms"))
     mol2tgt = {}
     for m in mechs:
@@ -208,7 +211,7 @@ def ingest() -> dict:
             mol2tgt.setdefault(cid, set()).add(tid)
     mol_ids = sorted(mol2tgt)
     tgt_ids = sorted({t for s in mol2tgt.values() for t in s})
-    print(
+    log.info(
         f"  {len(mechs):,} mechanisms; {len(mol_ids):,} molecules; "
         f"{len(tgt_ids):,} targets. Fetching names in batches..."
     )

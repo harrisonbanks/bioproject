@@ -18,9 +18,12 @@ comparator the paper reports against.
 from __future__ import annotations
 
 import csv as _csv
+import logging
 import math
 
 from biointel import config
+
+log = logging.getLogger(__name__)
 
 SPLIT = "2021-12-31"  # train <= SPLIT < test
 
@@ -468,7 +471,7 @@ def robust() -> dict:
         + ("MISSINGNESS-LEAK LIKELY" if abs(pc - nc) > 0.15 else "no material coverage gap")
     )
     lines.insert(1, diag)
-    print(diag, flush=True)
+    log.info(diag)
 
     for name, ev, split, feats in scen:
         r = _evaluate(feat, ev, split, feats, require_price=(name == "covered-only"))
@@ -476,7 +479,7 @@ def robust() -> dict:
             lines.append(
                 f"{name:<15}{r['n_tr']}({r['p_tr']})  {r['n_te']}({r['p_te']})   INSUFFICIENT"
             )
-            print(lines[-1], flush=True)
+            log.info(lines[-1])
             continue
         lines.append(
             f"{name:<15}{r['n_tr']}({r['p_tr']})".ljust(29)
@@ -487,7 +490,7 @@ def robust() -> dict:
             + f"{r['p10']:.2f}".ljust(6)
             + r["lastq"]
         )
-        print(lines[-1], flush=True)
+        log.info(lines[-1])
     report = "\n".join(lines)
     (config.GOLD / "robustness_report.txt").write_text(report, encoding="utf-8")
     return {"status": "ok", "message": report}
