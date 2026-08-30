@@ -1,8 +1,8 @@
-docs/20260830_v2_Implementation_Plan.md
+docs/20260830_v3_Implementation_Plan.md
 
 # Implementation plan and gate ledger
 
-Bioindustry Intelligence Platform · v2 · 2026-08-30 (v2: ontology roadmap steps mapped; gates M1-G/H/I added) · Status: agreed in
+Bioindustry Intelligence Platform · v3 · 2026-08-30 (v3: gate 0.1 DONE; v2: ontology roadmap steps mapped; gates M1-G/H/I added) · Status: agreed in
 principle 2026-08-30 ("all makes sense"); formal go per gate.
 Target state: docs/20260830_v1_System_Diagram_TARGET_STATE.*.
 Requirements: Ontology v3, FDA Catalyst Product Design v1, Horizon Scanning
@@ -34,8 +34,8 @@ Status: PLANNED · READY (entry criteria met) · IN PROGRESS · DONE (hash) · D
 
 | Gate | Deliverable | Depends on | Entry criteria | Exit criteria (evidence) | Status |
 |---|---|---|---|---|---|
-| 0.1 | `schema.py` (entity types, attributes, event classes, allowed values, table map) + `validate` command | — | tree at latest docs commit, clean | `validate` reports every silver/gold table conformant or lists violations; 2+ unit tests; regression unchanged | PLANNED |
-| 0.2 | Central reporting: `gold/results.csv` schema, `results.py` writer, `report <name> <date>` generator; existing report writers re-pointed | 0.1 | — | every existing report reproduced byte-identical from records or diff explained; `results.csv` has one row per historical report re-run; regression unchanged | PLANNED |
+| 0.1 | `schema.py` (entity types, attributes, event classes, allowed values, table map) + `validate` command; `config.py` de-duplicated with guard test (added to scope 2026-08-30) | — | tree at latest docs commit, clean | `validate` reports every silver/gold table conformant or lists violations; 2+ unit tests; regression unchanged | DONE 2026-08-30 (validate 17 conformant / 1 violations / 9 absent / 5 planned; pytest 37; regression 04061e33…530d, 960307e2…e81b; runbook docs/20260830_v1_GATE01_INSTALL.md) |
+| 0.2 | Central reporting: `gold/results.csv` schema, `results.py` writer, `report <name> <date>` generator; existing report writers re-pointed | 0.1 | 0.1 DONE | every existing report reproduced byte-identical from records or diff explained; `results.csv` has one row per historical report re-run; regression unchanged | PLANNED |
 | 0.3 | Model framework: interface, registry, harness; five existing models wrapped | 0.1, 0.2 | — | `python -m biointel models` lists 5 models with declared inputs; harness reproduces ledger metrics for pairs-exact and gen-2 screen; regression unchanged | PLANNED |
 | 1.4 (F1) | Event table schema + migration of `events.csv`; `calendar IID` as view | 0.1 | — | row count preserved; `study-all` and `predict` hashes unchanged; view prints trials + FDA + (empty) forward rows | PLANNED |
 | 1.5 (F2) | EFTS probe; 8-K exhibit query set; date/asset parser; review queue | 1.4 | probe passes (documented endpoint behaviour, User-Agent, partitioning) | on a 90-day sample: ≥ N parsed forward events with source URLs; parse precision measured on a hand-checked sample; unparsed hits queued | PLANNED |
@@ -78,6 +78,8 @@ Phase 0 (0.1 → 0.2 → 0.3) → Phase 1 (1.4 → 1.5 ∥ 1.6 → 1.7) → Phas
 interleaved; nothing in Phase 3 starts before 1.7, 2.8 and 0.3 are DONE.
 
 ## 4. Standing items outside the gates
+
+- Deferred from gate 0.1, absorbed by the named gate: typed edge columns `type`, `date`, `source` on `relationships.csv` (declared as optional in schema.py) → 2.10; `silver/prices.csv` declared in config.py with no writer → the first gate that needs it (1.4 or 2.8); harvest-derived `ma_events.csv` rows carry blank S1–S5 signal columns (labels.merged_events) → the first gate that edits labels.py; `scripts/refactor/50_config_logging.py` lint/format findings → left as refactor tooling.
 
 - Harrison: rotate the Alpha Vantage key; set the repository private.
 - Pull request `jason/refactor` → `main` at a point both agree

@@ -2,9 +2,9 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 0.87. Supersedes v0.86. PART 0 regenerated 2026-08-30 from the live
-tree at branch jason/refactor; PARTS 1–7 and the changelog are unchanged
-from v0.81 except where noted. Design decisions of 2026-08-30 are in
+Version 0.88. Supersedes v0.87. PART 0 updated 2026-08-30 for gate 0.1
+(schema.py, validate); PARTS 1–7 and the changelog are unchanged from
+v0.81 except where noted. Design decisions of 2026-08-30 are in
 docs/20260830_v2_Design_Principles.md (binding) and
 docs/20260830_v3_Ontology_and_Matching_Design.md.
 
@@ -38,12 +38,13 @@ Assistant delivers single files with the deploy path on line 1 (no zips unless a
 | fit.py | 602 | gen-1 logistic screen, robust suite, leak diagnostics (frozen baseline, P7) |
 | improve.py | 744 | engineered features, gen-2 fitted screen (BASE_FUND), develop/tune/holdout (spent) |
 | interfaces/__init__.py | 0 | package marker |
-| interfaces/cli.py | 707 | dispatch for 55 commands (0.4); configures logging |
+| interfaces/cli.py | 716 | dispatch for 56 commands (0.4); configures logging |
 | labels.py | 1215 | merger trails, harvest, verify_fill, qa, qa_corroborate, qa_wiki, merged events, label panel |
 | match.py | 114 | canon() entity resolution |
 | network.py | 361 | partner classification, relationships |
 | pairs.py | 445 | MASS-exact buyer–target pairing engine (adopted), build_pair_feature |
 | pipeline.py | 1076 | registry, per-layer getters, ingest, text_ingest (10-K Item 1) |
+| schema.py | 882 | schema as code: entity types, attribute groups, relationship types, event classes, table map (32 tables); validate_all (gate 0.1) |
 | score.py | 295 | hand scorecard predict/backtest (paper baseline; drives predict today, P7 open) |
 | sources/__init__.py | 0 | package marker |
 | sources/alphavantage.py | 34 | OVERVIEW endpoint (add command only) |
@@ -63,13 +64,13 @@ Assistant delivers single files with the deploy path on line 1 (no zips unless a
 
 Removed in the refactor (commit 26133aa): fossil tree `biointel/biointel1/`, Excel workbook, duplicate scripts, `crsp_import`, `ner_status`, `_pair_by_date`, the dead USPTO bulk patent route, CLI branches `patents-probe`/`patents-ingest`. Scripts (`scripts/`): check_exhibits, check_names, check_ocf, check_one, cleanup_feed_junk, debug_fit, summary, text_diag, migrate_from_excel, suggest_aliases; `scripts/refactor/00…50` and `_regress.py`.
 
-## 0.4 CLI commands (55, all live; `python -m biointel` prints the list)
+## 0.4 CLI commands (56, all live; `python -m biointel` prints the list)
 Universe/ingest: universe-probe, universe, ingest N, text-ingest N.
 Layers: fin(-all), trials(-all), events(-all), deals(-all), cparty(-all), partners, relationships, study(-all).
 Labels/QA: harvest, verify-fill, qa, qa-corroborate, qa-wiki, labels.
 Modeling: features, fit [LEAD], robust, develop [tune|textsweep], holdout (SPENT), pairs, pairs-fit, pairs-protocol, pairs-substrate [MODE], pairs-exact, pairs-full-exact, predict, backtest, improve.
 Data: patents-sql, patents-import, orangebook-probe, chembl-probe, chembl-ingest.
-Ops: freeze, snapshot, coverage, list, add, backfill, calendar, window, tags, sponsors, deals-of, partners-of.
+Ops: freeze, snapshot, coverage, list, add, backfill, calendar, window, tags, sponsors, deals-of, partners-of, validate (gate 0.1: every silver/gold table checked against schema.py).
 
 ## 0.5 Final numbers (all measurement CLOSED unless reopened deliberately)
 - Pairing: MASS-exact adoption SUSPENDED pending corrected re-run. Defect self-caught after the 0.318 result: the exact formula degenerates for the global-max-diagonal firm; the guard returned all-zero scores and the rank computation credited all-tied rows as rank 1 -- possible unearned hits for MASS-exact only. Fix: midpoint tie-ranking applied identically to both metrics; degeneracy test added (a degenerate acquirer now scores mid-pool, verified 0.0 HR@5 on a constructed case). The 0.318 number is QUARANTINED until the re-run; incumbent MASS-inspired 0.222/0.284 remains the engine of record. predict() reverted-in-effect: exact fit stays wired but is not the engine of record until re-adoption.
@@ -96,13 +97,16 @@ ADOPTED: patent-substrate pairing upgrade + Orange Book acquirer LOE-urgency fea
 ## 0.8 Refactor record (2026-08-29, branch jason/refactor)
 Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code and duplicates removed (−2,750 lines) · f0ceeb0 credentials to .env · 49572ec coverage fix, portable VS Code path · 55bc9c1 src layout, pyproject, scripts/docs/data directories · 5c16ec8 ruff · da29a85 endpoints in config.py, package logging · c2cea4d/9db4cea docs and system diagram. Every gate reproduced the step-0 hashes; no model output changed. Verified on Jason's regenerated snapshot: 1,357 targets ranked, 22 acquirer-side, pairs median rank 80/862, hit@10 0.27; event study approvals +0.29/+0.31, rejections −6.98/−21.61.
 
-## 0.9 Open queue (2026-08-30; detail in docs/20260830_v3_Session_Handoff.md §5)
+## 0.8a Gate record (Implementation Plan ledger; detail in docs/20260830_v3_Implementation_Plan.md)
+- Gate 0.1 DONE 2026-08-30: `src/biointel/schema.py` (32 tables declared: 27 built, 5 planned) and `validate`; 30 unit tests added (37 total); `config.py` de-duplicated (endpoint constants defined once, guarded by test); first live `validate` on Jason's snapshot: 17 conformant, 1 with violations (blank `S5_CeasedFiling` on harvest-derived `ma_events.csv` rows, a writer fact; schema now allows blank), 9 absent, 5 planned; regression hashes unchanged (04061e33…530d, 960307e2…e81b).
+
+## 0.9 Open queue (2026-08-30; detail in docs/20260830_v8_Session_Handoff.md §5)
 1. Rotate Alpha Vantage key; set repository private (Harrison).
 2. Pull request jason/refactor → main; Harrison's post-merge steps in the handoff.
 3. Review the Ontology and Matching Design v1; then roadmap steps A (schema + validate) and D (model framework).
 3a. Review docs/20260830_v1_FDA_Catalyst_Product_Design.md (Model 2 requirements) with docs/20260830_v2_FDA_Catalyst_Research.md; then roadmap F1.
 3b. Review docs/20260830_v1_Horizon_Scanning_Design.md (Model 4 requirements).
-3c. Implementation plan and gate ledger: docs/20260830_v2_Implementation_Plan.md; target state: docs/20260830_v1_System_Diagram_TARGET_STATE.*. Gameplan agreed 2026-08-30: Phase 0 foundations (schema, central reporting, framework) → Phase 1 calendar system → Phase 2 attributes/universe/manual layer → Phase 3 Model 2 product.
+3c. Implementation plan and gate ledger: docs/20260830_v3_Implementation_Plan.md (0.1 DONE; next gate 0.2 central reporting); target state: docs/20260830_v1_System_Diagram_TARGET_STATE.*. Gameplan agreed 2026-08-30: Phase 0 foundations (schema, central reporting, framework) → Phase 1 calendar system → Phase 2 attributes/universe/manual layer → Phase 3 Model 2 product.
 4. Decide which screen drives `predict` (P7).
 5. Note: 0.5 above still records MASS-exact as QUARANTINED (v0.81 text); the chat-5 record and the shipped code (`score.predict` calls `pairs.exact_state`) treat the corrected MASS-exact (HR@5 0.310 after midpoint tie-ranking) as adopted. Harrison to confirm and update 0.5.
 
@@ -1370,6 +1374,7 @@ collaborations work, deal counterparties do not.
 
 ## Changelog
 
+| 0.88 | 2026-08-30 | Gate 0.1 DONE: schema.py + validate (56 commands), config.py de-duplicated with guard test, 30 unit tests added; first validate run recorded in 0.8a; Implementation Plan v3, handoff v8. |
 | 0.87 | 2026-08-30 | Implementation Plan v2: ontology/product/scanning roadmaps cross-referenced to gates; deferred gates M1-G/H/I added. |
 | 0.86 | 2026-08-30 | Implementation plan with gate ledger and standing procedure; target-state system diagram (PNG/SVG/Mermaid); handoff v7. |
 | 0.85 | 2026-08-30 | Model 4 Horizon Scanning requirements written; implementation gameplan (Phases 0–3) recorded. |

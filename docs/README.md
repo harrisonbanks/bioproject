@@ -7,7 +7,7 @@ free public data: an M&A target screen and buyer–target pairing (Model 1)
 and an FDA-catalyst price-action model (Model 2; research: `docs/20260830_v2_FDA_Catalyst_Research.md`, requirements: `docs/20260830_v1_FDA_Catalyst_Product_Design.md`); Model 4 Horizon Scanning (entity discovery): `docs/20260830_v1_Horizon_Scanning_Design.md`. Design: see
 `docs/20260830_v3_Ontology_and_Matching_Design.md`; rules:
 `docs/20260830_v2_Design_Principles.md`; state: `docs/PROJECT_STATUS.md`;
-diagrams: current state `docs/20260829_v1_System_Diagram.png`, target state `docs/20260830_v1_System_Diagram_TARGET_STATE.png`; plan and gate ledger: `docs/20260830_v2_Implementation_Plan.md`.
+diagrams: current state `docs/20260829_v1_System_Diagram.png`, target state `docs/20260830_v1_System_Diagram_TARGET_STATE.png`; plan and gate ledger: `docs/20260830_v3_Implementation_Plan.md`.
 
 ## Install (Windows, Python 3.13, venv + pip)
 
@@ -28,7 +28,8 @@ descriptive agent with a contact email) and `BIOINTEL_ALPHA_VANTAGE_KEY`
 
 ```
 src/biointel/           package; run as  python -m biointel <command>
-  interfaces/cli.py     55 commands (python -m biointel prints the list)
+  interfaces/cli.py     56 commands (python -m biointel prints the list)
+  schema.py             schema as code: table map + validate (python -m biointel validate)
   config.py             paths, every HTTP endpoint, windows, .env loader
   store.py              all HTTP through one cache with manifests
   sources/              one adapter per public source
@@ -98,4 +99,4 @@ Failures are missing, never wrong. FDA trade names are bridged by the
 Branch per person (`jason/…`, `harrison/…`), pull request into `main`.
 Definition of done: `python -m ruff check src scripts tests`,
 `python -m ruff format --check src scripts tests`,
-`python -m pytest tests/unit`, and the regression hashes.
+`python -m pytest tests/unit`, `python -m biointel validate`, and the regression hashes.

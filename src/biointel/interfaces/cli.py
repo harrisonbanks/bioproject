@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# src/biointel/interfaces/cli.py
 """Command line for the biointel pipeline.
 
 python -m biointel add REGN [MORE ...]        add companies
@@ -50,6 +50,7 @@ python -m biointel improve                    M6: iterate on VALIDATION (holdout
 python -m biointel list                       show companies
 python -m biointel sponsors                   top CT.gov lead sponsors
 python -m biointel coverage                   what was fetched, and when
+python -m biointel validate                   check every silver/gold table against schema.py
 """
 
 import csv
@@ -692,6 +693,14 @@ def main(argv):
         for v in sponsor_landscape()[:60]:
             print(f"  {v.get('studiesCount', 0):>7,}  {v.get('value', '')}")
         print("\n  NOTE: head of the distribution only. Small sponsors are absent.")
+
+    elif cmd == "validate":
+        from biointel.schema import format_report, validate_all
+
+        results = validate_all(config.DATA)
+        print(format_report(results))
+        if any(r["status"] == "violations" for r in results):
+            return 1
 
     elif cmd == "coverage":
         for m in coverage_report():

@@ -1,11 +1,11 @@
-docs/20260830_v7_Session_Handoff.md
+docs/20260830_v8_Session_Handoff.md
 
-# Session handoff v3 — bioproject, 2026-08-30 (refactor complete; design phase opened)
+# Session handoff v8 — bioproject, 2026-08-30 (gate 0.1 done; next gate 0.2)
 
-Supersedes docs/20260829_v2_Session_Handoff.md. Structure per J. Banks's
+Supersedes docs/20260830_v7_Session_Handoff.md. Structure per J. Banks's
 2026-08-29 instruction (attachments, session-start sequence with lineage by
 hash, verified state, standing rules, open queue). Every state claim below
-was evidenced by a paste in the 2026-08-29 session.
+was evidenced by a paste in the 2026-08-29 or 2026-08-30 session.
 
 ## 1. Required attachments for the next session
 
@@ -14,9 +14,10 @@ was evidenced by a paste in the 2026-08-29 session.
 0b. docs/20260830_v2_FDA_Catalyst_Research.md — Model 2 research synthesis.
 0c. docs/20260830_v1_FDA_Catalyst_Product_Design.md — Model 2 requirements (R1–R8, roadmap F1–F9), under review.
 0d. docs/20260830_v1_Horizon_Scanning_Design.md — Model 4 requirements (H1–H9), under review.
-0e. docs/20260830_v2_Implementation_Plan.md — gate ledger and procedure; the next session starts from its first PLANNED gate after checking the status column.
+0e. docs/20260830_v3_Implementation_Plan.md — gate ledger and procedure; 0.1 is DONE; the next session starts from gate 0.2 (central reporting) after checking the status column.
+0g. docs/20260830_v1_GATE01_INSTALL.md — gate 0.1 runbook (deliverables, exit criteria, deferred items).
 0f. docs/20260830_v1_System_Diagram_TARGET_STATE.md/.png/.svg — target architecture; current state remains 20260829_v1_System_Diagram.*.
-1. docs/20260823_OPERATINGMANUAL_NEW.md — process of record.
+1. docs/20260823_OPERATINGMANUAL_NEW.md — process of record (in the repository since 53cccfa).
 2. docs/20260829_v2_MACHINE_RUNBOOK.md — Jason's machine conventions (updated for the src layout).
 3. This file.
 4. Repository access: https://github.com/harrisonbanks/bioproject (public at time of writing), branch jason/refactor.
@@ -25,8 +26,11 @@ was evidenced by a paste in the 2026-08-29 session.
 ## 2. Session-start sequence
 
 ```
-git -C "C:\Users\JB\Documents\dev\bioindustry" log --oneline -18
+git -C "C:\Users\JB\Documents\dev\bioindustry" log --oneline -20
 # expected, newest first:
+#   <hash>  Gate 0.1: schema as code + validate; config.py de-duplicated (50_config_logging.py re-run); docs 0.88, plan v3, handoff v8
+#   53cccfa Docs: operating manual (process of record) added to repository
+#   4feddb4 Docs: handoff v7 references implementation plan v2
 #   <hash>  Docs: Model 2 product design, ontology v3, principles v2, research v2, handoff v5, PROJECT_STATUS v0.84, README
 #   320435e Docs: PROJECT_STATUS v0.83 and README (FDA research, ontology v2 linked)
 #   e387163 Docs: ontology v2 (shared regulatory-event extension), handoff v4, PROJECT_STATUS v0.83, README; retire ontology v1 and handoff v3
@@ -63,6 +67,7 @@ No code change is issued until all three outputs are pasted and match.
 3.8 Branch pushed: origin/jason/refactor at the docs commit above (9db4cea before it). origin/main = b52de01 (unchanged; no pull request opened yet).
 3.11 Decisions of 2026-08-30 (afternoon), recorded as P13–P15 and in ontology v3 / product design v1: global universe with ADRs and stubs; daily bars only, no trading; all event classes at once with delays first-class; cross-event ranking with attribution and no assumption about purpose; no options; benchmarks XBI plus user-defined; calendar sources of record = FDA (past) + SEC EDGAR full-text 8-K mining (forward) + FDA AdCom calendar + CT.gov completion dates, aggregators as cross-check only; manual templated notes; Model 4 = Horizon Scanning (entity discovery from papers/news); Model 3 unassigned.
 3.10 Model 2 research note committed (0cc5e25): formal framing (event study; catalyst trading; run-up and post-announcement drift; investor distraction), evidence base, theses T1–T6, event taxonomy, candidate models M2.1–M2.7, rules R1–R8, data gaps (forward calendar is the critical missing asset), evaluation protocol.
+3.12 Gate 0.1 DONE (2026-08-30, evidenced by paste): `src/biointel/schema.py` declares entity types, attribute groups, relationship types, event classes/outcome states and a 32-table map (27 built, 5 planned); `python -m biointel validate` (56th command) checks header, key uniqueness, types and enumerations per table; `config.py` de-duplicated (cause: `50_config_logging.py` wrote its endpoint block before a later guard assertion and was re-run); tests 37 passed; first live `validate`: 17 conformant, 1 with violations (blank `S5_CeasedFiling` on harvest-derived `ma_events.csv` rows; schema corrected to allow blank), 9 absent, 5 planned; regression hashes unchanged. Output-drop hazard (4.9) recurred: four `validate` lines were missing from the paste while the summary counts were complete.
 3.9 Decisions of 2026-08-30 (recorded as principles P1–P8): tables stay model-agnostic, no split; separation enforced at model input lists; entities neutral; objectives a dimension; manual layer general; model framework with one yardstick; existing models keep purposes; general-case-first requirements. Table split proposal withdrawn; Architecture Instructions superseded (P9).
 
 ## 4. Standing rules (agreed 2026-08-29)
@@ -86,10 +91,10 @@ No code change is issued until all three outputs are pasted and match.
 3. **Review the Ontology and Matching Design (v1)** and its §8 open questions; approve or amend before roadmap step A starts.
 3a. **Review the FDA Catalyst Product Design v1** (requirements) and ontology v3 §§3.1a, 3.2a, 3.6–3.8; approve or amend; then roadmap F1 (event table) which shares its schema with ontology step A.
 3b. **Review the Horizon Scanning Design v1** (Model 4).
-3c. **Gameplan (agreed 2026-08-30, pending "go"; ledger in the Implementation Plan)**: Phase 0 schema-as-code → central reporting layer → model framework; Phase 1 calendar system (event table, EFTS probe/parser, official feeds, daily maintenance job); Phase 2 price-action attributes, ADR/stub universe, benchmarks, manual layer; Phase 3 Model 2 models, ranking, rules, daily product. Model 4 build and Model 1 objective matchers after Phase 3 is measured.
+3c. **Gameplan (ledger in Implementation Plan v3; 0.1 DONE, next gate 0.2 central reporting)**: Phase 0 schema-as-code → central reporting layer → model framework; Phase 1 calendar system (event table, EFTS probe/parser, official feeds, daily maintenance job); Phase 2 price-action attributes, ADR/stub universe, benchmarks, manual layer; Phase 3 Model 2 models, ranking, rules, daily product. Model 4 build and Model 1 objective matchers after Phase 3 is measured.
 4. **Scorecard vs fitted model (design decision, Jason + Harrison; P7).** `predict` ranks by the hand scorecard (`score.target_score`, weights set by judgement); the validated gen-2 model (`improve.py`, 2.2× chance on held-out deals) exists alongside. Decide whether `predict` should rank by the fitted model with the scorecard as explanation, or state the scorecard as the product.
 5. **PROJECT_STATUS.md PART 0 is stale** (says v0.68 layout: `app\`, 26 modules, 47 commands, `cli.py` 509 lines). Regenerate from the live tree: `src/biointel` module list, 55 commands, new run form. Not scripted yet.
 6. **Two unused variables** (`score.py:toks`, `study.py:prev_adj`) and two lambda assignments are human-review items; not auto-fixed.
 7. **spacy** declared as optional group `ner`; install with `pip install -e ".[ner]"` and download the model before `cparty-all`.
 8. **MACHINE_RUNBOOK question 4.1** (re-enable PSReadLine to test the output drop) remains open.
-9. Roadmap steps A–I of the design document, gated and regression-checked like the refactor; first candidates: A (schema + validate) and D (model framework), which are independent.
+9. Roadmap steps B–I of the design document, gated and regression-checked (A is done as gate 0.1); deferred items from gate 0.1 are listed in Implementation Plan v3 §4.

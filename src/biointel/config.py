@@ -1,3 +1,4 @@
+# src/biointel/config.py
 """Configuration: paths, endpoints, behaviour; credentials from the environment."""
 
 import os
@@ -50,7 +51,6 @@ PARTNER_SUMMARY_CSV = SILVER / "partner_summary.csv"
 DEALS_CSV = SILVER / "deals.csv"
 COUNTERPARTY_CSV = SILVER / "deal_counterparties.csv"
 RELATIONSHIPS_CSV = SILVER / "relationships.csv"
-RELATIONSHIPS_CSV = SILVER / "relationships.csv"
 
 for p in (BRONZE, SILVER, GOLD):
     p.mkdir(parents=True, exist_ok=True)
@@ -63,22 +63,6 @@ FDA_DRUGSFDA = "https://api.fda.gov/drug/drugsfda.json"
 FDA_CRL = "https://api.fda.gov/transparency/crl.json"
 YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
 CTGOV_BASE = "https://clinicaltrials.gov"
-SEC_BROWSE = "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany"
-SEC_SUBS_PAGE = "https://data.sec.gov/submissions/{name}"
-SEC_ARCHIVE = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}"
-SEC_ARCHIVE_DOC = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}/{doc}"
-SEC_XBRL_FACTS = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik10}.json"
-FDA_ORANGE_BOOK = "https://www.fda.gov/media/76860/download?attachment"
-CHEMBL_API = "https://www.ebi.ac.uk/chembl/api/data"
-WIKI_API = "https://en.wikipedia.org/w/api.php"
-SEC_BROWSE = "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany"
-SEC_SUBS_PAGE = "https://data.sec.gov/submissions/{name}"
-SEC_ARCHIVE = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}"
-SEC_ARCHIVE_DOC = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}/{doc}"
-SEC_XBRL_FACTS = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik10}.json"
-FDA_ORANGE_BOOK = "https://www.fda.gov/media/76860/download?attachment"
-CHEMBL_API = "https://www.ebi.ac.uk/chembl/api/data"
-WIKI_API = "https://en.wikipedia.org/w/api.php"
 SEC_BROWSE = "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany"
 SEC_SUBS_PAGE = "https://data.sec.gov/submissions/{name}"
 SEC_ARCHIVE = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}"
