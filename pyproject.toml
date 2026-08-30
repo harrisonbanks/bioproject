@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "biointel"
+version = "0.81"
+description = "Bioindustry Intelligence Platform: biopharma M&A target screen, buyer-target pairing, FDA event study"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy>=2.0",
+    "scikit-learn>=1.5",
+    "scipy>=1.13",
+    "requests>=2.31",
+    "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+ner = ["spacy>=3.7"]
+dev = ["ruff>=0.5", "mypy>=1.10", "pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: requires network or real data; excluded from the default run"]
+addopts = "-m 'not integration'"
