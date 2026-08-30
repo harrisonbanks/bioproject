@@ -1,20 +1,20 @@
-docs/20260830_v8_Session_Handoff.md
+docs/20260830_v9_Session_Handoff.md
 
-# Session handoff v8 — bioproject, 2026-08-30 (gate 0.1 done; next gate 0.2)
+# Session handoff v9 — bioproject, 2026-08-30 (gate 0.1 done; Phase 0 reordered; next: baseline, then gate 0.2 storage migration)
 
-Supersedes docs/20260830_v7_Session_Handoff.md. Structure per J. Banks's
+Supersedes docs/20260830_v8_Session_Handoff.md. Structure per J. Banks's
 2026-08-29 instruction (attachments, session-start sequence with lineage by
 hash, verified state, standing rules, open queue). Every state claim below
 was evidenced by a paste in the 2026-08-29 or 2026-08-30 session.
 
 ## 1. Required attachments for the next session
 
-0. docs/20260830_v2_Design_Principles.md — P1–P15, binding; read first.
+0. docs/20260830_v3_Design_Principles.md — P1–P17, binding; read first (P7 amended: legacy rule; P16 storage; P17 ledger).
 0a. docs/20260830_v3_Ontology_and_Matching_Design.md — ontology for all models (v3: global universe and stubs, price-action attributes, calendar sources of record, manual notes, benchmarks, Model 4).
 0b. docs/20260830_v2_FDA_Catalyst_Research.md — Model 2 research synthesis.
 0c. docs/20260830_v1_FDA_Catalyst_Product_Design.md — Model 2 requirements (R1–R8, roadmap F1–F9), under review.
 0d. docs/20260830_v1_Horizon_Scanning_Design.md — Model 4 requirements (H1–H9), under review.
-0e. docs/20260830_v3_Implementation_Plan.md — gate ledger and procedure; 0.1 is DONE; the next session starts from gate 0.2 (central reporting) after checking the status column.
+0e. docs/20260830_v4_Implementation_Plan.md — gate ledger and procedure; 0.1 is DONE; Phase 0 is now 0.2 storage migration (DuckDB) → 0.3 reporting layer → 0.4 model framework; §5 thirteen-file baseline; §6 legacy register.
 0g. docs/20260830_v1_GATE01_INSTALL.md — gate 0.1 runbook (deliverables, exit criteria, deferred items).
 0f. docs/20260830_v1_System_Diagram_TARGET_STATE.md/.png/.svg — target architecture; current state remains 20260829_v1_System_Diagram.*.
 1. docs/20260823_OPERATINGMANUAL_NEW.md — process of record (in the repository since 53cccfa).
@@ -28,7 +28,8 @@ was evidenced by a paste in the 2026-08-29 or 2026-08-30 session.
 ```
 git -C "C:\Users\JB\Documents\dev\bioindustry" log --oneline -20
 # expected, newest first:
-#   <hash>  Gate 0.1: schema as code + validate; config.py de-duplicated (50_config_logging.py re-run); docs 0.88, plan v3, handoff v8
+#   <hash>  Docs: decisions 2026-08-30 (legacy rule, DuckDB storage, ledger structure, Phase 0 reorder); principles v3, plan v4, PROJECT_STATUS 0.89, handoff v9
+#   880da16 Gate 0.1: schema as code (schema.py, 32-table map) + validate command; config.py de-duplicated ...
 #   53cccfa Docs: operating manual (process of record) added to repository
 #   4feddb4 Docs: handoff v7 references implementation plan v2
 #   <hash>  Docs: Model 2 product design, ontology v3, principles v2, research v2, handoff v5, PROJECT_STATUS v0.84, README
@@ -82,7 +83,8 @@ No code change is issued until all three outputs are pasted and match.
 4.8 Data tables are model-agnostic; separation between the M&A model and the FDA/price model is enforced at each model's input list, never by splitting tables. The hand scorecard in `score.py` may read market cap and event CAR; the paper must describe its inputs accurately.
 4.9 Output-drop caveat: pasted terminal output has repeatedly omitted lines (five instances, cause unknown, PSReadLine disabled); substance is verified by status/hash commands, never by the presence of a printed line.
 
-4.10 Design principles P1–P15 are binding and override generic rules in any other document.
+4.10 Design principles P1–P17 are binding and override generic rules in any other document.
+4.11 Every decision is put to Jason as a question and answered before any build step (2026-08-30 instruction).
 
 ## 5. Open queue (priority order)
 
@@ -91,7 +93,7 @@ No code change is issued until all three outputs are pasted and match.
 3. **Review the Ontology and Matching Design (v1)** and its §8 open questions; approve or amend before roadmap step A starts.
 3a. **Review the FDA Catalyst Product Design v1** (requirements) and ontology v3 §§3.1a, 3.2a, 3.6–3.8; approve or amend; then roadmap F1 (event table) which shares its schema with ontology step A.
 3b. **Review the Horizon Scanning Design v1** (Model 4).
-3c. **Gameplan (ledger in Implementation Plan v3; 0.1 DONE, next gate 0.2 central reporting)**: Phase 0 schema-as-code → central reporting layer → model framework; Phase 1 calendar system (event table, EFTS probe/parser, official feeds, daily maintenance job); Phase 2 price-action attributes, ADR/stub universe, benchmarks, manual layer; Phase 3 Model 2 models, ranking, rules, daily product. Model 4 build and Model 1 objective matchers after Phase 3 is measured.
+3c. **Gameplan (ledger in Implementation Plan v4; 0.1 DONE; next: thirteen-file regression baseline block with current code, then gate 0.2 storage migration to DuckDB, 0.3 reporting layer, 0.4 model framework)**: Phase 0 schema-as-code → central reporting layer → model framework; Phase 1 calendar system (event table, EFTS probe/parser, official feeds, daily maintenance job); Phase 2 price-action attributes, ADR/stub universe, benchmarks, manual layer; Phase 3 Model 2 models, ranking, rules, daily product. Model 4 build and Model 1 objective matchers after Phase 3 is measured.
 4. **Scorecard vs fitted model (design decision, Jason + Harrison; P7).** `predict` ranks by the hand scorecard (`score.target_score`, weights set by judgement); the validated gen-2 model (`improve.py`, 2.2× chance on held-out deals) exists alongside. Decide whether `predict` should rank by the fitted model with the scorecard as explanation, or state the scorecard as the product.
 5. **PROJECT_STATUS.md PART 0 is stale** (says v0.68 layout: `app\`, 26 modules, 47 commands, `cli.py` 509 lines). Regenerate from the live tree: `src/biointel` module list, 55 commands, new run form. Not scripted yet.
 6. **Two unused variables** (`score.py:toks`, `study.py:prev_adj`) and two lambda assignments are human-review items; not auto-fixed.

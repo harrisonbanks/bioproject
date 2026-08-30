@@ -1,6 +1,6 @@
-docs/20260830_v2_Design_Principles.md
+docs/20260830_v3_Design_Principles.md
 
-# Design principles — Bioindustry Intelligence Platform (v2, 2026-08-30)
+# Design principles — Bioindustry Intelligence Platform (v3, 2026-08-30)
 
 Binding for every session. Loaded at session start with the handoff. Each
 principle records the decision, its date, and the reason it was taken.
@@ -59,6 +59,14 @@ paper baselines. Pairing engine (`pairs.py`): buyer-specific fit,
 validated HR@10 0.27. Event study (`study.py`): Model 2, independent.
 Open decision: which screen drives `predict` (recommendation: fitted
 screen ranks, scorecard explains).
+Amendment (2026-08-30): finished measurements whose code will not run in
+the target design (`baselines.py`, `improve.holdout`, gen-1 `fit`) are
+legacy: kept in the tree and marked `LEGACY`, never re-pointed to new
+storage or reporting, never re-run, listed in the Implementation Plan
+legacy register, removed at a named cleanup gate. Their reports enter the
+ledger as `historical-file` rows carrying the file fingerprint and the
+commit that produced them. Reason: no maintenance of code that will not
+run again; the code stays available to diagnose a baseline mismatch.
 
 ## P8. Requirements are stated as the general case first (2026-08-30)
 Examples are instances of a requirement, not the requirement. Before any
@@ -107,3 +115,27 @@ the manual layer; abnormal returns are measured against XBI by default
 and any user-defined benchmark side by side. Rankings across competing
 events carry full attribution and assume nothing about the reader's
 purpose or instruments.
+
+## P16. Two data stores: raw files and one DuckDB file (2026-08-30)
+`data/bronze/` holds raw API responses and documents exactly as received,
+with manifests, never edited. Every silver, gold and ledger table lives in
+one embedded DuckDB database, `data/biointel.duckdb`; `schema.py` defines
+the tables and the database enforces types, keys and allowed values.
+Reports and CSVs the paper or the regression baseline need are exports
+under `data/exports/`, never read back; `freeze` copies the database file
+to `data/snapshots/`. No other store (no SQLite, no MLflow, no CSV read by
+live code once migration completes). Reason: DuckDB is the established
+embedded engine for analytical work at this scale, reads the existing CSVs
+directly, types columns strictly, and keeps the whole platform in two
+places instead of four.
+
+## P17. One run ledger in MLflow's structure, without MLflow (2026-08-30)
+Every model run writes one row to `runs` (run id, model, version, command,
+time, duration, status, operator, code commit, environment hash, data
+snapshot hash, declared inputs, objective, holdout access flag, source =
+run or historical-file) with rows in `run_params`, `run_metrics` and
+`run_artefacts` (path and fingerprint of every file written, including the
+rendered report). Every human-readable report is rendered from its record.
+The structure copies MLflow's run record so the ledger can be exported to
+MLflow later; the software is not adopted, to avoid a third store.
+
