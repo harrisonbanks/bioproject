@@ -1,0 +1,391 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2700" height="1400" viewBox="0 0 2700 1400">
+<defs><marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#666"/></marker><marker id="g" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2b6e2b"/></marker><marker id="p" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8a4b7e"/></marker><marker id="y" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#b8952a"/></marker></defs>
+<rect x="0" y="0" width="2700" height="1400" rx="0" fill="white" stroke="white" stroke-width="2"/>
+<text x="1350.0" y="44" font-family="Helvetica, Arial, sans-serif" font-size="30" font-weight="bold" text-anchor="middle" fill="#222">Bioindustry Intelligence Platform — TARGET STATE (after Phases 0–3)</text>
+<text x="1350.0" y="70" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="normal" text-anchor="middle" fill="#555">Intended architecture per Design Principles v2, Ontology v3, Model 2 Product Design v1, Model 4 Horizon Scanning v1 · 2026-08-30 · tags: AS-IS exists today · EXT extended · NEW to build</text>
+<rect x="30" y="100" width="350" height="1260" rx="16" fill="#e8f0fb" stroke="#5b7fb5" stroke-width="2.5"/>
+<text x="46" y="130" font-family="Helvetica, Arial, sans-serif" font-size="19" font-weight="bold" text-anchor="start" fill="#5b7fb5">1  SOURCES (official, free)</text>
+<rect x="46" y="155" width="318" height="72" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="205.0" y="176" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">SEC EDGAR</text>
+<text x="205.0" y="194" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">submissions · XBRL · 8-K/10-K</text>
+<text x="205.0" y="211" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">Form D · S-3 · 13D</text>
+<rect x="306" y="159" width="54" height="16" rx="8" fill="#5a9e5a"/>
+<text x="333" y="171" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">AS-IS</text>
+<rect x="46" y="243" width="318" height="72" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="205.0" y="264" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">SEC EDGAR full-text search</text>
+<text x="205.0" y="282" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">efts.sec.gov: 8-K/PR exhibits</text>
+<text x="205.0" y="299" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">goal dates · CRL · readouts</text>
+<rect x="306" y="247" width="54" height="16" rx="8" fill="#d9534f"/>
+<text x="333" y="259" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="46" y="331" width="318" height="72" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="205.0" y="352" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">FDA</text>
+<text x="205.0" y="370" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">Drugs@FDA · CRL endpoint</text>
+<text x="205.0" y="387" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">CRL letters · AdCom calendar</text>
+<rect x="306" y="335" width="54" height="16" rx="8" fill="#e0a800"/>
+<text x="333" y="347" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="46" y="419" width="318" height="72" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="205.0" y="440" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">ClinicalTrials.gov v2</text>
+<text x="205.0" y="458" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">trials · sponsors</text>
+<text x="205.0" y="475" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">primary completion dates</text>
+<rect x="306" y="423" width="54" height="16" rx="8" fill="#e0a800"/>
+<text x="333" y="435" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="46" y="507" width="318" height="72" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="205.0" y="528" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">Prices</text>
+<text x="205.0" y="546" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">Yahoo daily bars: US + ADRs</text>
+<text x="205.0" y="563" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">benchmarks: XBI, SPX, baskets</text>
+<rect x="306" y="511" width="54" height="16" rx="8" fill="#e0a800"/>
+<text x="333" y="523" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="46" y="595" width="318" height="72" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="205.0" y="616" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">Orange Book · ChEMBL · BigQuery patents</text>
+<text x="205.0" y="634" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">expiries · targets · CPC</text>
+<rect x="306" y="599" width="54" height="16" rx="8" fill="#5a9e5a"/>
+<text x="333" y="611" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">AS-IS</text>
+<rect x="46" y="683" width="318" height="72" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="205.0" y="704" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">Literature &amp; news</text>
+<text x="205.0" y="722" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">PubMed/Europe PMC · preprints</text>
+<text x="205.0" y="739" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">NIH RePORTER · press-wire RSS · abstracts</text>
+<rect x="306" y="687" width="54" height="16" rx="8" fill="#d9534f"/>
+<text x="333" y="699" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="46" y="771" width="318" height="72" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="205.0" y="792" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">Manual layer</text>
+<text x="205.0" y="810" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">entities · attributes · templated notes</text>
+<text x="205.0" y="827" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">overrides with provenance</text>
+<rect x="306" y="775" width="54" height="16" rx="8" fill="#d9534f"/>
+<text x="333" y="787" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="400" y="100" width="360" height="1260" rx="16" fill="#f3f3f3" stroke="#777" stroke-width="2.5"/>
+<text x="416" y="130" font-family="Helvetica, Arial, sans-serif" font-size="19" font-weight="bold" text-anchor="start" fill="#777">2  ADAPTERS + CACHE</text>
+<rect x="416" y="155" width="328" height="86" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="580.0" y="176" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">sources/ (one module per source)</text>
+<text x="580.0" y="194" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">sec · financials · deals · counterparty</text>
+<text x="580.0" y="211" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">fda · trials · prices · orangebook</text>
+<text x="580.0" y="228" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">chembl · patents · alphavantage</text>
+<rect x="686" y="159" width="54" height="16" rx="8" fill="#5a9e5a"/>
+<text x="713" y="171" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">AS-IS</text>
+<rect x="416" y="260" width="328" height="70" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="580.0" y="281" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">calendar adapters</text>
+<text x="580.0" y="299" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">efts.py (probe-gated) · adcom.py</text>
+<text x="580.0" y="316" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">ctgov completion field</text>
+<rect x="686" y="264" width="54" height="16" rx="8" fill="#d9534f"/>
+<text x="713" y="276" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="416" y="350" width="328" height="70" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="580.0" y="371" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">scanning adapters</text>
+<text x="580.0" y="389" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">pubmed.py · preprints.py · reporter.py</text>
+<text x="580.0" y="406" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">presswire.py · abstracts.py</text>
+<rect x="686" y="354" width="54" height="16" rx="8" fill="#d9534f"/>
+<text x="713" y="366" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="416" y="440" width="328" height="70" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="580.0" y="461" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">manual adapter</text>
+<text x="580.0" y="479" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">manual_entities · manual_attributes</text>
+<text x="580.0" y="496" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">manual_notes → load-time merge</text>
+<rect x="686" y="444" width="54" height="16" rx="8" fill="#d9534f"/>
+<text x="713" y="456" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="416" y="540" width="328" height="100" rx="10" fill="#fff3c9" stroke="#b8952a" stroke-width="2"/>
+<text x="580.0" y="561" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">store.py</text>
+<text x="580.0" y="579" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">fetch_json / fetch_text</text>
+<text x="580.0" y="596" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">bronze cache · manifests · rate limit</text>
+<text x="580.0" y="613" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">every HTTP call, one path</text>
+<rect x="686" y="544" width="54" height="16" rx="8" fill="#5a9e5a"/>
+<text x="713" y="556" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">AS-IS</text>
+<rect x="416" y="660" width="328" height="86" rx="10" fill="#fff3c9" stroke="#b8952a" stroke-width="2"/>
+<text x="580.0" y="681" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">settings + schema</text>
+<text x="580.0" y="699" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">config.py: paths, endpoints, windows</text>
+<text x="580.0" y="716" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">.env: credentials (ignored)</text>
+<text x="580.0" y="733" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">schema.py: ontology as code + validate</text>
+<rect x="686" y="664" width="54" height="16" rx="8" fill="#e0a800"/>
+<text x="713" y="676" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="416" y="770" width="328" height="86" rx="10" fill="#fbf3ea" stroke="#c9a27a" stroke-width="2"/>
+<text x="580.0" y="791" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">BRONZE</text>
+<text x="580.0" y="809" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">raw documents &amp; responses</text>
+<text x="580.0" y="826" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">never edited · URL · time · hash</text>
+<text x="580.0" y="843" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">(data/bronze/)</text>
+<rect x="686" y="774" width="54" height="16" rx="8" fill="#5a9e5a"/>
+<text x="713" y="786" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">AS-IS</text>
+<path d="M364,191.0 C390.0,191.0 390.0,198 416,198" fill="none" stroke="#666" stroke-width="1.2" marker-end="url(#a)"/>
+<path d="M364,367.0 C390.0,367.0 390.0,198 416,198" fill="none" stroke="#666" stroke-width="1.2" marker-end="url(#a)"/>
+<path d="M364,455.0 C390.0,455.0 390.0,198 416,198" fill="none" stroke="#666" stroke-width="1.2" marker-end="url(#a)"/>
+<path d="M364,543.0 C390.0,543.0 390.0,198 416,198" fill="none" stroke="#666" stroke-width="1.2" marker-end="url(#a)"/>
+<path d="M364,631.0 C390.0,631.0 390.0,198 416,198" fill="none" stroke="#666" stroke-width="1.2" marker-end="url(#a)"/>
+<path d="M364,279.0 C390.0,279.0 390.0,295 416,295" fill="none" stroke="#666" stroke-width="1.4" marker-end="url(#a)"/>
+<path d="M364,373.0 C390.0,373.0 390.0,300 416,300" fill="none" stroke="#666" stroke-width="1.0" marker-end="url(#a)"/>
+<path d="M364,461.0 C390.0,461.0 390.0,305 416,305" fill="none" stroke="#666" stroke-width="1.0" marker-end="url(#a)"/>
+<path d="M364,719.0 C390.0,719.0 390.0,385 416,385" fill="none" stroke="#666" stroke-width="1.4" marker-end="url(#a)"/>
+<path d="M364,807.0 C390.0,807.0 390.0,475 416,475" fill="none" stroke="#666" stroke-width="1.4" marker-end="url(#a)"/>
+<path d="M744,198 C745.0,198 745.0,590 746,590" fill="none" stroke="#666" stroke-width="1.0" marker-end="url(#a)"/>
+<path d="M744,295 C745.0,295 745.0,590 746,590" fill="none" stroke="#666" stroke-width="1.0" marker-end="url(#a)"/>
+<path d="M744,385 C745.0,385 745.0,590 746,590" fill="none" stroke="#666" stroke-width="1.0" marker-end="url(#a)"/>
+<path d="M580.0,640 C580.0,640 580.0,770 580.0,770" fill="none" stroke="#666" stroke-width="2.5" marker-end="url(#a)"/>
+<rect x="780" y="100" width="450" height="1260" rx="16" fill="#f3f3f3" stroke="#777" stroke-width="2.5"/>
+<text x="796" y="130" font-family="Helvetica, Arial, sans-serif" font-size="19" font-weight="bold" text-anchor="start" fill="#777">3  PROCESS LAYER — daily jobs</text>
+<rect x="796" y="155" width="418" height="65" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="1005.0" y="176" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">universe · ingest · partners · relationships</text>
+<text x="1005.0" y="194" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">global registry (US + ADR + stubs) · per-company layers</text>
+<rect x="1156" y="159" width="54" height="16" rx="8" fill="#e0a800"/>
+<text x="1183" y="171" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="796" y="236" width="418" height="65" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="1005.0" y="257" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">labels: harvest → verify → qa → corroborate</text>
+<text x="1005.0" y="275" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">acquisition labels + objective labels (O1–O8)</text>
+<rect x="1156" y="240" width="54" height="16" rx="8" fill="#e0a800"/>
+<text x="1183" y="252" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="796" y="317" width="418" height="99" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="1005.0" y="338" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">catalyst-calendar  (daily)</text>
+<text x="1005.0" y="356" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">EFTS 8-K mining → parse dates → event table</text>
+<text x="1005.0" y="373" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">AdCom · CT.gov completion · close outcomes from FDA</text>
+<text x="1005.0" y="390" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">reconcile vs pdufa.bio · change report · delays</text>
+<rect x="1156" y="321" width="54" height="16" rx="8" fill="#d9534f"/>
+<text x="1183" y="333" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="796" y="432" width="418" height="82" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="1005.0" y="453" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">features · price-action attributes</text>
+<text x="1005.0" y="471" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">firm-quarter panel + §3.2a attribute group</text>
+<text x="1005.0" y="488" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">event history · dependence · runway · peers</text>
+<rect x="1156" y="436" width="54" height="16" rx="8" fill="#e0a800"/>
+<text x="1183" y="448" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="796" y="530" width="418" height="82" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="1005.0" y="551" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">study-all → Model 2 daily</text>
+<text x="1005.0" y="569" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">run-up · reaction · post-path · crowding</text>
+<text x="1005.0" y="586" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">base rates · spillover · ranking · rules</text>
+<rect x="1156" y="534" width="54" height="16" rx="8" fill="#e0a800"/>
+<text x="1183" y="546" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="796" y="628" width="418" height="82" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="1005.0" y="649" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">horizon-scan  (daily, Model 4)</text>
+<text x="1005.0" y="667" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">ingest docs → extract entities/relations</text>
+<text x="1005.0" y="684" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">resolve → stubs → review queue → watchlists</text>
+<rect x="1156" y="632" width="54" height="16" rx="8" fill="#d9534f"/>
+<text x="1183" y="644" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="796" y="726" width="418" height="82" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="1005.0" y="747" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">predict  (Model 1)</text>
+<text x="1005.0" y="765" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">fitted screen ranks · scorecard explains</text>
+<text x="1005.0" y="782" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">objective matchers: hunter × objective</text>
+<rect x="1156" y="730" width="54" height="16" rx="8" fill="#e0a800"/>
+<text x="1183" y="742" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="796" y="824" width="418" height="82" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="1005.0" y="845" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">validate · evaluate · report</text>
+<text x="1005.0" y="863" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">schema validation · harness runs</text>
+<text x="1005.0" y="880" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">result records → central reporting</text>
+<rect x="1156" y="828" width="54" height="16" rx="8" fill="#d9534f"/>
+<text x="1183" y="840" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<path d="M744,813 C770.0,813 770.0,187.5 796,187.5" fill="none" stroke="#666" stroke-width="2.2" marker-end="url(#a)"/>
+<rect x="744.4" y="480.25" width="51.2" height="17" fill="white" opacity="0.92"/>
+<text x="770.0" y="492.25" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" text-anchor="middle" fill="#666">bronze</text>
+<path d="M744,818 C770.0,818 770.0,366.5 796,366.5" fill="none" stroke="#666" stroke-width="1.6" marker-end="url(#a)"/>
+<path d="M744,823 C770.0,823 770.0,669.0 796,669.0" fill="none" stroke="#666" stroke-width="1.6" marker-end="url(#a)"/>
+<path d="M744,483 C770.0,483 770.0,473.0 796,473.0" fill="none" stroke="#b8952a" stroke-width="1.2" marker-end="url(#y)" stroke-dasharray="8,6"/>
+<rect x="708.4" y="458.0" width="123.2" height="17" fill="white" opacity="0.92"/>
+<text x="770.0" y="470.0" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" text-anchor="middle" fill="#b8952a">manual overrides</text>
+<rect x="1250" y="100" width="450" height="1260" rx="16" fill="#f7f7f7" stroke="#777" stroke-width="2.5"/>
+<text x="1266" y="130" font-family="Helvetica, Arial, sans-serif" font-size="19" font-weight="bold" text-anchor="start" fill="#777">4  DATA  data/  model-agnostic tables (P1)</text>
+<rect x="1266" y="152" width="418" height="470" rx="12" fill="#e6ecf1" stroke="#8d9aa5" stroke-width="2"/>
+<text x="1280" y="178" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="start" fill="#4d5a66">SILVER — entity store + events</text>
+<rect x="1280" y="192" width="390" height="44" rx="6" fill="white" stroke="#8d9aa5" stroke-width="1.2"/>
+<text x="1290" y="219" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">entity registry: companies (listed/ADR/stub) · funds · institutions</text>
+<rect x="1612" y="196" width="52" height="15" rx="7" fill="#e0a800"/>
+<text x="1638" y="207.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="1280" y="244" width="390" height="44" rx="6" fill="white" stroke="#8d9aa5" stroke-width="1.2"/>
+<text x="1290" y="271" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">attributes (dated): therapeutic · modality · stage · financial · IP · price-action</text>
+<rect x="1612" y="248" width="52" height="15" rx="7" fill="#e0a800"/>
+<text x="1638" y="259.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="1280" y="296" width="390" height="44" rx="6" fill="white" stroke="#8d9aa5" stroke-width="1.2"/>
+<text x="1290" y="323" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">EVENT TABLE: past FDA actions + forward calendar (PDUFA · AdCom · readouts · delays)</text>
+<rect x="1612" y="300" width="52" height="15" rx="7" fill="#d9534f"/>
+<text x="1638" y="311.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="1280" y="348" width="390" height="44" rx="6" fill="white" stroke="#8d9aa5" stroke-width="1.2"/>
+<text x="1290" y="375" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">relationships (typed edges) · partners · deals · counterparties</text>
+<rect x="1612" y="352" width="52" height="15" rx="7" fill="#e0a800"/>
+<text x="1638" y="363.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="1280" y="400" width="390" height="44" rx="6" fill="white" stroke="#8d9aa5" stroke-width="1.2"/>
+<text x="1290" y="427" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">trials · financials · prices (US + ADR) · benchmarks table</text>
+<rect x="1612" y="404" width="52" height="15" rx="7" fill="#e0a800"/>
+<text x="1638" y="415.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="1280" y="452" width="390" height="44" rx="6" fill="white" stroke="#8d9aa5" stroke-width="1.2"/>
+<text x="1290" y="479" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">ma_events + objective labels</text>
+<rect x="1612" y="456" width="52" height="15" rx="7" fill="#e0a800"/>
+<text x="1638" y="467.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="1280" y="504" width="390" height="44" rx="6" fill="white" stroke="#8d9aa5" stroke-width="1.2"/>
+<text x="1290" y="531" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">manual_entities · manual_attributes · manual_notes (provenance)</text>
+<rect x="1612" y="508" width="52" height="15" rx="7" fill="#d9534f"/>
+<text x="1638" y="519.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="1280" y="556" width="390" height="44" rx="6" fill="white" stroke="#8d9aa5" stroke-width="1.2"/>
+<text x="1290" y="583" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">scan_documents · scan_entities (Model 4 output)</text>
+<rect x="1612" y="560" width="52" height="15" rx="7" fill="#d9534f"/>
+<text x="1638" y="571.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="1266" y="640" width="418" height="300" rx="12" fill="#fbf1d3" stroke="#c9b26a" stroke-width="2"/>
+<text x="1280" y="666" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="start" fill="#7a6a2a">GOLD — panels, forecasts, results</text>
+<rect x="1280" y="680" width="390" height="44" rx="6" fill="white" stroke="#c9b26a" stroke-width="1.2"/>
+<text x="1290" y="707" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">label_panel · feature_panel · model_panel</text>
+<rect x="1612" y="684" width="52" height="15" rx="7" fill="#5a9e5a"/>
+<text x="1638" y="695.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">AS-IS</text>
+<rect x="1280" y="732" width="390" height="44" rx="6" fill="white" stroke="#c9b26a" stroke-width="1.2"/>
+<text x="1290" y="759" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">event_study · catalyst_calendar (with forecasts)</text>
+<rect x="1612" y="736" width="52" height="15" rx="7" fill="#e0a800"/>
+<text x="1638" y="747.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="1280" y="784" width="390" height="44" rx="6" fill="white" stroke="#c9b26a" stroke-width="1.2"/>
+<text x="1290" y="811" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">ma_predictions · catalyst_ranking (with attribution)</text>
+<rect x="1612" y="788" width="52" height="15" rx="7" fill="#e0a800"/>
+<text x="1638" y="799.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="1280" y="836" width="390" height="44" rx="6" fill="white" stroke="#c9b26a" stroke-width="1.2"/>
+<text x="1290" y="863" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">results.csv — one record per model run (ledger)</text>
+<rect x="1612" y="840" width="52" height="15" rx="7" fill="#d9534f"/>
+<text x="1638" y="851.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="1280" y="888" width="390" height="44" rx="6" fill="white" stroke="#c9b26a" stroke-width="1.2"/>
+<text x="1290" y="915" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">scan_candidates (review queue)</text>
+<rect x="1612" y="892" width="52" height="15" rx="7" fill="#d9534f"/>
+<text x="1638" y="903.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<text x="1280" y="1320" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#555">shared by every model; separation at declared input lists (P2)</text>
+<path d="M1214,187.5 C1247.0,187.5 1247.0,214 1280,214" fill="none" stroke="#2b6e2b" stroke-width="1.6" marker-end="url(#g)"/>
+<path d="M1214,268.5 C1247.0,268.5 1247.0,474 1280,474" fill="none" stroke="#2b6e2b" stroke-width="1.6" marker-end="url(#g)"/>
+<path d="M1214,366.5 C1247.0,366.5 1247.0,318 1280,318" fill="none" stroke="#2b6e2b" stroke-width="1.6" marker-end="url(#g)"/>
+<path d="M1214,473.0 C1247.0,473.0 1247.0,266 1280,266" fill="none" stroke="#2b6e2b" stroke-width="1.6" marker-end="url(#g)"/>
+<path d="M1214,473.0 C1247.0,473.0 1247.0,702 1280,702" fill="none" stroke="#2b6e2b" stroke-width="1.6" marker-end="url(#g)"/>
+<path d="M1214,571.0 C1247.0,571.0 1247.0,754 1280,754" fill="none" stroke="#2b6e2b" stroke-width="1.6" marker-end="url(#g)"/>
+<path d="M1214,571.0 C1247.0,571.0 1247.0,806 1280,806" fill="none" stroke="#2b6e2b" stroke-width="1.6" marker-end="url(#g)"/>
+<path d="M1214,669.0 C1247.0,669.0 1247.0,578 1280,578" fill="none" stroke="#2b6e2b" stroke-width="1.6" marker-end="url(#g)"/>
+<path d="M1214,669.0 C1247.0,669.0 1247.0,910 1280,910" fill="none" stroke="#2b6e2b" stroke-width="1.6" marker-end="url(#g)"/>
+<path d="M1214,767.0 C1247.0,767.0 1247.0,806 1280,806" fill="none" stroke="#2b6e2b" stroke-width="1.6" marker-end="url(#g)"/>
+<path d="M1214,865.0 C1247.0,865.0 1247.0,858 1280,858" fill="none" stroke="#2b6e2b" stroke-width="1.6" marker-end="url(#g)"/>
+<rect x="1720" y="100" width="500" height="1260" rx="16" fill="#f3f3f3" stroke="#777" stroke-width="2.5"/>
+<text x="1736" y="130" font-family="Helvetica, Arial, sans-serif" font-size="19" font-weight="bold" text-anchor="start" fill="#777">5  MODEL FRAMEWORK (P6)</text>
+<rect x="1736" y="152" width="468" height="70" rx="10" fill="#fff3c9" stroke="#b8952a" stroke-width="2"/>
+<text x="1970.0" y="173" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="bold" text-anchor="middle" fill="#222">framework core</text>
+<text x="1970.0" y="191" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#222">Model = name · declared inputs · fit · score</text>
+<text x="1970.0" y="208" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#222">registry maps names → classes; harness checks inputs, runs protocol, writes result record</text>
+<rect x="2146" y="156" width="54" height="16" rx="8" fill="#d9534f"/>
+<text x="2173" y="168" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="1736" y="235" width="468" height="300" rx="12" fill="#e3f1e3" stroke="#6fa36f" stroke-width="2"/>
+<text x="1750" y="260" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="start" fill="#2f6b2f">MODEL 1 — M&amp;A</text>
+<rect x="1750" y="272" width="440" height="40" rx="6" fill="white" stroke="#6fa36f" stroke-width="1.2"/>
+<text x="1760" y="297" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">fitted screen (improve.py) — ranks</text>
+<rect x="2132" y="276" width="52" height="15" rx="7" fill="#5a9e5a"/>
+<text x="2158" y="287.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">AS-IS</text>
+<rect x="1750" y="322" width="440" height="40" rx="6" fill="white" stroke="#6fa36f" stroke-width="1.2"/>
+<text x="1760" y="347" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">scorecard (score.py) — explains</text>
+<rect x="2132" y="326" width="52" height="15" rx="7" fill="#5a9e5a"/>
+<text x="2158" y="337.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">AS-IS</text>
+<rect x="1750" y="372" width="440" height="40" rx="6" fill="white" stroke="#6fa36f" stroke-width="1.2"/>
+<text x="1760" y="397" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">pairing engine MASS-exact (pairs.py) — O1/O2</text>
+<rect x="2132" y="376" width="52" height="15" rx="7" fill="#5a9e5a"/>
+<text x="2158" y="387.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">AS-IS</text>
+<rect x="1750" y="422" width="440" height="40" rx="6" fill="white" stroke="#6fa36f" stroke-width="1.2"/>
+<text x="1760" y="447" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">objective matchers O3–O8 (mechanism · platform · data · geo · financial)</text>
+<rect x="2132" y="426" width="52" height="15" rx="7" fill="#d9534f"/>
+<text x="2158" y="437.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="1750" y="472" width="440" height="40" rx="6" fill="white" stroke="#6fa36f" stroke-width="1.2"/>
+<text x="1760" y="497" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">baselines (frozen)</text>
+<rect x="2132" y="476" width="52" height="15" rx="7" fill="#5a9e5a"/>
+<text x="2158" y="487.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">AS-IS</text>
+<rect x="1736" y="550" width="468" height="390" rx="12" fill="#f1e3ee" stroke="#a56f9a" stroke-width="2"/>
+<text x="1750" y="575" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="start" fill="#6e3d63">MODEL 2 — FDA catalyst price action (daily bars)</text>
+<rect x="1750" y="587" width="440" height="40" rx="6" fill="white" stroke="#a56f9a" stroke-width="1.2"/>
+<rect x="1750" y="587" width="440" height="40" rx="6" fill="white" stroke="#a56f9a" stroke-width="1.2"/>
+<rect x="1750" y="587" width="440" height="40" rx="6" fill="white" stroke="#a56f9a" stroke-width="1.2"/>
+<rect x="1750" y="587" width="440" height="40" rx="6" fill="white" stroke="#a56f9a" stroke-width="1.2"/>
+<rect x="1750" y="587" width="440" height="40" rx="6" fill="white" stroke="#a56f9a" stroke-width="1.2"/>
+<rect x="1750" y="587" width="440" height="40" rx="6" fill="white" stroke="#a56f9a" stroke-width="1.2"/>
+<rect x="1750" y="587" width="440" height="40" rx="6" fill="white" stroke="#a56f9a" stroke-width="1.2"/>
+<text x="1760" y="612" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">event study CAR vs XBI / user benchmarks (study.py)</text>
+<rect x="2132" y="591" width="52" height="15" rx="7" fill="#e0a800"/>
+<text x="2158" y="602.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="1750" y="637" width="440" height="40" rx="6" fill="white" stroke="#a56f9a" stroke-width="1.2"/>
+<text x="1760" y="662" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">M2.1 reaction magnitude (quantiles by outcome state)</text>
+<rect x="2132" y="641" width="52" height="15" rx="7" fill="#d9534f"/>
+<text x="2158" y="652.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="1750" y="687" width="440" height="40" rx="6" fill="white" stroke="#a56f9a" stroke-width="1.2"/>
+<text x="1760" y="712" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">M2.2 run-up path · M2.3 post-event path by outcome/CRL type · delays</text>
+<rect x="2132" y="691" width="52" height="15" rx="7" fill="#d9534f"/>
+<text x="2158" y="702.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="1750" y="737" width="440" height="40" rx="6" fill="white" stroke="#a56f9a" stroke-width="1.2"/>
+<text x="1760" y="762" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">M2.4 crowding index · M2.5 outcome base rates · M2.6 peer spillover</text>
+<rect x="2132" y="741" width="52" height="15" rx="7" fill="#d9534f"/>
+<text x="2158" y="752.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="1750" y="787" width="440" height="40" rx="6" fill="white" stroke="#a56f9a" stroke-width="1.2"/>
+<text x="1760" y="812" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">M2.7 daily ranking of competing events — full attribution</text>
+<rect x="2132" y="791" width="52" height="15" rx="7" fill="#d9534f"/>
+<text x="2158" y="802.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="1750" y="837" width="440" height="40" rx="6" fill="white" stroke="#a56f9a" stroke-width="1.2"/>
+<text x="1760" y="862" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">rules R1–R8: parameterised, back-tested, flags not orders</text>
+<rect x="2132" y="841" width="52" height="15" rx="7" fill="#d9534f"/>
+<text x="2158" y="852.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="1736" y="955" width="468" height="150" rx="12" fill="#e6f0f7" stroke="#5b7fb5" stroke-width="2"/>
+<text x="1750" y="980" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="start" fill="#2f4f7f">MODEL 4 — Horizon Scanning (entity &amp; actor discovery)</text>
+<rect x="1750" y="992" width="440" height="40" rx="6" fill="white" stroke="#5b7fb5" stroke-width="1.2"/>
+<text x="1760" y="1017" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">SciNER + relation extraction · resolution via canon() · stubs</text>
+<rect x="2132" y="996" width="52" height="15" rx="7" fill="#d9534f"/>
+<text x="2158" y="1007.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="1750" y="1042" width="440" height="40" rx="6" fill="white" stroke="#5b7fb5" stroke-width="1.2"/>
+<text x="1760" y="1067" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="start" fill="#222">interest signals: novelty · momentum · proximity · catalyst · capital</text>
+<rect x="2132" y="1046" width="52" height="15" rx="7" fill="#d9534f"/>
+<text x="2158" y="1057.5" font-family="Helvetica, Arial, sans-serif" font-size="9.5" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="1736" y="1125" width="468" height="60" rx="10" fill="#f0f0f0" stroke="#555" stroke-width="2"/>
+<text x="1970.0" y="1146" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="bold" text-anchor="middle" fill="#222">MODEL 3 — unassigned</text>
+<text x="1970.0" y="1164" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#222">number reserved; not assigned</text>
+<rect x="1736" y="1205" width="468" height="110" rx="10" fill="#fff3c9" stroke="#b8952a" stroke-width="2"/>
+<text x="1970.0" y="1226" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="bold" text-anchor="middle" fill="#222">evaluation protocol (P10)</text>
+<text x="1970.0" y="1244" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#222">same events &amp; negatives · mean rank · Hits@k · lift</text>
+<text x="1970.0" y="1261" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#222">time split · single holdout access · pre-registered thresholds</text>
+<text x="1970.0" y="1278" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#222">nulls reported · records generated, not hand-copied</text>
+<rect x="2146" y="1209" width="54" height="16" rx="8" fill="#e0a800"/>
+<text x="2173" y="1221" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<path d="M1684,702 C1717.0,702 1717.0,292 1750,292" fill="none" stroke="#666" stroke-width="1.4" marker-end="url(#a)"/>
+<path d="M1684,266 C1717.0,266 1717.0,442 1750,442" fill="none" stroke="#666" stroke-width="1.4" marker-end="url(#a)"/>
+<path d="M1684,318 C1717.0,318 1717.0,657 1750,657" fill="none" stroke="#8a4b7e" stroke-width="1.8" marker-end="url(#p)"/>
+<rect x="1612.2" y="467.5" width="209.6" height="17" fill="white" opacity="0.92"/>
+<text x="1717.0" y="479.5" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" text-anchor="middle" fill="#8a4b7e">events + prices + attributes</text>
+<path d="M1684,422 C1717.0,422 1717.0,607 1750,607" fill="none" stroke="#8a4b7e" stroke-width="1.2" marker-end="url(#p)"/>
+<path d="M1684,578 C1717.0,578 1717.0,1012 1750,1012" fill="none" stroke="#5b7fb5" stroke-width="1.4" marker-end="url(#a)"/>
+<rect x="2240" y="100" width="430" height="1260" rx="16" fill="#e4e4e4" stroke="#777" stroke-width="2.5"/>
+<text x="2256" y="130" font-family="Helvetica, Arial, sans-serif" font-size="19" font-weight="bold" text-anchor="start" fill="#777">6  CENTRAL REPORTING</text>
+<rect x="2256" y="155" width="398" height="110" rx="10" fill="#fff3c9" stroke="#b8952a" stroke-width="2"/>
+<text x="2455.0" y="176" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">result records (ledger)</text>
+<text x="2455.0" y="194" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">results.csv: model · version · run date</text>
+<text x="2455.0" y="211" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">data-snapshot hash · inputs · metrics · artefacts</text>
+<text x="2455.0" y="228" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">every model writes here; nothing hand-copied</text>
+<rect x="2596" y="159" width="54" height="16" rx="8" fill="#d9534f"/>
+<text x="2623" y="171" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="2256" y="285" width="398" height="90" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="2455.0" y="306" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">report generator</text>
+<text x="2455.0" y="324" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">templates over gold tables + results</text>
+<text x="2455.0" y="341" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">Markdown + CSV · attribution columns</text>
+<text x="2455.0" y="358" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">one command: report &lt;name&gt; &lt;date&gt;</text>
+<rect x="2596" y="289" width="54" height="16" rx="8" fill="#d9534f"/>
+<text x="2623" y="301" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="2256" y="400" width="398" height="80" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="2455.0" y="421" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">daily catalyst report</text>
+<text x="2455.0" y="439" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">upcoming windows · ranked events · delays</text>
+<text x="2455.0" y="456" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">forecast paths · flags for review</text>
+<rect x="2596" y="404" width="54" height="16" rx="8" fill="#d9534f"/>
+<text x="2623" y="416" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="2256" y="494" width="398" height="63" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="2455.0" y="515" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">catalyst_ranking.csv / calendar.csv</text>
+<text x="2455.0" y="533" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">machine-readable daily outputs</text>
+<rect x="2596" y="498" width="54" height="16" rx="8" fill="#d9534f"/>
+<text x="2623" y="510" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="2256" y="571" width="398" height="63" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="2455.0" y="592" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">M&amp;A predictions report</text>
+<text x="2455.0" y="610" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">targets ranked · best-fit hunters + objective</text>
+<rect x="2596" y="575" width="54" height="16" rx="8" fill="#e0a800"/>
+<text x="2623" y="587" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<rect x="2256" y="648" width="398" height="63" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="2455.0" y="669" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">horizon scan report</text>
+<text x="2455.0" y="687" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">new actors · watchlist hits · review queue</text>
+<rect x="2596" y="652" width="54" height="16" rx="8" fill="#d9534f"/>
+<text x="2623" y="664" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="2256" y="725" width="398" height="63" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="2455.0" y="746" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">generated ledger → PROJECT_STATUS</text>
+<text x="2455.0" y="764" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">validated numbers from result records</text>
+<rect x="2596" y="729" width="54" height="16" rx="8" fill="#d9534f"/>
+<text x="2623" y="741" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">NEW</text>
+<rect x="2256" y="802" width="398" height="63" rx="10" fill="white" stroke="#555" stroke-width="2"/>
+<text x="2455.0" y="823" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#222">paper / CV exhibits</text>
+<text x="2455.0" y="841" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="middle" fill="#222">figures and tables regenerated from records</text>
+<rect x="2596" y="806" width="54" height="16" rx="8" fill="#e0a800"/>
+<text x="2623" y="818" font-family="Helvetica, Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="white">EXT</text>
+<path d="M2204,807 C2230.0,807 2230.0,440.0 2256,440.0" fill="none" stroke="#8a4b7e" stroke-width="1.4" marker-end="url(#p)"/>
+<path d="M2204,857 C2230.0,857 2230.0,440.0 2256,440.0" fill="none" stroke="#8a4b7e" stroke-width="1.4" marker-end="url(#p)"/>
+<path d="M2204,811 C2230.0,811 2230.0,525.5 2256,525.5" fill="none" stroke="#8a4b7e" stroke-width="1.2" marker-end="url(#p)"/>
+<path d="M2204,292 C2230.0,292 2230.0,602.5 2256,602.5" fill="none" stroke="#666" stroke-width="1.2" marker-end="url(#a)"/>
+<path d="M2204,1062 C2230.0,1062 2230.0,679.5 2256,679.5" fill="none" stroke="#5b7fb5" stroke-width="1.2" marker-end="url(#a)"/>
+<path d="M2204,1260 C2230.0,1260 2230.0,210 2256,210" fill="none" stroke="#b8952a" stroke-width="1.6" marker-end="url(#y)"/>
+<rect x="2175.6" y="715.0" width="108.8" height="17" fill="white" opacity="0.92"/>
+<text x="2230.0" y="727.0" font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" text-anchor="middle" fill="#b8952a">result records</text>
+<path d="M2455.0,265 C2455.0,265 2455.0,285 2455.0,285" fill="none" stroke="#b8952a" stroke-width="1.6" marker-end="url(#y)"/>
+<path d="M2455.0,375 C2455.0,375 2455.0,400 2455.0,400" fill="none" stroke="#666" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="30" y="1382" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="normal" text-anchor="start" fill="#555">Current state (as built) is in 20260829_v1_System_Diagram; this poster is the target; each NEW/EXT item maps to a gate in the gameplan (handoff v6 §5 item 3c).</text>
+</svg>
