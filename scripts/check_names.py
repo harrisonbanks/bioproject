@@ -1,4 +1,6 @@
-import json, urllib.request, urllib.error
+import json
+import urllib.error
+import urllib.request
 
 CANDIDATES = [
     "sponsor_name.exact",
@@ -6,8 +8,17 @@ CANDIDATES = [
     "openfda.manufacturer_name.exact",
 ]
 
-WANT = ["MERCK", "LILLY", "JANSSEN", "TAKEDA", "ARCUTIS",
-        "BRIDGEBIO", "RECURSION", "SCHRODINGER", "ABSCI"]
+WANT = [
+    "MERCK",
+    "LILLY",
+    "JANSSEN",
+    "TAKEDA",
+    "ARCUTIS",
+    "BRIDGEBIO",
+    "RECURSION",
+    "SCHRODINGER",
+    "ABSCI",
+]
 
 for field in CANDIDATES:
     url = f"https://api.fda.gov/drug/drugsfda.json?count={field}&limit=1000"

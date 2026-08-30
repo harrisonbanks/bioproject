@@ -36,7 +36,9 @@ Feature families (source table -> features):
 Price features (market cap, 52-week drawdown) require the price API and
 are filled when reachable, blank otherwise -- never fabricated.
 """
+
 from __future__ import annotations
+
 import csv as _csv
 from collections import defaultdict
 from datetime import date, timedelta
@@ -44,29 +46,69 @@ from datetime import date, timedelta
 from biointel import config
 
 FEATURE_COLS = [
-    "IID", "Ticker", "Company", "QuarterEnd",
+    "IID",
+    "Ticker",
+    "Company",
+    "QuarterEnd",
     # financials
-    "FinPeriodEnd", "FinAgeDays", "Currency", "Cash", "STI", "CashSTI", "Revenue",
-    "RnD", "NetIncome", "TotalAssets", "TotalLiabilities", "Equity",
-    "LongTermDebt", "SharesOutstanding", "OCF_TTM", "TTMBasis",
-    "BurnAnnual", "RunwayMonths",
+    "FinPeriodEnd",
+    "FinAgeDays",
+    "Currency",
+    "Cash",
+    "STI",
+    "CashSTI",
+    "Revenue",
+    "RnD",
+    "NetIncome",
+    "TotalAssets",
+    "TotalLiabilities",
+    "Equity",
+    "LongTermDebt",
+    "SharesOutstanding",
+    "OCF_TTM",
+    "TTMBasis",
+    "BurnAnnual",
+    "RunwayMonths",
     # pipeline
-    "TrialsTotal", "TrialsPh1", "TrialsPh2", "TrialsPh3", "TrialsPh4",
-    "LeadPhase", "TrialsStarted12m",
+    "TrialsTotal",
+    "TrialsPh1",
+    "TrialsPh2",
+    "TrialsPh3",
+    "TrialsPh4",
+    "LeadPhase",
+    "TrialsStarted12m",
     # FDA
-    "OrigApprovalsEver", "HasApprovedDrug", "Approvals12m",
-    "Rejections12m", "DaysSinceLastFDAEvent",
+    "OrigApprovalsEver",
+    "HasApprovedDrug",
+    "Approvals12m",
+    "Rejections12m",
+    "DaysSinceLastFDAEvent",
     # market reaction
-    "CAR12m_mean", "Drift12m_mean", "FDAEventsWithCAR12m",
+    "CAR12m_mean",
+    "Drift12m_mean",
+    "FDAEventsWithCAR12m",
     # relationships
-    "RelTotal", "RelTrial", "RelDeal", "RelInUniverse", "Deals24m",
-    "LicensesEver", "CollabsEver",
+    "RelTotal",
+    "RelTrial",
+    "RelDeal",
+    "RelInUniverse",
+    "Deals24m",
+    "LicensesEver",
+    "CollabsEver",
     # v2 dynamics / catalysts / demand / maturity
-    "dCash4q", "dShares4q", "RnDIntensity", "CashToAssets",
-    "AgeYears", "Ph3Started24m", "FirstApprovalRecent24m", "HotTA",
+    "dCash4q",
+    "dShares4q",
+    "RnDIntensity",
+    "CashToAssets",
+    "AgeYears",
+    "Ph3Started24m",
+    "FirstApprovalRecent24m",
+    "HotTA",
     "FDAEventsEver",
     # price (blank when API unreachable)
-    "PriceQ", "MarketCap", "Drawdown52w",
+    "PriceQ",
+    "MarketCap",
+    "Drawdown52w",
 ]
 
 
@@ -125,14 +167,15 @@ def build_features(read_companies, start: str = "2010-01-01") -> list[dict]:
     bars_by_ticker = {}
     try:
         from biointel.sources import prices as _prices
+
         for c in companies:
             t = c.get("Ticker", "")
             if not t:
                 continue
             try:
                 bars_by_ticker[t] = _prices.daily_bars(
-                    t, date.fromisoformat(start) - timedelta(days=400),
-                    date.today())
+                    t, date.fromisoformat(start) - timedelta(days=400), date.today()
+                )
             except Exception:
                 bars_by_ticker[t] = []
     except Exception:
@@ -144,8 +187,7 @@ def build_features(read_companies, start: str = "2010-01-01") -> list[dict]:
         tick = c.get("Ticker", "")
         for q in quarters:
             qd = date.fromisoformat(q)
-            r = {"IID": iid, "Ticker": tick,
-                 "Company": c.get("Name", ""), "QuarterEnd": q}
+            r = {"IID": iid, "Ticker": tick, "Company": c.get("Name", ""), "QuarterEnd": q}
 
             # ---- financials: latest period <= Q, max 400 days old ----
             fin = None
@@ -156,8 +198,9 @@ def build_features(read_companies, start: str = "2010-01-01") -> list[dict]:
                 if shares_ff is None and _num(f.get("SharesOutstanding")):
                     if (qd - date.fromisoformat(f["PeriodEnd"])).days <= 400:
                         shares_ff = _num(f["SharesOutstanding"])
-                if fin is None and any(_num(f.get(k)) is not None
-                                       for k in ("Cash", "TotalAssets", "Revenue")):
+                if fin is None and any(
+                    _num(f.get(k)) is not None for k in ("Cash", "TotalAssets", "Revenue")
+                ):
                     fin = f
                 if fin is not None and shares_ff is not None:
                     break
@@ -169,13 +212,16 @@ def build_features(read_companies, start: str = "2010-01-01") -> list[dict]:
                 r["FinAgeDays"] = (qd - date.fromisoformat(fin["PeriodEnd"])).days
                 r["Cash"], r["STI"] = cash, sti
                 r["CashSTI"] = (cash or 0) + (sti or 0) if cash is not None else None
-                for src, dst in (("Revenue", "Revenue"), ("RnD", "RnD"),
-                                 ("NetIncome", "NetIncome"),
-                                 ("TotalAssets", "TotalAssets"),
-                                 ("TotalLiabilities", "TotalLiabilities"),
-                                 ("Equity", "Equity"),
-                                 ("LongTermDebt", "LongTermDebt"),
-                                 ("SharesOutstanding", "SharesOutstanding")):
+                for src, dst in (
+                    ("Revenue", "Revenue"),
+                    ("RnD", "RnD"),
+                    ("NetIncome", "NetIncome"),
+                    ("TotalAssets", "TotalAssets"),
+                    ("TotalLiabilities", "TotalLiabilities"),
+                    ("Equity", "Equity"),
+                    ("LongTermDebt", "LongTermDebt"),
+                    ("SharesOutstanding", "SharesOutstanding"),
+                ):
                     r[dst] = _num(fin.get(src))
                 if r.get("SharesOutstanding") is None and shares_ff:
                     r["SharesOutstanding"] = shares_ff
@@ -187,16 +233,13 @@ def build_features(read_companies, start: str = "2010-01-01") -> list[dict]:
                     r["TTMBasis"] = "annual" if fp == "FY" else f"annualized-{fp}"
                     if ocf < 0 and r["CashSTI"]:
                         r["BurnAnnual"] = -r["OCF_TTM"]
-                        r["RunwayMonths"] = round(
-                            r["CashSTI"] / (r["BurnAnnual"] / 12), 1)
+                        r["RunwayMonths"] = round(r["CashSTI"] / (r["BurnAnnual"] / 12), 1)
 
             # ---- pipeline ----
-            ts = [t for t in trials.get(iid, [])
-                  if t.get("StartDate") and t["StartDate"][:10] <= q]
+            ts = [t for t in trials.get(iid, []) if t.get("StartDate") and t["StartDate"][:10] <= q]
             r["TrialsTotal"] = len(ts)
             for ph in ("1", "2", "3", "4"):
-                r[f"TrialsPh{ph}"] = sum(1 for t in ts
-                                         if f"PHASE{ph}" in (t.get("Phase") or ""))
+                r[f"TrialsPh{ph}"] = sum(1 for t in ts if f"PHASE{ph}" in (t.get("Phase") or ""))
             lead = 0
             for t in ts:
                 for ph in (4, 3, 2, 1):
@@ -205,26 +248,21 @@ def build_features(read_companies, start: str = "2010-01-01") -> list[dict]:
                         break
             r["LeadPhase"] = lead or None
             y1 = (qd - timedelta(days=365)).isoformat()
-            r["TrialsStarted12m"] = sum(1 for t in ts
-                                        if t["StartDate"][:10] > y1)
+            r["TrialsStarted12m"] = sum(1 for t in ts if t["StartDate"][:10] > y1)
 
             # ---- FDA ----
             evs = [e for e in events.get(iid, []) if e["Date"] <= q]
-            orig = [e for e in evs if e["Event"] == "Approval"
-                    and e.get("SubType") == "ORIG"]
+            orig = [e for e in evs if e["Event"] == "Approval" and e.get("SubType") == "ORIG"]
             r["OrigApprovalsEver"] = len(orig)
             r["HasApprovedDrug"] = 1 if orig else 0
-            r["Approvals12m"] = sum(1 for e in evs
-                                    if e["Event"] == "Approval" and e["Date"] > y1)
-            r["Rejections12m"] = sum(1 for e in evs
-                                     if e["Event"] == "Rejection" and e["Date"] > y1)
+            r["Approvals12m"] = sum(1 for e in evs if e["Event"] == "Approval" and e["Date"] > y1)
+            r["Rejections12m"] = sum(1 for e in evs if e["Event"] == "Rejection" and e["Date"] > y1)
             if evs:
                 last = max(e["Date"] for e in evs)
                 r["DaysSinceLastFDAEvent"] = (qd - date.fromisoformat(last)).days
 
             # ---- market reaction to trailing-12m events ----
-            sts = [s for s in study.get(iid, [])
-                   if y1 < s["EventDate"] <= q and s.get("CAR_m1_p1")]
+            sts = [s for s in study.get(iid, []) if y1 < s["EventDate"] <= q and s.get("CAR_m1_p1")]
             if sts:
                 cars = [_num(s["CAR_m1_p1"]) for s in sts]
                 cars = [x for x in cars if x is not None]
@@ -237,20 +275,25 @@ def build_features(read_companies, start: str = "2010-01-01") -> list[dict]:
                 r["FDAEventsWithCAR12m"] = len(sts)
 
             # ---- relationships (FirstDate <= Q; undated = always known) --
-            rl = [x for x in rels.get(iid, [])
-                  if not x.get("FirstDate") or x["FirstDate"][:10] <= q]
+            rl = [
+                x for x in rels.get(iid, []) if not x.get("FirstDate") or x["FirstDate"][:10] <= q
+            ]
             r["RelTotal"] = len(rl)
             r["RelTrial"] = sum(1 for x in rl if x["RelKind"] == "Trial collaboration")
             r["RelDeal"] = sum(1 for x in rl if x["RelKind"] == "Deal")
-            r["RelInUniverse"] = sum(1 for x in rl if x.get("PartnerIID") not in ("", None)
-                                     and str(x["PartnerIID"]) != str(iid))
+            r["RelInUniverse"] = sum(
+                1
+                for x in rl
+                if x.get("PartnerIID") not in ("", None) and str(x["PartnerIID"]) != str(iid)
+            )
             y2 = (qd - timedelta(days=730)).isoformat()
-            r["Deals24m"] = sum(1 for x in rl if x["RelKind"] == "Deal"
-                                and x.get("FirstDate") and x["FirstDate"][:10] > y2)
-            r["LicensesEver"] = sum(1 for x in rl
-                                    if x.get("AgreementType") == "License")
-            r["CollabsEver"] = sum(1 for x in rl
-                                   if x.get("AgreementType") == "Collaboration")
+            r["Deals24m"] = sum(
+                1
+                for x in rl
+                if x["RelKind"] == "Deal" and x.get("FirstDate") and x["FirstDate"][:10] > y2
+            )
+            r["LicensesEver"] = sum(1 for x in rl if x.get("AgreementType") == "License")
+            r["CollabsEver"] = sum(1 for x in rl if x.get("AgreementType") == "Collaboration")
 
             # ---- v2: dynamics vs 4 quarters ago ----
             q4 = (qd - timedelta(days=365)).isoformat()
@@ -277,25 +320,35 @@ def build_features(read_companies, start: str = "2010-01-01") -> list[dict]:
                 r["CashToAssets"] = round(r["CashSTI"] / r["TotalAssets"], 4)
             first_fin = fins.get(iid, [])
             if first_fin:
-                r["AgeYears"] = round((qd - date.fromisoformat(
-                    first_fin[0]["PeriodEnd"])).days / 365.25, 1)
+                r["AgeYears"] = round(
+                    (qd - date.fromisoformat(first_fin[0]["PeriodEnd"])).days / 365.25, 1
+                )
 
             # ---- v2: catalysts (start- and event-dated only) ----
             y2v = (qd - timedelta(days=730)).isoformat()
             r["Ph3Started24m"] = sum(
-                1 for t in ts if t["StartDate"][:10] > y2v
-                and "PHASE3" in (t.get("Phase") or ""))
+                1 for t in ts if t["StartDate"][:10] > y2v and "PHASE3" in (t.get("Phase") or "")
+            )
             firsts = sorted(e["Date"] for e in orig)
-            r["FirstApprovalRecent24m"] = 1 if (
-                firsts and firsts[0] > y2v) else 0
+            r["FirstApprovalRecent24m"] = 1 if (firsts and firsts[0] > y2v) else 0
             r["FDAEventsEver"] = len(evs)
 
             # ---- v2: hot therapeutic area from trial conditions ----
-            HOT = ("obes", "oncolog", "cancer", "tumor", "immun",
-                   "alzheim", "parkinson", "rare", "orphan", "cardio",
-                   "nash", "steatohep")
-            conds = " ".join((t.get("Conditions") or "").lower()
-                             for t in ts[-40:])
+            HOT = (
+                "obes",
+                "oncolog",
+                "cancer",
+                "tumor",
+                "immun",
+                "alzheim",
+                "parkinson",
+                "rare",
+                "orphan",
+                "cardio",
+                "nash",
+                "steatohep",
+            )
+            conds = " ".join((t.get("Conditions") or "").lower() for t in ts[-40:])
             r["HotTA"] = 1 if any(h in conds for h in HOT) else 0
 
             # ---- price (optional) ----
@@ -307,8 +360,11 @@ def build_features(read_companies, start: str = "2010-01-01") -> list[dict]:
                     r["PriceQ"] = round(px, 2) if px else None
                     if px and r.get("SharesOutstanding"):
                         r["MarketCap"] = round(px * r["SharesOutstanding"])
-                    yr = [b["AdjClose"] for b in upto
-                          if b["Date"] > qd - timedelta(days=365) and b["AdjClose"]]
+                    yr = [
+                        b["AdjClose"]
+                        for b in upto
+                        if b["Date"] > qd - timedelta(days=365) and b["AdjClose"]
+                    ]
                     if yr and px:
                         r["Drawdown52w"] = round((px / max(yr) - 1) * 100, 1)
 
@@ -318,19 +374,29 @@ def build_features(read_companies, start: str = "2010-01-01") -> list[dict]:
 
 def join_with_labels(features: list[dict]) -> list[dict]:
     """gold/model_panel.csv = features + labels on (IID, QuarterEnd)."""
-    labels = {(r["IID"], r["QuarterEnd"]): r
-              for r in _load(config.GOLD / "label_panel.csv")}
+    labels = {(r["IID"], r["QuarterEnd"]): r for r in _load(config.GOLD / "label_panel.csv")}
     out = []
     for f in features:
         lab = labels.get((str(f["IID"]), f["QuarterEnd"])) or {}
         row = dict(f)
-        for k in ("AcquiredNext12m", "AcquiredNext24m", "MadeAcquisition12m",
-                  "AnnounceDate", "Acquirer", "LabelSource"):
+        for k in (
+            "AcquiredNext12m",
+            "AcquiredNext24m",
+            "MadeAcquisition12m",
+            "AnnounceDate",
+            "Acquirer",
+            "LabelSource",
+        ):
             row[k] = lab.get(k, "")
         out.append(row)
     return out
 
 
-MODEL_COLS = FEATURE_COLS + ["AcquiredNext12m", "AcquiredNext24m",
-                             "MadeAcquisition12m", "AnnounceDate",
-                             "Acquirer", "LabelSource"]
+MODEL_COLS = FEATURE_COLS + [
+    "AcquiredNext12m",
+    "AcquiredNext24m",
+    "MadeAcquisition12m",
+    "AnnounceDate",
+    "Acquirer",
+    "LabelSource",
+]

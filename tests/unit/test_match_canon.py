@@ -1,4 +1,5 @@
 """Unit tests for biointel.match.canon (pure function, no I/O)."""
+
 from biointel.match import canon
 
 

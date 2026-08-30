@@ -25,10 +25,11 @@ zipped before filtering, and must never be sorted independently.
 CIK TRAP: data.sec.gov needs the CIK zero-padded to 10 digits.
 sec.gov/Archives needs it WITHOUT leading zeros. Mixing them returns 404.
 """
+
 from __future__ import annotations
+
 import re
 
-from biointel import config
 from biointel.store import fetch_json
 
 SUBS_URL = "https://data.sec.gov/submissions/CIK{cik10}.json"
@@ -44,16 +45,23 @@ DEAL_ITEMS = set(ITEM_LABELS)
 
 def _zip_recent(recent: dict) -> list[dict]:
     """Columnar arrays -> list of filing dicts. Index i is one filing."""
-    keys = ["accessionNumber", "filingDate", "reportDate", "acceptanceDateTime",
-            "form", "items", "primaryDocument", "primaryDocDescription"]
+    keys = [
+        "accessionNumber",
+        "filingDate",
+        "reportDate",
+        "acceptanceDateTime",
+        "form",
+        "items",
+        "primaryDocument",
+        "primaryDocDescription",
+    ]
     present = [k for k in keys if isinstance(recent.get(k), list)]
     if not present:
         return []
     n = max(len(recent[k]) for k in present)
     out = []
     for i in range(n):
-        out.append({k: (recent[k][i] if i < len(recent[k]) else None)
-                    for k in present})
+        out.append({k: (recent[k][i] if i < len(recent[k]) else None) for k in present})
     return out
 
 
@@ -65,20 +73,20 @@ def all_filings(cik10: str) -> list[dict]:
     included so deal history is not truncated at recent filings.
     """
     try:
-        data = fetch_json(SUBS_URL.format(cik10=str(cik10).zfill(10)),
-                          tag="sec_submissions")
+        data = fetch_json(SUBS_URL.format(cik10=str(cik10).zfill(10)), tag="sec_submissions")
     except Exception:
         return []
 
     rows = _zip_recent((data.get("filings") or {}).get("recent") or {})
 
-    for extra in ((data.get("filings") or {}).get("files") or []):
+    for extra in (data.get("filings") or {}).get("files") or []:
         name = extra.get("name")
         if not name:
             continue
         try:
-            more = fetch_json(f"https://data.sec.gov/submissions/{name}",
-                              tag="sec_submissions_page")
+            more = fetch_json(
+                f"https://data.sec.gov/submissions/{name}", tag="sec_submissions_page"
+            )
         except Exception:
             continue
         rows += _zip_recent(more if isinstance(more, dict) else {})
@@ -106,24 +114,27 @@ def deal_filings(cik10: str) -> list[dict]:
 
         acc = str(f.get("accessionNumber") or "")
         acc_plain = acc.replace("-", "")
-        cik_plain = str(int(str(cik10)))          # Archives wants no padding
+        cik_plain = str(int(str(cik10)))  # Archives wants no padding
         folder = ARCHIVE.format(cik=cik_plain, acc=acc_plain)
 
         for item in found:
-            out.append({
-                "Item": item,
-                "EventType": ITEM_LABELS[item],
-                "FilingDate": f.get("filingDate"),
-                "ReportDate": f.get("reportDate"),
-                "AcceptedAt": f.get("acceptanceDateTime"),
-                "Form": form,
-                "Accession": acc,
-                "AllItems": raw,
-                "PrimaryDoc": f.get("primaryDocument"),
-                "FilingURL": f"{folder}/{f.get('primaryDocument')}"
-                             if f.get("primaryDocument") else folder,
-                "IndexURL": f"{folder}/{acc}-index.htm",
-            })
+            out.append(
+                {
+                    "Item": item,
+                    "EventType": ITEM_LABELS[item],
+                    "FilingDate": f.get("filingDate"),
+                    "ReportDate": f.get("reportDate"),
+                    "AcceptedAt": f.get("acceptanceDateTime"),
+                    "Form": form,
+                    "Accession": acc,
+                    "AllItems": raw,
+                    "PrimaryDoc": f.get("primaryDocument"),
+                    "FilingURL": f"{folder}/{f.get('primaryDocument')}"
+                    if f.get("primaryDocument")
+                    else folder,
+                    "IndexURL": f"{folder}/{acc}-index.htm",
+                }
+            )
     out.sort(key=lambda r: str(r["FilingDate"] or ""), reverse=True)
     return out
 
@@ -172,11 +183,17 @@ def exhibits(cik10: str, accession: str) -> list[dict]:
         data = fetch_json(f"{folder}/index.json", tag="sec_filing_index")
     except Exception:
         return []
-    items = ((data.get("directory") or {}).get("item") or [])
+    items = (data.get("directory") or {}).get("item") or []
     out = []
     for it in items:
         nm = it.get("name") or ""
-        out.append({"Name": nm, "Size": it.get("size"),
-                    "Type": exhibit_type_from_name(nm),
-                    "RawType": it.get("type"), "URL": f"{folder}/{nm}"})
+        out.append(
+            {
+                "Name": nm,
+                "Size": it.get("size"),
+                "Type": exhibit_type_from_name(nm),
+                "RawType": it.get("type"),
+                "URL": f"{folder}/{nm}",
+            }
+        )
     return out

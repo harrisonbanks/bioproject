@@ -1,4 +1,5 @@
 """SEC EDGAR. Port of the CompanyLookup Power Query (SEC half)."""
+
 from __future__ import annotations
 
 from biointel import config
@@ -24,9 +25,15 @@ def company_identity(ticker: str) -> dict:
     state_of_incorporation}. name is 'TICKER NOT FOUND' when unresolved."""
     cik10 = ticker_to_cik(ticker)
     if cik10 is None:
-        return {"ticker": ticker.strip().upper(), "cik": "",
-                "name": "TICKER NOT FOUND", "sic": "", "sic_description": "",
-                "exchange": "", "state_of_incorporation": ""}
+        return {
+            "ticker": ticker.strip().upper(),
+            "cik": "",
+            "name": "TICKER NOT FOUND",
+            "sic": "",
+            "sic_description": "",
+            "exchange": "",
+            "state_of_incorporation": "",
+        }
     sub = submissions(cik10)
     exch = sub.get("exchanges") or []
     return {

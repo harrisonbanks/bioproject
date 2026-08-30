@@ -1,4 +1,6 @@
-import csv, collections
+import collections
+import csv
+
 from biointel import config
 
 rows = list(csv.DictReader(config.EVENTS_CSV.open(encoding="utf-8")))

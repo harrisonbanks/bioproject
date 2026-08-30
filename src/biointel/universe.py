@@ -29,28 +29,42 @@ parse result, and the full `universe` build refuses to run until a probe
 has succeeded on this machine. Patterns get fixed against real output,
 never assumed -- the counterparty rewrite earned that rule.
 """
+
 from __future__ import annotations
+
 import re
-import xml.etree.ElementTree as ET
 from datetime import date
 
 from biointel import config
 from biointel.store import fetch_json
 
-BROWSE = ("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany"
-          "&SIC={sic}&type=10-K&owner=include&count=100&start={start}"
-          "&output=atom")
+BROWSE = (
+    "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany"
+    "&SIC={sic}&type=10-K&owner=include&count=100&start={start}"
+    "&output=atom"
+)
 SICS = ("2836", "2834")
 WINDOW_START = "2001-01-01"
 ANNUAL_FORMS = {"10-K", "10-K/A", "10-K405", "10-K405/A", "10-KSB", "10-KSB/A", "20-F", "20-F/A"}
-FORM25 = {"25", "25/A", "25-NSE", "25-NSE/A"}          # exchange-specific
-FORM15 = {"15-12B", "15-12G", "15-15D"}                # deregistration (OTC too)
+FORM25 = {"25", "25/A", "25-NSE", "25-NSE/A"}  # exchange-specific
+FORM15 = {"15-12B", "15-12G", "15-15D"}  # deregistration (OTC too)
 DELIST_FORMS = FORM25 | FORM15
 EXCH_RE = re.compile(r"(?i)nyse|nasdaq")
 
-UNIVERSE_COLS = ["CIK", "Name", "Tickers", "Exchanges", "SIC",
-                 "FirstAnnualInWindow", "LastFilingDate", "Delisted",
-                 "DelistEvidence", "InDevSet", "InclusionRule", "EntryDate"]
+UNIVERSE_COLS = [
+    "CIK",
+    "Name",
+    "Tickers",
+    "Exchanges",
+    "SIC",
+    "FirstAnnualInWindow",
+    "LastFilingDate",
+    "Delisted",
+    "DelistEvidence",
+    "InDevSet",
+    "InclusionRule",
+    "EntryDate",
+]
 
 PROBE_MARKER = config.BRONZE / "sec_browse" / "PROBE_OK"
 
@@ -61,8 +75,10 @@ def _fetch_atom(sic: str, start: int) -> str:
     return raw if isinstance(raw, str) else str(raw)
 
 
-FEED_JUNK_RE = re.compile(r"(?i)company search|search feed|search results|"
-                          r"^edgar\b|webmaster")
+FEED_JUNK_RE = re.compile(
+    r"(?i)company search|search feed|search results|"
+    r"^edgar\b|webmaster"
+)
 
 
 def _clean_name(v: str) -> str:
@@ -85,18 +101,21 @@ def parse_atom(xml_text: str) -> list[dict]:
     """
     out, seen = [], set()
     for block in re.split(r"(?i)<entry[ >]", xml_text)[1:]:
-        cm = (re.search(r"<cik>\s*0*(\d{4,10})\s*</cik>", block)
-              or re.search(r"CIK=(\d{4,10})", block))
+        cm = re.search(r"<cik>\s*0*(\d{4,10})\s*</cik>", block) or re.search(
+            r"CIK=(\d{4,10})", block
+        )
         if not cm:
             continue
         cik = cm.group(1).zfill(10)
         if cik in seen:
             continue
         name = ""
-        for pat in (r"<conformed-name>([^<]{2,150})</conformed-name>",
-                    r"<company-name>([^<]{2,150})</company-name>",
-                    r'name="([^"]{2,150})"',
-                    r"<title>([^<]{2,150})</title>"):
+        for pat in (
+            r"<conformed-name>([^<]{2,150})</conformed-name>",
+            r"<company-name>([^<]{2,150})</company-name>",
+            r'name="([^"]{2,150})"',
+            r"<title>([^<]{2,150})</title>",
+        ):
             m = re.search(pat, block)
             if m and _clean_name(m.group(1)):
                 name = _clean_name(m.group(1))
@@ -111,38 +130,44 @@ def probe() -> dict:
     try:
         raw = _fetch_atom("2836", 0)
     except Exception as exc:
-        return {"status": "fail",
-                "message": f"FETCH FAILED: {exc}. browse-edgar unreachable "
-                           "or blocked; paste this output back."}
+        return {
+            "status": "fail",
+            "message": f"FETCH FAILED: {exc}. browse-edgar unreachable "
+            "or blocked; paste this output back.",
+        }
     head = raw[:1800].replace("\n", " ")
     entries = parse_atom(raw)
     named = sum(1 for e in entries if e["name"])
     if len(entries) >= 20:
         PROBE_MARKER.parent.mkdir(parents=True, exist_ok=True)
         PROBE_MARKER.write_text(date.today().isoformat())
-        sample = "; ".join(f"{e['name'] or '(name-from-submissions)'} "
-                           f"[{e['cik']}]" for e in entries[:5])
-        return {"status": "ok",
-                "message": f"PARSE OK: {len(entries)} companies on page 1 "
-                           f"({named} with inline names). Sample: {sample}. "
-                           "`universe` is now unlocked."}
-    return {"status": "fail",
-            "message": "PARSE FAILED. Raw head follows -- paste this whole "
-                       f"output back so the parser is fixed on real data:\n{head}"}
+        sample = "; ".join(
+            f"{e['name'] or '(name-from-submissions)'} [{e['cik']}]" for e in entries[:5]
+        )
+        return {
+            "status": "ok",
+            "message": f"PARSE OK: {len(entries)} companies on page 1 "
+            f"({named} with inline names). Sample: {sample}. "
+            "`universe` is now unlocked.",
+        }
+    return {
+        "status": "fail",
+        "message": "PARSE FAILED. Raw head follows -- paste this whole "
+        f"output back so the parser is fixed on real data:\n{head}",
+    }
 
 
 def _submission_detail(cik10: str) -> dict:
     try:
         data = fetch_json(
-            f"https://data.sec.gov/submissions/CIK{cik10}.json",
-            tag="sec_submissions")
+            f"https://data.sec.gov/submissions/CIK{cik10}.json", tag="sec_submissions"
+        )
     except Exception:
         return {}
     rec = (data.get("filings") or {}).get("recent") or {}
     forms = rec.get("form", [])
     dates = rec.get("filingDate", [])
-    annual = sorted(d for f, d in zip(forms, dates)
-                    if f in ANNUAL_FORMS and d >= WINDOW_START)
+    annual = sorted(d for f, d in zip(forms, dates) if f in ANNUAL_FORMS and d >= WINDOW_START)
     last = max(dates) if dates else ""
     delist_forms = [f for f in forms if f in DELIST_FORMS]
     form25 = [f for f in delist_forms if f in FORM25]
@@ -156,19 +181,21 @@ def _submission_detail(cik10: str) -> dict:
         "last_filing": last,
         "delisted": bool(delist_forms) and bool(stale),
         "was_exchange_listed": bool(form25),
-        "delist_evidence": ("; ".join(sorted(set(delist_forms))[:3])
-                           + ("; stale" if stale else "")).strip("; "),
+        "delist_evidence": (
+            "; ".join(sorted(set(delist_forms))[:3]) + ("; stale" if stale else "")
+        ).strip("; "),
     }
 
 
-def build(read_companies, max_pages_per_sic: int = 40,
-          detail_limit: int | None = None) -> dict:
+def build(read_companies, max_pages_per_sic: int = 40, detail_limit: int | None = None) -> dict:
     """Full universe build. Refuses to run before a successful probe."""
     if not PROBE_MARKER.exists():
-        return {"status": "blocked",
-                "message": "Run `python -m biointel universe-probe` first; the "
-                           "browse-edgar parser must succeed on real output "
-                           "before a full build."}
+        return {
+            "status": "blocked",
+            "message": "Run `python -m biointel universe-probe` first; the "
+            "browse-edgar parser must succeed on real output "
+            "before a full build.",
+        }
     dev_ciks = {str(c.get("CIK", "")).lstrip("0") for c in read_companies()}
 
     candidates: dict[str, dict] = {}
@@ -182,10 +209,11 @@ def build(read_companies, max_pages_per_sic: int = 40,
             if not entries:
                 break
             for e in entries:
-                candidates.setdefault(e["cik"], {"name": e["name"],
-                                                 "sic_seen": sic})
-            print(f"  SIC {sic} page {page + 1}: "
-                  f"{len(candidates)} unique candidates so far", flush=True)
+                candidates.setdefault(e["cik"], {"name": e["name"], "sic_seen": sic})
+            print(
+                f"  SIC {sic} page {page + 1}: {len(candidates)} unique candidates so far",
+                flush=True,
+            )
     rows, checked = [], 0
     for cik10, base in sorted(candidates.items()):
         pass_name = base["name"]
@@ -193,39 +221,50 @@ def build(read_companies, max_pages_per_sic: int = 40,
             break
         checked += 1
         if checked % 50 == 0:
-            print(f"  screening {checked}/{len(candidates)}: "
-                  f"{len(rows)} members admitted so far", flush=True)
+            print(
+                f"  screening {checked}/{len(candidates)}: {len(rows)} members admitted so far",
+                flush=True,
+            )
         d = _submission_detail(cik10)
         if d and not pass_name:
             pass_name = d.get("entity_name", "")
         base["name"] = pass_name
         if not d or not d["first_annual"]:
-            continue                    # no in-window annual report
+            continue  # no in-window annual report
         listed_now = bool(EXCH_RE.search(d["exchanges"] or ""))
-        was_listed = bool(d.get("was_exchange_listed"))   # Form 25 family only
+        was_listed = bool(d.get("was_exchange_listed"))  # Form 25 family only
         if not (listed_now or was_listed):
-            continue                    # never on a national exchange
-        rows.append({
-            "CIK": cik10, "Name": base["name"], "Tickers": d["tickers"],
-            "Exchanges": d["exchanges"], "SIC": d["sic"] or base["sic_seen"],
-            "FirstAnnualInWindow": d["first_annual"],
-            "LastFilingDate": d["last_filing"],
-            "Delisted": "yes" if d["delisted"] else "",
-            "DelistEvidence": d["delist_evidence"],
-            "InDevSet": "yes" if cik10.lstrip("0") in dev_ciks else "",
-            "InclusionRule": f"SIC {'/'.join(SICS)}; annual>={WINDOW_START}; "
-                             "NYSE/Nasdaq; delisted kept",
-            "EntryDate": d["first_annual"],
-        })
+            continue  # never on a national exchange
+        rows.append(
+            {
+                "CIK": cik10,
+                "Name": base["name"],
+                "Tickers": d["tickers"],
+                "Exchanges": d["exchanges"],
+                "SIC": d["sic"] or base["sic_seen"],
+                "FirstAnnualInWindow": d["first_annual"],
+                "LastFilingDate": d["last_filing"],
+                "Delisted": "yes" if d["delisted"] else "",
+                "DelistEvidence": d["delist_evidence"],
+                "InDevSet": "yes" if cik10.lstrip("0") in dev_ciks else "",
+                "InclusionRule": f"SIC {'/'.join(SICS)}; annual>={WINDOW_START}; "
+                "NYSE/Nasdaq; delisted kept",
+                "EntryDate": d["first_annual"],
+            }
+        )
 
     import csv as _csv
+
     path = config.SILVER / "universe.csv"
     with path.open("w", newline="", encoding="utf-8") as f:
         w = _csv.DictWriter(f, fieldnames=UNIVERSE_COLS, extrasaction="ignore")
-        w.writeheader(); w.writerows(rows)
+        w.writeheader()
+        w.writerows(rows)
     n_del = sum(1 for r in rows if r["Delisted"])
-    return {"status": "ok",
-            "message": f"{len(rows)} universe members -> {path} "
-                       f"({len(candidates)} SIC candidates screened, "
-                       f"{n_del} delisted kept, "
-                       f"{sum(1 for r in rows if r['InDevSet'])} in dev set)."}
+    return {
+        "status": "ok",
+        "message": f"{len(rows)} universe members -> {path} "
+        f"({len(candidates)} SIC candidates screened, "
+        f"{n_del} delisted kept, "
+        f"{sum(1 for r in rows if r['InDevSet'])} in dev set).",
+    }

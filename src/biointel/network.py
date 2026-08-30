@@ -14,13 +14,13 @@ than drug companies. A biotech may need a manufacturer, a diagnostics
 partner to find the right patients, or a research services firm, and the
 type tells you which.
 """
+
 from __future__ import annotations
-import re
+
 import unicodedata
 from collections import defaultdict
 
-from biointel import config
-from biointel.match import canon, LEGAL_SUFFIXES, DESCRIPTORS
+from biointel.match import DESCRIPTORS, LEGAL_SUFFIXES
 
 STRIP_WORDS = LEGAL_SUFFIXES | DESCRIPTORS
 
@@ -39,43 +39,142 @@ CLASS_MAP = {
 # Keyword rules refine "Industry" and "Other" into ecosystem roles.
 # Order matters: first match wins.
 TYPE_RULES = [
-    ("CRO", [
-        "quintiles", "iqvia", "parexel", "icon plc", "syneos", "ppd",
-        "covance", "labcorp drug development", "medpace", "pra health",
-        "contract research", "worldwide clinical", "veristat", "emmes",
-        "clinipace", "novotech", "fortrea", "novella clinical", "pharm-olam",
-        "premier research", "kcr ", "psi cro", "wcct", "celerion",
-    ]),
-    ("CDMO/Manufacturing", [
-        "lonza", "catalent", "samsung biologics", "wuxi", "boehringer ingelheim biopharm",
-        "thermo fisher", "patheon", "recipharm", "cambrex", "avid bio",
-        "contract manufactur", "fujifilm diosynth", "charles river",
-    ]),
-    ("Diagnostics/Lab", [
-        "diagnostic", "laboratories", "labcorp", "quest diagnostics",
-        "foundation medicine", "guardant", "exact sciences", "natera",
-        "myriad genetics", "illumina", "qiagen", "biomarker", "pathology",
-    ]),
-    ("Device/Delivery", [
-        "medtronic", "boston scientific", "abbott", "becton", "baxter",
-        "stryker", "edwards lifesciences", "insulet", "dexcom", "device",
-    ]),
+    (
+        "CRO",
+        [
+            "quintiles",
+            "iqvia",
+            "parexel",
+            "icon plc",
+            "syneos",
+            "ppd",
+            "covance",
+            "labcorp drug development",
+            "medpace",
+            "pra health",
+            "contract research",
+            "worldwide clinical",
+            "veristat",
+            "emmes",
+            "clinipace",
+            "novotech",
+            "fortrea",
+            "novella clinical",
+            "pharm-olam",
+            "premier research",
+            "kcr ",
+            "psi cro",
+            "wcct",
+            "celerion",
+        ],
+    ),
+    (
+        "CDMO/Manufacturing",
+        [
+            "lonza",
+            "catalent",
+            "samsung biologics",
+            "wuxi",
+            "boehringer ingelheim biopharm",
+            "thermo fisher",
+            "patheon",
+            "recipharm",
+            "cambrex",
+            "avid bio",
+            "contract manufactur",
+            "fujifilm diosynth",
+            "charles river",
+        ],
+    ),
+    (
+        "Diagnostics/Lab",
+        [
+            "diagnostic",
+            "laboratories",
+            "labcorp",
+            "quest diagnostics",
+            "foundation medicine",
+            "guardant",
+            "exact sciences",
+            "natera",
+            "myriad genetics",
+            "illumina",
+            "qiagen",
+            "biomarker",
+            "pathology",
+        ],
+    ),
+    (
+        "Device/Delivery",
+        [
+            "medtronic",
+            "boston scientific",
+            "abbott",
+            "becton",
+            "baxter",
+            "stryker",
+            "edwards lifesciences",
+            "insulet",
+            "dexcom",
+            "device",
+        ],
+    ),
     ("Imaging", ["imaging", "radiology", "siemens healthineers", "ge healthcare"]),
-    ("Academic", [
-        "university", "universit", "college", "school of medicine", "institute of technology",
-        "hospital", "medical center", "medical centre", "clinic", "cancer center",
-        "cancer centre", "health system", "academic", "faculty", "khoo teck",
-        "sloan kettering", "dana-farber", "mayo", "cleveland clinic", "md anderson",
-    ]),
-    ("Foundation/Nonprofit", [
-        "foundation", "charit", "trust", "association", "society",
-        "cure ", "research fund", "nonprofit", "non-profit",
-    ]),
-    ("Government", [
-        "national institute", "national cancer", "nih", "nci ", "cdc",
-        "department of", "ministry of", "agency", "health canada",
-        "veterans affairs", "nhs ",
-    ]),
+    (
+        "Academic",
+        [
+            "university",
+            "universit",
+            "college",
+            "school of medicine",
+            "institute of technology",
+            "hospital",
+            "medical center",
+            "medical centre",
+            "clinic",
+            "cancer center",
+            "cancer centre",
+            "health system",
+            "academic",
+            "faculty",
+            "khoo teck",
+            "sloan kettering",
+            "dana-farber",
+            "mayo",
+            "cleveland clinic",
+            "md anderson",
+        ],
+    ),
+    (
+        "Foundation/Nonprofit",
+        [
+            "foundation",
+            "charit",
+            "trust",
+            "association",
+            "society",
+            "cure ",
+            "research fund",
+            "nonprofit",
+            "non-profit",
+        ],
+    ),
+    (
+        "Government",
+        [
+            "national institute",
+            "national cancer",
+            "nih",
+            "nci ",
+            "cdc",
+            "department of",
+            "ministry of",
+            "agency",
+            "health canada",
+            "veterans affairs",
+            "nhs ",
+        ],
+    ),
 ]
 
 
@@ -136,7 +235,7 @@ def _norm(name: str) -> str:
         "HOFFMANN LA ROCHE": "ROCHE",
         "HOFFMANN LAROCHE": "ROCHE",
         "LA ROCHE": "ROCHE",
-        "GENENTECH": "GENENTECH",          # kept distinct deliberately
+        "GENENTECH": "GENENTECH",  # kept distinct deliberately
         "MERCK SHARP AND DOHME": "MERCK SHARP DOHME",
     }
     for pat, canon_key in FAMILY.items():
@@ -156,17 +255,26 @@ def build_network(trials: list[dict], companies: list[dict]) -> dict:
     name_by_iid = {str(c["IID"]): c.get("Name", "") for c in companies}
     tick_by_iid = {str(c["IID"]): c.get("Ticker", "") for c in companies}
 
-    agg = defaultdict(lambda: {
-        "Trials": 0, "Phases": set(), "Conditions": set(),
-        "First": None, "Last": None, "RawNames": set(), "Classes": set(),
-    })
+    agg = defaultdict(
+        lambda: {
+            "Trials": 0,
+            "Phases": set(),
+            "Conditions": set(),
+            "First": None,
+            "Last": None,
+            "RawNames": set(),
+            "Classes": set(),
+        }
+    )
 
     for t in trials:
         iid = str(t.get("IID", "")).strip()
         if not iid:
             continue
         names = [x.strip() for x in str(t.get("Collaborators") or "").split(";") if x.strip()]
-        classes = [x.strip() for x in str(t.get("CollaboratorClasses") or "").split(";") if x.strip()]
+        classes = [
+            x.strip() for x in str(t.get("CollaboratorClasses") or "").split(";") if x.strip()
+        ]
         if not names:
             continue
         for i, nm in enumerate(names):
@@ -200,20 +308,22 @@ def build_network(trials: list[dict], companies: list[dict]) -> dict:
     for (iid, key), a in agg.items():
         display = sorted(a["RawNames"], key=len)[0]
         cls = "; ".join(sorted(a["Classes"]))
-        edges.append({
-            "IID": int(iid),
-            "Company": name_by_iid.get(iid, ""),
-            "Ticker": tick_by_iid.get(iid, ""),
-            "Collaborator": display,
-            "CollaboratorKey": key,
-            "Type": classify(display, cls),
-            "CTGovClass": cls,
-            "Trials": a["Trials"],
-            "Phases": "; ".join(sorted(a["Phases"])),
-            "TherapyAreas": "; ".join(sorted(a["Conditions"])[:5]),
-            "FirstTrial": a["First"] or "",
-            "LastTrial": a["Last"] or "",
-        })
+        edges.append(
+            {
+                "IID": int(iid),
+                "Company": name_by_iid.get(iid, ""),
+                "Ticker": tick_by_iid.get(iid, ""),
+                "Collaborator": display,
+                "CollaboratorKey": key,
+                "Type": classify(display, cls),
+                "CTGovClass": cls,
+                "Trials": a["Trials"],
+                "Phases": "; ".join(sorted(a["Phases"])),
+                "TherapyAreas": "; ".join(sorted(a["Conditions"])[:5]),
+                "FirstTrial": a["First"] or "",
+                "LastTrial": a["Last"] or "",
+            }
+        )
     edges.sort(key=lambda r: (r["IID"], -r["Trials"], r["Collaborator"]))
 
     by_co = defaultdict(lambda: defaultdict(int))
@@ -223,13 +333,29 @@ def build_network(trials: list[dict], companies: list[dict]) -> dict:
     for c in companies:
         iid = int(c["IID"])
         types = by_co.get(iid, {})
-        summary.append({
-            "IID": iid, "Ticker": c.get("Ticker", ""), "Company": c.get("Name", ""),
-            "TotalPartners": sum(types.values()),
-            **{k: types.get(k, 0) for k in
-               ["Industry (unclassified)", "CRO", "CDMO/Manufacturing",
-                "Diagnostics/Lab", "Device/Delivery", "Imaging", "Academic",
-                "Foundation/Nonprofit", "Government", "Network", "Other"]},
-        })
+        summary.append(
+            {
+                "IID": iid,
+                "Ticker": c.get("Ticker", ""),
+                "Company": c.get("Name", ""),
+                "TotalPartners": sum(types.values()),
+                **{
+                    k: types.get(k, 0)
+                    for k in [
+                        "Industry (unclassified)",
+                        "CRO",
+                        "CDMO/Manufacturing",
+                        "Diagnostics/Lab",
+                        "Device/Delivery",
+                        "Imaging",
+                        "Academic",
+                        "Foundation/Nonprofit",
+                        "Government",
+                        "Network",
+                        "Other",
+                    ]
+                },
+            }
+        )
     summary.sort(key=lambda r: -r["TotalPartners"])
     return {"edges": edges, "summary": summary}

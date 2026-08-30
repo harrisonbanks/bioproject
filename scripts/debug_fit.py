@@ -9,9 +9,17 @@ def ck(msg):
 
 ck("0 imports")
 import csv as _csv
+
 from biointel import config
-from biointel.fit import (FEATURES, SPLIT, _n, _standardize,
-                          _fit_logistic, _sigmoid, _auc_pr, _auc_roc)
+from biointel.fit import (
+    FEATURES,
+    SPLIT,
+    _auc_pr,
+    _auc_roc,
+    _n,
+    _sigmoid,
+    _standardize,
+)
 
 ck("1 load panel")
 with (config.GOLD / "model_panel.csv").open(encoding="utf-8") as f:
@@ -30,12 +38,13 @@ if epath.exists():
                     announce_by_iid[iid] = d
 ck(f"3 censor map={len(announce_by_iid)}")
 
-usable = [r for r in rows
-          if (r.get("Currency") or "USD") == "USD"
-          and (_n(r.get("CashSTI")) is not None
-               or (_n(r.get("TrialsTotal")) or 0) > 0)
-          and not (str(r["IID"]) in announce_by_iid
-                   and r["QuarterEnd"] >= announce_by_iid[str(r["IID"])])]
+usable = [
+    r
+    for r in rows
+    if (r.get("Currency") or "USD") == "USD"
+    and (_n(r.get("CashSTI")) is not None or (_n(r.get("TrialsTotal")) or 0) > 0)
+    and not (str(r["IID"]) in announce_by_iid and r["QuarterEnd"] >= announce_by_iid[str(r["IID"])])
+]
 ck(f"4 usable={len(usable)}")
 
 train = [r for r in usable if r["QuarterEnd"] <= SPLIT]
@@ -61,6 +70,7 @@ w_pos = (n - pos) / max(pos, 1)
 w = [0.0] * d
 b = 0.0
 import math
+
 for it in range(400):
     gb = 0.0
     gw = [0.0] * d
@@ -85,11 +95,14 @@ ck("12 scored test")
 ck(f"13 AUC-PR test={_auc_pr(ste, yte):.4f} ROC={_auc_roc(ste, yte):.4f}")
 
 from datetime import date, timedelta
+
 mature_cut = (date.today() - timedelta(days=365)).isoformat()
 mature_qs = [r["QuarterEnd"] for r in test if r["QuarterEnd"] <= mature_cut]
 last_q = max(mature_qs) if mature_qs else max(r["QuarterEnd"] for r in test)
 idx_last = [i for i, r in enumerate(test) if r["QuarterEnd"] == last_q]
 top10 = sorted(idx_last, key=lambda i: -ste[i])[:10]
-ck(f"14 mature quarter {last_q}: precision@10="
-   f"{sum(yte[i] for i in top10)/max(len(top10),1):.2f}")
+ck(
+    f"14 mature quarter {last_q}: precision@10="
+    f"{sum(yte[i] for i in top10) / max(len(top10), 1):.2f}"
+)
 ck("15 COMPLETE - crash not reproduced in harness")

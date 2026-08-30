@@ -24,15 +24,17 @@ Yahoo source. If the benchmark cannot be fetched, CAR falls back to RAW
 cumulative return and the row is marked Benchmark='none' -- a raw number
 labelled as raw, never a silent substitute.
 """
+
 from __future__ import annotations
+
 import math
 from datetime import date, timedelta
 
 from biointel import config
 from biointel.sources import prices
 
-BENCHMARK = "XBI"          # SPDR S&P Biotech; SPY available as check
-EST_DAYS = 120             # estimation window length (trading days), ends at RelDay -11
+BENCHMARK = "XBI"  # SPDR S&P Biotech; SPY available as check
+EST_DAYS = 120  # estimation window length (trading days), ends at RelDay -11
 
 
 def _rets(bars: list[dict]) -> list[float | None]:
@@ -95,7 +97,7 @@ def event_metrics(ticker: str, event_date: date) -> dict:
         if sr is None:
             return None
         if beta is None:
-            return sr                       # raw fallback
+            return sr  # raw fallback
         br = brets_by_date.get(stock[i]["Date"])
         if br is None:
             return None
@@ -123,10 +125,16 @@ def event_metrics(ticker: str, event_date: date) -> dict:
     intraday = (c / o - 1) * 100 if (o and c) else None
 
     # ---- abnormal volume ----------------------------------------------
-    base_vol = [stock[t0 + r]["Volume"] for r in range(-10, -1)
-                if 0 <= t0 + r < len(stock) and stock[t0 + r]["Volume"]]
-    abn_vol = (stock[t0]["Volume"] / (sum(base_vol) / len(base_vol))
-               if base_vol and stock[t0]["Volume"] else None)
+    base_vol = [
+        stock[t0 + r]["Volume"]
+        for r in range(-10, -1)
+        if 0 <= t0 + r < len(stock) and stock[t0 + r]["Volume"]
+    ]
+    abn_vol = (
+        stock[t0]["Volume"] / (sum(base_vol) / len(base_vol))
+        if base_vol and stock[t0]["Volume"]
+        else None
+    )
 
     # ---- volatility shift ---------------------------------------------
     def _std(vals):
@@ -141,8 +149,11 @@ def event_metrics(ticker: str, event_date: date) -> dict:
     vol_shift = (post_sd / pre_sd) if (pre_sd and post_sd) else None
 
     # ---- post-event drift: fast(3) vs slow(7) mean of AdjClose at +10 --
-    post = [stock[t0 + r]["AdjClose"] for r in range(0, 11)
-            if t0 + r < len(stock) and stock[t0 + r]["AdjClose"]]
+    post = [
+        stock[t0 + r]["AdjClose"]
+        for r in range(0, 11)
+        if t0 + r < len(stock) and stock[t0 + r]["AdjClose"]
+    ]
     drift = None
     if len(post) >= 8:
         fast = sum(post[-3:]) / 3
@@ -150,14 +161,18 @@ def event_metrics(ticker: str, event_date: date) -> dict:
         drift = (fast / slow - 1) * 100
 
     return {
-        "Ticker": ticker, "EventDate": event_date.isoformat(),
+        "Ticker": ticker,
+        "EventDate": event_date.isoformat(),
         "T0Date": stock[t0]["Date"].isoformat(),
         "Benchmark": BENCHMARK if beta is not None else "none",
         "Beta": round(beta, 3) if beta is not None else None,
-        "CAR_m1_p1": _r(car(-1, 1)), "CAR_0_p1": _r(car(0, 1)),
+        "CAR_m1_p1": _r(car(-1, 1)),
+        "CAR_0_p1": _r(car(0, 1)),
         "CAR_m5_p5": _r(car(-5, 5)),
-        "T0Gap": _r(gap), "T0Intraday": _r(intraday),
-        "AbnVolume": _r(abn_vol), "VolShift": _r(vol_shift),
+        "T0Gap": _r(gap),
+        "T0Intraday": _r(intraday),
+        "AbnVolume": _r(abn_vol),
+        "VolShift": _r(vol_shift),
         "Drift10": _r(drift),
     }
 
@@ -166,14 +181,30 @@ def _r(v, nd=2):
     return None if v is None else round(v, nd)
 
 
-STUDY_COLS = ["IID", "Company", "Ticker", "Event", "Outcome", "Drug", "AppNo",
-              "EventDate", "T0Date", "Benchmark", "Beta",
-              "CAR_m1_p1", "CAR_0_p1", "CAR_m5_p5",
-              "T0Gap", "T0Intraday", "AbnVolume", "VolShift", "Drift10"]
+STUDY_COLS = [
+    "IID",
+    "Company",
+    "Ticker",
+    "Event",
+    "Outcome",
+    "Drug",
+    "AppNo",
+    "EventDate",
+    "T0Date",
+    "Benchmark",
+    "Beta",
+    "CAR_m1_p1",
+    "CAR_0_p1",
+    "CAR_m5_p5",
+    "T0Gap",
+    "T0Intraday",
+    "AbnVolume",
+    "VolShift",
+    "Drift10",
+]
 
 
-def run_study(events: list[dict], companies: list[dict],
-              since: str = "2010-01-01") -> list[dict]:
+def run_study(events: list[dict], companies: list[dict], since: str = "2010-01-01") -> list[dict]:
     """Metrics for every event since `since` (price coverage era)."""
     tick = {str(c["IID"]): c.get("Ticker", "") for c in companies}
     name = {str(c["IID"]): c.get("Name", "") for c in companies}
@@ -188,22 +219,39 @@ def run_study(events: list[dict], companies: list[dict],
         m = event_metrics(t, date.fromisoformat(d))
         if not m:
             continue
-        out.append({"IID": int(e["IID"]), "Company": name.get(str(e["IID"]), ""),
-                    "Event": e.get("Event"), "Outcome": e.get("Outcome"),
-                    "Drug": e.get("Drug"), "AppNo": e.get("AppNo"), **m})
+        out.append(
+            {
+                "IID": int(e["IID"]),
+                "Company": name.get(str(e["IID"]), ""),
+                "Event": e.get("Event"),
+                "Outcome": e.get("Outcome"),
+                "Drug": e.get("Drug"),
+                "AppNo": e.get("AppNo"),
+                **m,
+            }
+        )
     return out
 
 
 def summarize(rows: list[dict]) -> list[dict]:
     """Mean and median of each metric by outcome class."""
-    from collections import defaultdict
     import statistics as st
+    from collections import defaultdict
+
     groups = defaultdict(list)
     for r in rows:
         key = f"{r.get('Event')}/{r.get('Outcome')}"
         groups[key].append(r)
-    metrics = ["CAR_m1_p1", "CAR_0_p1", "CAR_m5_p5", "T0Gap", "T0Intraday",
-               "AbnVolume", "VolShift", "Drift10"]
+    metrics = [
+        "CAR_m1_p1",
+        "CAR_0_p1",
+        "CAR_m5_p5",
+        "T0Gap",
+        "T0Intraday",
+        "AbnVolume",
+        "VolShift",
+        "Drift10",
+    ]
     out = []
     for key, rs in sorted(groups.items()):
         row = {"OutcomeClass": key, "N": len(rs)}

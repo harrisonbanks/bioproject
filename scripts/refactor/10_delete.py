@@ -11,7 +11,9 @@ step 0 and refuses to finish if either output hash changed.
 Run from anywhere: python scripts/refactor/10_delete.py
 Reverse: git checkout -- . ; git clean -fd  (before commit)
 """
+
 from __future__ import annotations
+
 import ast
 import re
 import subprocess
@@ -50,17 +52,29 @@ openpyxl>=3.1
 
 # ---------------------------------------------------------------- function removals
 DEAD_FUNCS = {
-    PKG / "pipeline.py": ["crsp_import"],                       # retired, PROJECT_STATUS v0.4x
-    PKG / "sources" / "counterparty.py": ["ner_status"],        # never called
-    PKG / "study.py": ["_pair_by_date"],                        # never called
-    PKG / "sources" / "patents.py": [                           # bulk route dead, v0.71-0.73
-        "_ranged_head", "probe", "_download_resumable", "_rows",
-        "_company_canon_map", "build_from_local", "_find_local", "ingest",
+    PKG / "pipeline.py": ["crsp_import"],  # retired, PROJECT_STATUS v0.4x
+    PKG / "sources" / "counterparty.py": ["ner_status"],  # never called
+    PKG / "study.py": ["_pair_by_date"],  # never called
+    PKG / "sources" / "patents.py": [  # bulk route dead, v0.71-0.73
+        "_ranged_head",
+        "probe",
+        "_download_resumable",
+        "_rows",
+        "_company_canon_map",
+        "build_from_local",
+        "_find_local",
+        "ingest",
     ],
 }
 DEAD_CONSTS = {
-    PKG / "sources" / "patents.py": ["ODP_API_KEY", "S3_BASE", "ODP_SEARCH",
-                                     "BULK_FILES", "PROBE_MARKER", "OUT_COLS"],
+    PKG / "sources" / "patents.py": [
+        "ODP_API_KEY",
+        "S3_BASE",
+        "ODP_SEARCH",
+        "BULK_FILES",
+        "PROBE_MARKER",
+        "OUT_COLS",
+    ],
 }
 PATENTS_DOC = '''"""Patent layer: firm-technology substrate from Google Patents Public
 Datasets on BigQuery (adopted route, PROJECT_STATUS v0.73).
@@ -77,9 +91,15 @@ match.canon() exact equality, so failures are missing, never wrong.
 """'''
 
 # ---------------------------------------------------------------- pairs -> baselines
-MOVE_TO_BASELINES = ["evaluate_pairs", "_pair_features", "supervised_pairs",
-                     "pairs_protocol", "_patent_docs", "_target_docs",
-                     "pairs_substrates"]
+MOVE_TO_BASELINES = [
+    "evaluate_pairs",
+    "_pair_features",
+    "supervised_pairs",
+    "pairs_protocol",
+    "_patent_docs",
+    "_target_docs",
+    "pairs_substrates",
+]
 BASELINES_HEADER = '''"""Rejected pairing engines, retained as the paper's measured baselines.
 
 Moved verbatim from pairs.py in refactor step 1. None of these is on
@@ -106,14 +126,19 @@ from .pairs import (_acquirer_side_iids, _firm_docs, _sim_matrix,
 CLI_HELP_REMOVE = ["  python cli.py patents-probe "]
 CLI_BRANCH_REMOVE = ["patents-probe", "patents-ingest"]
 CLI_IMPORT_REWRITES = [
-    ("from biointel.pairs import pairs_substrates",
-     "from biointel.baselines import pairs_substrates"),
-    ("from biointel.pairs import evaluate_pairs, build_pair_feature",
-     "from biointel.baselines import evaluate_pairs\n        from biointel.pairs import build_pair_feature"),
-    ("from biointel.pairs import supervised_pairs",
-     "from biointel.baselines import supervised_pairs"),
-    ("from biointel.pairs import pairs_protocol",
-     "from biointel.baselines import pairs_protocol"),
+    (
+        "from biointel.pairs import pairs_substrates",
+        "from biointel.baselines import pairs_substrates",
+    ),
+    (
+        "from biointel.pairs import evaluate_pairs, build_pair_feature",
+        "from biointel.baselines import evaluate_pairs\n        from biointel.pairs import build_pair_feature",
+    ),
+    (
+        "from biointel.pairs import supervised_pairs",
+        "from biointel.baselines import supervised_pairs",
+    ),
+    ("from biointel.pairs import pairs_protocol", "from biointel.baselines import pairs_protocol"),
 ]
 
 
@@ -143,13 +168,22 @@ def cut_nodes(src: str, names: set[str], kinds: tuple) -> tuple[str, dict[str, s
     for n in top_level_nodes(src):
         if isinstance(n, ast.FunctionDef) and ast.FunctionDef in kinds and n.name in names:
             nm = n.name
-        elif (isinstance(n, ast.Assign) and ast.Assign in kinds and len(n.targets) == 1
-              and isinstance(n.targets[0], ast.Name) and n.targets[0].id in names):
+        elif (
+            isinstance(n, ast.Assign)
+            and ast.Assign in kinds
+            and len(n.targets) == 1
+            and isinstance(n.targets[0], ast.Name)
+            and n.targets[0].id in names
+        ):
             nm = n.targets[0].id
         else:
             continue
-        start = (n.decorator_list[0].lineno if n.decorator_list else n.lineno) if isinstance(n, ast.FunctionDef) else n.lineno
-        cut[nm] = "".join(lines[start - 1:n.end_lineno])
+        start = (
+            (n.decorator_list[0].lineno if n.decorator_list else n.lineno)
+            if isinstance(n, ast.FunctionDef)
+            else n.lineno
+        )
+        cut[nm] = "".join(lines[start - 1 : n.end_lineno])
         spans.append((start - 1, n.end_lineno))
     missing = names - set(cut)
     if missing:
@@ -157,7 +191,8 @@ def cut_nodes(src: str, names: set[str], kinds: tuple) -> tuple[str, dict[str, s
     keep = []
     i = 0
     for s, e in sorted(spans):
-        keep.extend(lines[i:s]); i = e
+        keep.extend(lines[i:s])
+        i = e
         # swallow the blank lines that followed the removed block
         while i < len(lines) and lines[i].strip() == "":
             i += 1
@@ -170,8 +205,10 @@ def drop_unused_imports(src: str, candidates: list[str]) -> str:
     t = ast.parse(src)
     body_names = set()
     for n in ast.walk(t):
-        if isinstance(n, ast.Name): body_names.add(n.id)
-        if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name): body_names.add(n.value.id)
+        if isinstance(n, ast.Name):
+            body_names.add(n.id)
+        if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name):
+            body_names.add(n.value.id)
     lines = src.splitlines(keepends=True)
     out = []
     for ln in lines:
@@ -212,19 +249,27 @@ def main() -> None:
         if p in DEAD_CONSTS:
             src, _ = cut_nodes(src, set(DEAD_CONSTS[p]), (ast.Assign,))
         write(p, src)
-        print(f"  {p.relative_to(ROOT)}: cut {len(names)} functions"
-              + (f", {len(DEAD_CONSTS[p])} constants" if p in DEAD_CONSTS else ""))
+        print(
+            f"  {p.relative_to(ROOT)}: cut {len(names)} functions"
+            + (f", {len(DEAD_CONSTS[p])} constants" if p in DEAD_CONSTS else "")
+        )
 
     # 2b. patents.py: replace docstring, drop now-unused imports
     pp = PKG / "sources" / "patents.py"
     src = read(pp)
     t = ast.parse(src)
     ds = t.body[0]
-    assert isinstance(ds, ast.Expr) and isinstance(ds.value, ast.Constant), "patents.py has no module docstring"
+    assert isinstance(ds, ast.Expr) and isinstance(ds.value, ast.Constant), (
+        "patents.py has no module docstring"
+    )
     lines = src.splitlines(keepends=True)
-    src = PATENTS_DOC + "\n" + "".join(lines[ds.end_lineno:])
-    src = drop_unused_imports(src, ["io", "zipfile", "json", "requests", "datetime", "timezone", "date"])
-    orphan = re.compile(r"# --- operator-supplied credential[^\n]*\n(BULK_DIR[^\n]*\n)(PATENTS_CSV[^\n]*\n)(?:#[^\n]*\n)*?(?=# -+\n# BigQuery route)")
+    src = PATENTS_DOC + "\n" + "".join(lines[ds.end_lineno :])
+    src = drop_unused_imports(
+        src, ["io", "zipfile", "json", "requests", "datetime", "timezone", "date"]
+    )
+    orphan = re.compile(
+        r"# --- operator-supplied credential[^\n]*\n(BULK_DIR[^\n]*\n)(PATENTS_CSV[^\n]*\n)(?:#[^\n]*\n)*?(?=# -+\n# BigQuery route)"
+    )
     src, k = orphan.subn(lambda m: m.group(1) + m.group(2) + "\n", src, count=1)
     assert k == 1, "patents.py banner region not found"
     src = src.replace("\n\n\nfrom .. import config", "\n\nfrom .. import config", 1)
@@ -260,8 +305,14 @@ def main() -> None:
     cmds = sorted(set(re.findall(r'cmd == "([\w\-]+)"', read(cli))))
     assert "patents-probe" not in cmds and "patents-ingest" not in cmds
     assert len(cmds) == 55, f"expected 55 commands, found {len(cmds)}"
-    stale_global = ("crsp_import", "ner_status", "_pair_by_date", "build_from_local",
-                    "_download_resumable", "ODP_API_KEY")
+    stale_global = (
+        "crsp_import",
+        "ner_status",
+        "_pair_by_date",
+        "build_from_local",
+        "_download_resumable",
+        "ODP_API_KEY",
+    )
     stale_patents = ("PROBE_MARKER", "BULK_FILES", "S3_BASE", "ODP_SEARCH", "OUT_COLS")
     for p in list(PKG.rglob("*.py")) + [cli]:
         for nm in stale_global + (stale_patents if p.name == "patents.py" else ()):
@@ -270,7 +321,7 @@ def main() -> None:
 
     # 6. regression
     R.check()
-    print("Next: git add -A ; git commit -m \"Refactor step 1: delete dead code and duplicates\"")
+    print('Next: git add -A ; git commit -m "Refactor step 1: delete dead code and duplicates"')
 
 
 if __name__ == "__main__":

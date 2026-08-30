@@ -21,22 +21,23 @@ IMPROVEMENTS over the baseline logistic:
     logistic -- the imbalanced-M&A literature finds nonlinear models add
     value when signal is spread across correlated features.
 """
+
 from __future__ import annotations
+
 import csv as _csv
-import math
 from collections import defaultdict
 from datetime import date, timedelta
 
 from biointel import config
-from biointel.fit import FEATURES, _n, _auc_pr, _auc_roc, _events_for_robust
+from biointel.fit import FEATURES, _auc_pr, _auc_roc, _events_for_robust, _n
 
-DEV_END = "2022-12-31"          # development world ends here
-ORIGINS = ["2016-12-31", "2017-12-31", "2018-12-31",
-           "2019-12-31", "2020-12-31", "2021-12-31"]
-PURGE_Q = 4                     # quarters purged after each origin
+DEV_END = "2022-12-31"  # development world ends here
+ORIGINS = ["2016-12-31", "2017-12-31", "2018-12-31", "2019-12-31", "2020-12-31", "2021-12-31"]
+PURGE_Q = 4  # quarters purged after each origin
 
-BASE_FUND = [n for n, _ in FEATURES
-             if n not in ("logMarketCap", "Drawdown52w", "CAR12m", "Drift12m")]
+BASE_FUND = [
+    n for n, _ in FEATURES if n not in ("logMarketCap", "Drawdown52w", "CAR12m", "Drift12m")
+]
 
 
 def _quarters_after(q, k):
@@ -49,23 +50,40 @@ def _quarters_after(q, k):
 def _load_panel():
     with (config.GOLD / "feature_panel.csv").open(encoding="utf-8") as f:
         rows = list(_csv.DictReader(f))
-    rows = [r for r in rows if (r.get("Currency") or "USD") == "USD"
-            and (_n(r.get("CashSTI")) is not None
-                 or (_n(r.get("TrialsTotal")) or 0) > 0)]
+    rows = [
+        r
+        for r in rows
+        if (r.get("Currency") or "USD") == "USD"
+        and (_n(r.get("CashSTI")) is not None or (_n(r.get("TrialsTotal")) or 0) > 0)
+    ]
     rows.sort(key=lambda r: (r["IID"], r["QuarterEnd"]))
     return rows
 
 
-TA_TOKENS = {"_taOnco": ("cancer", "tumor", "oncology", "carcinoma",
-                          "lymphoma", "leukemia", "melanoma", "myeloma"),
-             "_taNeuro": ("alzheimer", "parkinson", "epilepsy", "neuro",
-                          "sclerosis", "migraine", "depression"),
-             "_taImmune": ("arthritis", "psoriasis", "lupus", "crohn",
-                           "colitis", "immune", "inflammat"),
-             "_taRare": ("orphan", "rare", "duchenne", "fabry", "gaucher",
-                         "amyloid", "atrophy"),
-             "_taCardio": ("cardio", "heart", "hypertension", "lipid",
-                           "cholesterol", "thromb")}
+TA_TOKENS = {
+    "_taOnco": (
+        "cancer",
+        "tumor",
+        "oncology",
+        "carcinoma",
+        "lymphoma",
+        "leukemia",
+        "melanoma",
+        "myeloma",
+    ),
+    "_taNeuro": (
+        "alzheimer",
+        "parkinson",
+        "epilepsy",
+        "neuro",
+        "sclerosis",
+        "migraine",
+        "depression",
+    ),
+    "_taImmune": ("arthritis", "psoriasis", "lupus", "crohn", "colitis", "immune", "inflammat"),
+    "_taRare": ("orphan", "rare", "duchenne", "fabry", "gaucher", "amyloid", "atrophy"),
+    "_taCardio": ("cardio", "heart", "hypertension", "lipid", "cholesterol", "thromb"),
+}
 
 
 def _activist_dates():
@@ -74,6 +92,7 @@ def _activist_dates():
     Extracted once and cached to gold/activist_13d.csv; rebuilt only if
     the cache is absent."""
     import csv as _c
+
     cache = config.GOLD / "activist_13d.csv"
     out = defaultdict(list)
     if cache.exists():
@@ -82,6 +101,7 @@ def _activist_dates():
                 out[r["IID"]].append(r["Date"])
         return out
     from biointel.labels import _submissions
+
     with (config.SILVER / "companies.csv").open(encoding="utf-8") as f:
         comps = list(_c.DictReader(f))
     for i, c in enumerate(comps, 1):
@@ -96,8 +116,11 @@ def _activist_dates():
             continue
         for f_, d_ in zip(rec.get("form", []), rec.get("filingDate", [])):
             fu = f_.upper()
-            if fu in ("SC 13D", "SCHEDULE 13D") or fu.startswith("SC 13D/") \
-               or fu.startswith("SCHEDULE 13D/"):
+            if (
+                fu in ("SC 13D", "SCHEDULE 13D")
+                or fu.startswith("SC 13D/")
+                or fu.startswith("SCHEDULE 13D/")
+            ):
                 out[c["IID"]].append(d_)
     for v in out.values():
         v.sort()
@@ -130,6 +153,7 @@ def engineer(rows):
         if not arr or v is None:
             return 0.5
         import bisect
+
         return bisect.bisect_left(arr, v) / len(arr)
 
     # M&A-wave clock: universe acquisitions announced in the trailing
@@ -153,8 +177,9 @@ def engineer(rows):
                 if not sd:
                     continue
                 low = (t.get("Conditions") or "").lower()
-                vec = tuple(1.0 if any(k in low for k in kws) else 0.0
-                            for kws in TA_TOKENS.values())
+                vec = tuple(
+                    1.0 if any(k in low for k in kws) else 0.0 for kws in TA_TOKENS.values()
+                )
                 if any(vec):
                     trials_by_iid[t["IID"]].append((sd, vec))
     for v in trials_by_iid.values():
@@ -229,10 +254,16 @@ def engineer(rows):
             prev = seq[i - 1] if i >= 1 else None
             prev4 = seq[i - 4] if i >= 4 else None
             c0 = _n(r.get("CashSTI"))
-            r["_dCash1"] = ((c0 - _n(prev.get("CashSTI"))) / abs(_n(prev.get("CashSTI")) or 1)
-                            if prev and c0 is not None and _n(prev.get("CashSTI")) else 0.0)
-            r["_dCash4"] = ((c0 - _n(prev4.get("CashSTI"))) / abs(_n(prev4.get("CashSTI")) or 1)
-                            if prev4 and c0 is not None and _n(prev4.get("CashSTI")) else 0.0)
+            r["_dCash1"] = (
+                (c0 - _n(prev.get("CashSTI"))) / abs(_n(prev.get("CashSTI")) or 1)
+                if prev and c0 is not None and _n(prev.get("CashSTI"))
+                else 0.0
+            )
+            r["_dCash4"] = (
+                (c0 - _n(prev4.get("CashSTI"))) / abs(_n(prev4.get("CashSTI")) or 1)
+                if prev4 and c0 is not None and _n(prev4.get("CashSTI"))
+                else 0.0
+            )
             t0 = _n(r.get("TrialsStarted12m")) or 0.0
             r["_dStarts"] = (t0 - (_n(prev4.get("TrialsStarted12m")) or 0.0)) if prev4 else 0.0
             rnd, ta = _n(r.get("RnD")), _n(r.get("TotalAssets"))
@@ -254,11 +285,28 @@ def engineer(rows):
     return rows
 
 
-ENGINEERED = ["_dCash1", "_dCash4", "_dStarts", "_rndInt", "_age",
-              "_finDeals", "_cashRank", "_lowRunway", "_wave",
-              "_taOnco", "_taNeuro", "_taImmune", "_taRare", "_taCardio",
-              "_act13D24m", "_act13D12m", "_p3done12m", "_p3done6m",
-              "_term12m", "_maxSimToAcq"]
+ENGINEERED = [
+    "_dCash1",
+    "_dCash4",
+    "_dStarts",
+    "_rndInt",
+    "_age",
+    "_finDeals",
+    "_cashRank",
+    "_lowRunway",
+    "_wave",
+    "_taOnco",
+    "_taNeuro",
+    "_taImmune",
+    "_taRare",
+    "_taCardio",
+    "_act13D24m",
+    "_act13D12m",
+    "_p3done12m",
+    "_p3done6m",
+    "_term12m",
+    "_maxSimToAcq",
+]
 
 
 def _xy(rows, events, feats, lo, hi):
@@ -288,17 +336,34 @@ def _xy(rows, events, feats, lo, hi):
 def _models():
     out = []
     try:
-        from sklearn.linear_model import LogisticRegression
         from sklearn.ensemble import HistGradientBoostingClassifier
-        from sklearn.preprocessing import StandardScaler
+        from sklearn.linear_model import LogisticRegression
         from sklearn.pipeline import make_pipeline
-        out.append(("logistic", lambda: make_pipeline(
-            StandardScaler(), LogisticRegression(
-                max_iter=2000, class_weight="balanced", C=0.5))))
-        out.append(("hist-gbm", lambda: HistGradientBoostingClassifier(
-            max_depth=3, learning_rate=0.06, max_iter=300,
-            class_weight="balanced", min_samples_leaf=40,
-            l2_regularization=1.0, random_state=7)))
+        from sklearn.preprocessing import StandardScaler
+
+        out.append(
+            (
+                "logistic",
+                lambda: make_pipeline(
+                    StandardScaler(),
+                    LogisticRegression(max_iter=2000, class_weight="balanced", C=0.5),
+                ),
+            )
+        )
+        out.append(
+            (
+                "hist-gbm",
+                lambda: HistGradientBoostingClassifier(
+                    max_depth=3,
+                    learning_rate=0.06,
+                    max_iter=300,
+                    class_weight="balanced",
+                    min_samples_leaf=40,
+                    l2_regularization=1.0,
+                    random_state=7,
+                ),
+            )
+        )
     except ImportError:
         pass
     return out
@@ -308,8 +373,7 @@ def develop() -> dict:
     """Purged walk-forward development scores; holdout untouched."""
     rows = engineer(_load_panel())
     events = _events_for_robust(strict=False)
-    specs = [("fundamentals", BASE_FUND),
-             ("fund+engineered", BASE_FUND + ENGINEERED)]
+    specs = [("fundamentals", BASE_FUND), ("fund+engineered", BASE_FUND + ENGINEERED)]
     D, row_doc = (None, None)
     try:
         D, row_doc = _text_assets(rows)
@@ -321,11 +385,13 @@ def develop() -> dict:
             r["_textScore"] = ts
         specs.append(("fund+eng+text", BASE_FUND + ENGINEERED + ["_textScore"]))
         cov = sum(1 for i in row_doc if i >= 0) / len(row_doc)
-        print(f"  text coverage: {cov:.1%} of firm-quarters have a usable "
-              f"10-K document", flush=True)
-    lines = ["PURGED WALK-FORWARD DEVELOPMENT (holdout 2023+ untouched)",
-             f"origins {ORIGINS[0][:4]}..{ORIGINS[-1][:4]}, purge "
-             f"{PURGE_Q}q, pooled out-of-fold AUC-PR"]
+        print(
+            f"  text coverage: {cov:.1%} of firm-quarters have a usable 10-K document", flush=True
+        )
+    lines = [
+        "PURGED WALK-FORWARD DEVELOPMENT (holdout 2023+ untouched)",
+        f"origins {ORIGINS[0][:4]}..{ORIGINS[-1][:4]}, purge {PURGE_Q}q, pooled out-of-fold AUC-PR",
+    ]
     models = _models()
     for mname, mk in models + [("ensemble", None)]:
         for sname, feats in specs:
@@ -348,16 +414,17 @@ def develop() -> dict:
                         for pos_i, i in enumerate(order):
                             rk[i] = pos_i / max(len(p) - 1, 1)
                         ranks.append(rk)
-                    pool_s += [sum(r[i] for r in ranks) / len(ranks)
-                               for i in range(len(yte))]
+                    pool_s += [sum(r[i] for r in ranks) / len(ranks) for i in range(len(yte))]
                     pool_y += yte
                 if pool_y and sum(pool_y):
                     br = sum(pool_y) / len(pool_y)
                     ap = _auc_pr(pool_s, pool_y)
-                    lines.append(f"{mname:<10}{sname:<18}n={len(pool_y):<7}"
-                                 f"pos={sum(pool_y):<5}AUC-PR {ap:.3f}  "
-                                 f"lift {ap/br:.1f}x  "
-                                 f"ROC {_auc_roc(pool_s, pool_y):.3f}")
+                    lines.append(
+                        f"{mname:<10}{sname:<18}n={len(pool_y):<7}"
+                        f"pos={sum(pool_y):<5}AUC-PR {ap:.3f}  "
+                        f"lift {ap / br:.1f}x  "
+                        f"ROC {_auc_roc(pool_s, pool_y):.3f}"
+                    )
                     print(lines[-1], flush=True)
                 continue
             pool_s, pool_y = [], []
@@ -380,13 +447,14 @@ def develop() -> dict:
                 continue
             br = sum(pool_y) / len(pool_y)
             ap = _auc_pr(pool_s, pool_y)
-            lines.append(f"{mname:<10}{sname:<18}n={len(pool_y):<7}"
-                         f"pos={sum(pool_y):<5}AUC-PR {ap:.3f}  "
-                         f"lift {ap/br:.1f}x  ROC {_auc_roc(pool_s, pool_y):.3f}")
+            lines.append(
+                f"{mname:<10}{sname:<18}n={len(pool_y):<7}"
+                f"pos={sum(pool_y):<5}AUC-PR {ap:.3f}  "
+                f"lift {ap / br:.1f}x  ROC {_auc_roc(pool_s, pool_y):.3f}"
+            )
             print(lines[-1], flush=True)
     report = "\n".join(lines)
-    (config.GOLD / "development_report.txt").write_text(report,
-                                                        encoding="utf-8")
+    (config.GOLD / "development_report.txt").write_text(report, encoding="utf-8")
     return {"status": "ok", "message": report}
 
 
@@ -395,6 +463,7 @@ def text_sweep() -> dict:
     converged low-alpha reader overfit ~550 positives; test whether a
     properly shrunk text signal exists."""
     from sklearn.ensemble import HistGradientBoostingClassifier
+
     rows = engineer(_load_panel())
     events = _events_for_robust(strict=False)
     D, row_doc = _text_assets(rows)
@@ -415,9 +484,14 @@ def text_sweep() -> dict:
             if sum(ytr) < 10 or sum(yte) < 3:
                 continue
             m = HistGradientBoostingClassifier(
-                max_depth=3, learning_rate=0.03, max_iter=300,
-                class_weight="balanced", min_samples_leaf=25,
-                l2_regularization=1.0, random_state=7)
+                max_depth=3,
+                learning_rate=0.03,
+                max_iter=300,
+                class_weight="balanced",
+                min_samples_leaf=25,
+                l2_regularization=1.0,
+                random_state=7,
+            )
             m.fit(Xtr, ytr)
             pool_s += list(map(float, m.predict_proba(Xte)[:, 1]))
             pool_y += yte
@@ -425,10 +499,9 @@ def text_sweep() -> dict:
             continue
         br = sum(pool_y) / len(pool_y)
         ap = _auc_pr(pool_s, pool_y)
-        lines.append(f"  alpha={alpha:<8} AUC-PR {ap:.4f}  lift {ap/br:.2f}x")
+        lines.append(f"  alpha={alpha:<8} AUC-PR {ap:.4f}  lift {ap / br:.2f}x")
         print(lines[-1], flush=True)
-    (config.GOLD / "text_sweep_report.txt").write_text("\n".join(lines),
-                                                       encoding="utf-8")
+    (config.GOLD / "text_sweep_report.txt").write_text("\n".join(lines), encoding="utf-8")
     return {"status": "ok", "message": "\n".join(lines)}
 
 
@@ -437,14 +510,13 @@ def tune() -> dict:
     Best configuration is persisted to gold/best_config.json and used by
     `holdout` when model_name == 'tuned'."""
     import json
+
     from sklearn.ensemble import HistGradientBoostingClassifier
+
     rows = engineer(_load_panel())
     events = _events_for_robust(strict=False)
     feats = BASE_FUND + ENGINEERED
-    grid = [(d, lr, leaf)
-            for d in (2, 3, 4)
-            for lr in (0.03, 0.06, 0.1)
-            for leaf in (25, 40, 60)]
+    grid = [(d, lr, leaf) for d in (2, 3, 4) for lr in (0.03, 0.06, 0.1) for leaf in (25, 40, 60)]
     best = None
     lines = ["GBM TUNING (fund+engineered, purged walk-forward, dev only)"]
     for d, lr, leaf in grid:
@@ -457,9 +529,14 @@ def tune() -> dict:
             if sum(ytr) < 10 or sum(yte) < 3:
                 continue
             m = HistGradientBoostingClassifier(
-                max_depth=d, learning_rate=lr, max_iter=300,
-                class_weight="balanced", min_samples_leaf=leaf,
-                l2_regularization=1.0, random_state=7)
+                max_depth=d,
+                learning_rate=lr,
+                max_iter=300,
+                class_weight="balanced",
+                min_samples_leaf=leaf,
+                l2_regularization=1.0,
+                random_state=7,
+            )
             m.fit(Xtr, ytr)
             pool_s += list(map(float, m.predict_proba(Xte)[:, 1]))
             pool_y += yte
@@ -467,22 +544,28 @@ def tune() -> dict:
             continue
         ap = _auc_pr(pool_s, pool_y)
         br = sum(pool_y) / len(pool_y)
-        lines.append(f"  depth={d} lr={lr:<5} leaf={leaf:<3} "
-                     f"AUC-PR {ap:.4f}  lift {ap/br:.2f}x")
+        lines.append(f"  depth={d} lr={lr:<5} leaf={leaf:<3} AUC-PR {ap:.4f}  lift {ap / br:.2f}x")
         print(lines[-1], flush=True)
         if best is None or ap > best[0]:
-            best = (ap, {"max_depth": d, "learning_rate": lr,
-                         "min_samples_leaf": leaf})
+            best = (ap, {"max_depth": d, "learning_rate": lr, "min_samples_leaf": leaf})
     if best:
         (config.GOLD / "best_config.json").write_text(
-            json.dumps({"model": "hist-gbm", "spec": "fund+engineered",
-                        "params": best[1], "dev_aucpr": best[0]}, indent=1),
-            encoding="utf-8")
-        lines.append(f"BEST -> {best[1]} (dev AUC-PR {best[0]:.4f}), "
-                     "persisted to gold/best_config.json")
+            json.dumps(
+                {
+                    "model": "hist-gbm",
+                    "spec": "fund+engineered",
+                    "params": best[1],
+                    "dev_aucpr": best[0],
+                },
+                indent=1,
+            ),
+            encoding="utf-8",
+        )
+        lines.append(
+            f"BEST -> {best[1]} (dev AUC-PR {best[0]:.4f}), persisted to gold/best_config.json"
+        )
         print(lines[-1], flush=True)
-    (config.GOLD / "tuning_report.txt").write_text("\n".join(lines),
-                                                   encoding="utf-8")
+    (config.GOLD / "tuning_report.txt").write_text("\n".join(lines), encoding="utf-8")
     return {"status": "ok", "message": "\n".join(lines)}
 
 
@@ -490,10 +573,13 @@ def holdout(model_name: str, spec_name: str) -> dict:
     """ONE-SHOT final evaluation on 2023+ of the chosen configuration."""
     rows = engineer(_load_panel())
     events = _events_for_robust(strict=False)
-    feats = dict([("fundamentals", BASE_FUND),
-                  ("fund+engineered", BASE_FUND + ENGINEERED),
-                  ("fund+eng+text", BASE_FUND + ENGINEERED + ["_textScore"])
-                  ])[spec_name]
+    feats = dict(
+        [
+            ("fundamentals", BASE_FUND),
+            ("fund+engineered", BASE_FUND + ENGINEERED),
+            ("fund+eng+text", BASE_FUND + ENGINEERED + ["_textScore"]),
+        ]
+    )[spec_name]
     if "text" in spec_name:
         D, row_doc = _text_assets(rows)
         if D is not None:
@@ -503,12 +589,17 @@ def holdout(model_name: str, spec_name: str) -> dict:
             feats = feats if "_textScore" in feats else feats + ["_textScore"]
     if model_name == "tuned":
         import json
-        cfg = json.loads((config.GOLD / "best_config.json").read_text(
-            encoding="utf-8"))
+
+        cfg = json.loads((config.GOLD / "best_config.json").read_text(encoding="utf-8"))
         from sklearn.ensemble import HistGradientBoostingClassifier
+
         mk = lambda: HistGradientBoostingClassifier(
-            max_iter=300, class_weight="balanced", l2_regularization=1.0,
-            random_state=7, **cfg["params"])
+            max_iter=300,
+            class_weight="balanced",
+            l2_regularization=1.0,
+            random_state=7,
+            **cfg["params"],
+        )
     else:
         mk = dict(_models())[model_name]
     Xtr, ytr = _xy(rows, events, feats, "0000", DEV_END)
@@ -518,10 +609,12 @@ def holdout(model_name: str, spec_name: str) -> dict:
     p = list(map(float, m.predict_proba(Xte)[:, 1]))
     br = sum(yte) / len(yte)
     ap = _auc_pr(p, yte)
-    msg = (f"FINAL HOLDOUT (2023+, evaluated once): {model_name} / "
-           f"{spec_name}\n  n={len(yte)} pos={sum(yte)} "
-           f"AUC-PR {ap:.3f}  lift {ap/br:.1f}x  "
-           f"ROC {_auc_roc(p, yte):.3f}")
+    msg = (
+        f"FINAL HOLDOUT (2023+, evaluated once): {model_name} / "
+        f"{spec_name}\n  n={len(yte)} pos={sum(yte)} "
+        f"AUC-PR {ap:.3f}  lift {ap / br:.1f}x  "
+        f"ROC {_auc_roc(p, yte):.3f}"
+    )
     (config.GOLD / "holdout_report.txt").write_text(msg, encoding="utf-8")
     return {"status": "ok", "message": msg}
 
@@ -530,9 +623,11 @@ def holdout(model_name: str, spec_name: str) -> dict:
 def _text_index():
     """(cik10 -> sorted [(filed, year)]) for stored Item-1 files, dates
     recovered from the cached submissions records."""
-    from biointel.pipeline import TENK_DIR
-    from biointel.labels import _filings_reaching
     import re as _re
+
+    from biointel.labels import _filings_reaching
+    from biointel.pipeline import TENK_DIR
+
     idx = defaultdict(list)
     files = {}
     for p in TENK_DIR.glob("*.txt"):
@@ -542,7 +637,7 @@ def _text_index():
         if m:
             files[(m.group(1), m.group(2))] = p
     by_cik = defaultdict(set)
-    for (cik, yr) in files:
+    for cik, yr in files:
         by_cik[cik].add(yr)
     for cik, yrs in by_cik.items():
         try:
@@ -561,7 +656,9 @@ def _text_assets(rows):
     """(doc_matrix, row_doc_index) for the panel rows: each row maps to
     the latest 10-K filed <= its quarter end (within 450 days), or -1."""
     import csv as _c
+
     from sklearn.feature_extraction.text import HashingVectorizer
+
     idx, files = _text_index()
     if not files:
         return None, None
@@ -571,11 +668,10 @@ def _text_assets(rows):
             cik_by_iid[str(c["IID"])] = str(c.get("CIK", "")).zfill(10)
     keys = sorted(files)
     key_pos = {k: i for i, k in enumerate(keys)}
-    texts = (files[k].read_text(encoding="utf-8", errors="replace")
-             for k in keys)
-    vec = HashingVectorizer(n_features=2 ** 18, ngram_range=(1, 2),
-                            stop_words="english", alternate_sign=False,
-                            norm="l2")
+    texts = (files[k].read_text(encoding="utf-8", errors="replace") for k in keys)
+    vec = HashingVectorizer(
+        n_features=2**18, ngram_range=(1, 2), stop_words="english", alternate_sign=False, norm="l2"
+    )
     D = vec.transform(texts)
     row_doc = []
     for r in rows:
@@ -584,9 +680,10 @@ def _text_assets(rows):
         pick = -1
         for filed, yr in reversed(idx.get(cik, [])):
             if filed <= q:
-                if (date.fromisoformat(q)
-                        - date.fromisoformat(filed)).days <= 450 \
-                        and (cik, yr) in key_pos:
+                if (date.fromisoformat(q) - date.fromisoformat(filed)).days <= 450 and (
+                    cik,
+                    yr,
+                ) in key_pos:
                     pick = key_pos[(cik, yr)]
                 break
         row_doc.append(pick)
@@ -597,7 +694,7 @@ def _text_scores_oof(rows, events, feats_unused, D, row_doc, alpha=1e-5):
     """Out-of-fold text score per row via the same purged walk-forward
     origins; rows without a usable document score 0.5 (uninformative)."""
     from sklearn.linear_model import SGDClassifier
-    import numpy as np
+
     scores = [0.5] * len(rows)
     tgt = {}
     for iid, d in events:
@@ -614,8 +711,7 @@ def _text_scores_oof(rows, events, feats_unused, D, row_doc, alpha=1e-5):
 
     for o in ORIGINS + [DEV_END]:
         te_lo = _quarters_after(o, PURGE_Q) if o != DEV_END else DEV_END
-        te_hi = min(_quarters_after(o, PURGE_Q + 4), DEV_END) \
-            if o != DEV_END else "9999"
+        te_hi = min(_quarters_after(o, PURGE_Q + 4), DEV_END) if o != DEV_END else "9999"
         tr_i, tr_y, te_i = [], [], []
         for i, r in enumerate(rows):
             if row_doc[i] < 0:
@@ -625,14 +721,21 @@ def _text_scores_oof(rows, events, feats_unused, D, row_doc, alpha=1e-5):
                 continue
             q = r["QuarterEnd"]
             if q <= o:
-                tr_i.append(i); tr_y.append(y)
+                tr_i.append(i)
+                tr_y.append(y)
             elif te_lo < q <= te_hi or (o == DEV_END and q > DEV_END):
                 te_i.append(i)
         if sum(tr_y) < 10 or not te_i:
             continue
-        m = SGDClassifier(loss="log_loss", class_weight="balanced",
-                          alpha=alpha, max_iter=80, tol=1e-4,
-                          early_stopping=False, random_state=7)
+        m = SGDClassifier(
+            loss="log_loss",
+            class_weight="balanced",
+            alpha=alpha,
+            max_iter=80,
+            tol=1e-4,
+            early_stopping=False,
+            random_state=7,
+        )
         m.fit(D[[row_doc[i] for i in tr_i]], tr_y)
         p = m.predict_proba(D[[row_doc[i] for i in te_i]])[:, 1]
         for i, pi in zip(te_i, p):

@@ -21,9 +21,10 @@ HONESTY GATE. ebi.ac.uk is unreachable from the build environment;
 `chembl-probe` runs ONE real lookup (dupilumab -> IL-4R alpha expected)
 and unlocks `chembl-ingest` only when the live response parses.
 """
+
 from __future__ import annotations
+
 import csv
-import json
 import re
 import time
 from datetime import date
@@ -35,9 +36,8 @@ API = "https://www.ebi.ac.uk/chembl/api/data"
 CHEMBL_DIR = config.BRONZE / "chembl"
 PROBE_MARKER = CHEMBL_DIR / "PROBE_OK"
 DRUG_TARGETS_CSV = config.SILVER / "drug_targets.csv"
-OUT_COLS = ["IID", "DrugNameRaw", "ChEMBLId", "ChEMBLName", "TargetName",
-            "TargetType", "FirstSeen"]
-PACE = 0.35          # seconds between uncached calls; polite, no key
+OUT_COLS = ["IID", "DrugNameRaw", "ChEMBLId", "ChEMBLName", "TargetName", "TargetType", "FirstSeen"]
+PACE = 0.35  # seconds between uncached calls; polite, no key
 
 
 def _drug_norm(s: str) -> str:
@@ -85,15 +85,13 @@ def firm_drug_names() -> dict:
 
 def _get(path: str, params: dict) -> dict:
     time.sleep(PACE)
-    return fetch_json(f"{API}/{path}", params=params, tag="chembl",
-                      cache=True)
+    return fetch_json(f"{API}/{path}", params=params, tag="chembl", cache=True)
 
 
 def _lookup_molecule(name: str):
     """Exact-insensitive synonym match -> (chembl_id, pref_name) or None.
     Falls back to pref_name__iexact. No fuzzy search, ever."""
-    for filt in ("molecule_synonyms__molecule_synonym__iexact",
-                 "pref_name__iexact"):
+    for filt in ("molecule_synonyms__molecule_synonym__iexact", "pref_name__iexact"):
         try:
             data = _get("molecule.json", {filt: name, "limit": "1"})
         except Exception:
@@ -108,19 +106,19 @@ def _lookup_molecule(name: str):
 def _mechanism_targets(chembl_id: str) -> list:
     """[(target_chembl_id, action)] for one molecule."""
     try:
-        data = _get("mechanism.json", {"molecule_chembl_id": chembl_id,
-                                       "limit": "20"})
+        data = _get("mechanism.json", {"molecule_chembl_id": chembl_id, "limit": "20"})
     except Exception:
         return []
-    return [(m.get("target_chembl_id"), m.get("action_type") or "")
-            for m in (data.get("mechanisms") or [])
-            if m.get("target_chembl_id")]
+    return [
+        (m.get("target_chembl_id"), m.get("action_type") or "")
+        for m in (data.get("mechanisms") or [])
+        if m.get("target_chembl_id")
+    ]
 
 
 def _target_detail(target_chembl_id: str):
     try:
-        data = _get("target.json", {"target_chembl_id": target_chembl_id,
-                                    "limit": "1"})
+        data = _get("target.json", {"target_chembl_id": target_chembl_id, "limit": "1"})
     except Exception:
         return None
     ts = data.get("targets") or []
@@ -132,32 +130,39 @@ def _target_detail(target_chembl_id: str):
 def probe() -> dict:
     hit = _lookup_molecule("DUPILUMAB")
     if not hit:
-        return {"status": "fail",
-                "message": "PROBE FAILED: dupilumab lookup returned nothing "
-                           "or the endpoint was unreachable. Paste this "
-                           "output back."}
+        return {
+            "status": "fail",
+            "message": "PROBE FAILED: dupilumab lookup returned nothing "
+            "or the endpoint was unreachable. Paste this "
+            "output back.",
+        }
     cid, pname = hit
     tgts = _mechanism_targets(cid)
     det = _target_detail(tgts[0][0]) if tgts else None
     if det and det[0]:
         CHEMBL_DIR.mkdir(parents=True, exist_ok=True)
         PROBE_MARKER.write_text(date.today().isoformat())
-        return {"status": "ok",
-                "message": f"PROBE OK: DUPILUMAB -> {cid} ({pname}) -> "
-                           f"{len(tgts)} mechanism(s), first target "
-                           f"'{det[0]}' [{det[1]}]. `chembl-ingest` is "
-                           "unlocked (minutes, ~150 cached calls; re-runs resume)."}
-    return {"status": "fail",
-            "message": f"Molecule matched ({cid}) but mechanism/target "
-                       "parse failed. Raw evidence -- paste back:\n"
-                       f"mechanisms={tgts!r} target={det!r}"}
+        return {
+            "status": "ok",
+            "message": f"PROBE OK: DUPILUMAB -> {cid} ({pname}) -> "
+            f"{len(tgts)} mechanism(s), first target "
+            f"'{det[0]}' [{det[1]}]. `chembl-ingest` is "
+            "unlocked (minutes, ~150 cached calls; re-runs resume).",
+        }
+    return {
+        "status": "fail",
+        "message": f"Molecule matched ({cid}) but mechanism/target "
+        "parse failed. Raw evidence -- paste back:\n"
+        f"mechanisms={tgts!r} target={det!r}",
+    }
 
 
 def _paginate(path: str, params: dict, key: str):
     """Yield records across pages using the API's page_meta envelope."""
     offset = 0
     while True:
-        p = dict(params); p.update({"limit": "1000", "offset": str(offset)})
+        p = dict(params)
+        p.update({"limit": "1000", "offset": str(offset)})
         data = _get(path, p)
         recs = data.get(key) or []
         for r in recs:
@@ -172,7 +177,7 @@ def _batched_set(resource: str, ids: list, only: str, key: str):
     """Fetch records via the /set/ endpoint in batches of 100."""
     out = []
     for i in range(0, len(ids), 100):
-        chunk = ";".join(ids[i:i + 100])
+        chunk = ";".join(ids[i : i + 100])
         try:
             data = _get(f"{resource}/set/{chunk}.json", {"only": only})
         except Exception:
@@ -190,9 +195,10 @@ def ingest() -> dict:
     same exact normalization. ~100-150 API calls total, minutes not
     hours, all cached."""
     if not PROBE_MARKER.exists():
-        return {"status": "fail",
-                "message": "Refusing: run `python -m biointel chembl-probe` "
-                           "first (rule 0.6.3)."}
+        return {
+            "status": "fail",
+            "message": "Refusing: run `python -m biointel chembl-probe` first (rule 0.6.3).",
+        }
     print("Fetching full mechanism table...")
     mechs = list(_paginate("mechanism.json", {}, "mechanisms"))
     mol2tgt = {}
@@ -202,30 +208,28 @@ def ingest() -> dict:
             mol2tgt.setdefault(cid, set()).add(tid)
     mol_ids = sorted(mol2tgt)
     tgt_ids = sorted({t for s in mol2tgt.values() for t in s})
-    print(f"  {len(mechs):,} mechanisms; {len(mol_ids):,} molecules; "
-          f"{len(tgt_ids):,} targets. Fetching names in batches...")
+    print(
+        f"  {len(mechs):,} mechanisms; {len(mol_ids):,} molecules; "
+        f"{len(tgt_ids):,} targets. Fetching names in batches..."
+    )
     name2mol, mol2name = {}, {}
-    for m in _batched_set("molecule", mol_ids,
-                          "molecule_chembl_id,pref_name,molecule_synonyms",
-                          "molecules"):
+    for m in _batched_set(
+        "molecule", mol_ids, "molecule_chembl_id,pref_name,molecule_synonyms", "molecules"
+    ):
         cid = m.get("molecule_chembl_id")
         if not cid:
             continue
         pn = m.get("pref_name") or ""
         mol2name[cid] = pn
-        cands = [pn] + [s.get("molecule_synonym") or ""
-                        for s in (m.get("molecule_synonyms") or [])]
+        cands = [pn] + [s.get("molecule_synonym") or "" for s in (m.get("molecule_synonyms") or [])]
         for nm in cands:
             n = _drug_norm(nm)
             if len(n) >= 4 and n not in name2mol:
                 name2mol[n] = cid
     tgt_detail = {}
-    for t in _batched_set("target", tgt_ids,
-                          "target_chembl_id,pref_name,target_type",
-                          "targets"):
+    for t in _batched_set("target", tgt_ids, "target_chembl_id,pref_name,target_type", "targets"):
         if t.get("target_chembl_id") and t.get("pref_name"):
-            tgt_detail[t["target_chembl_id"]] = (t["pref_name"],
-                                                 t.get("target_type") or "")
+            tgt_detail[t["target_chembl_id"]] = (t["pref_name"], t.get("target_type") or "")
     firm_drugs = firm_drug_names()
     n_rows, matched, firms, seen = 0, set(), set(), set()
     DRUG_TARGETS_CSV.parent.mkdir(parents=True, exist_ok=True)
@@ -244,15 +248,24 @@ def ingest() -> dict:
                 if key in seen:
                     continue
                 seen.add(key)
-                w.writerow({"IID": iid, "DrugNameRaw": dn, "ChEMBLId": cid,
-                            "ChEMBLName": mol2name.get(cid, ""),
-                            "TargetName": det[0], "TargetType": det[1],
-                            "FirstSeen": first})
+                w.writerow(
+                    {
+                        "IID": iid,
+                        "DrugNameRaw": dn,
+                        "ChEMBLId": cid,
+                        "ChEMBLName": mol2name.get(cid, ""),
+                        "TargetName": det[0],
+                        "TargetType": det[1],
+                        "FirstSeen": first,
+                    }
+                )
                 n_rows += 1
             matched.add((iid, dn))
             firms.add(iid)
-    return {"status": "ok",
-            "message": f"drug_targets.csv: {n_rows:,} firm-target rows; "
-                       f"{len(matched):,} of {len(firm_drugs):,} (firm, "
-                       f"drug) pairs matched across {len(firms)} firms "
-                       f"-> {DRUG_TARGETS_CSV}"}
+    return {
+        "status": "ok",
+        "message": f"drug_targets.csv: {n_rows:,} firm-target rows; "
+        f"{len(matched):,} of {len(firm_drugs):,} (firm, "
+        f"drug) pairs matched across {len(firms)} firms "
+        f"-> {DRUG_TARGETS_CSV}",
+    }

@@ -1,7 +1,10 @@
-import sys, json, urllib.request
+import json
+import sys
+import urllib.request
 from datetime import date
-from biointel.pipeline import read_companies
+
 from biointel import config
+from biointel.pipeline import read_companies
 
 IID = sys.argv[1] if len(sys.argv) > 1 else "23"
 c = next(x for x in read_companies() if str(x["IID"]) == IID)

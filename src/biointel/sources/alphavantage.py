@@ -3,6 +3,7 @@
 Free tier is 25 calls/day. Failure strings are kept identical to the M query
 so downstream behaviour is unchanged.
 """
+
 from __future__ import annotations
 
 from biointel import config
@@ -11,11 +12,15 @@ from biointel.store import fetch_json
 
 def description(ticker: str) -> str:
     try:
-        av = fetch_json(config.AV_QUERY, params={
-            "function": "OVERVIEW",
-            "symbol": ticker.strip().upper(),
-            "apikey": config.require("BIOINTEL_ALPHA_VANTAGE_KEY"),
-        }, tag="alphavantage_overview")
+        av = fetch_json(
+            config.AV_QUERY,
+            params={
+                "function": "OVERVIEW",
+                "symbol": ticker.strip().upper(),
+                "apikey": config.require("BIOINTEL_ALPHA_VANTAGE_KEY"),
+            },
+            tag="alphavantage_overview",
+        )
     except Exception:
         return "UNAVAILABLE - check the API key"
 

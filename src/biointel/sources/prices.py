@@ -7,7 +7,9 @@ Structure: chart.result[0].timestamp is an epoch array;
 indicators.quote[0] holds parallel open/high/low/close/volume arrays;
 indicators.adjclose[0].adjclose is the adjusted series. All index-aligned.
 """
+
 from __future__ import annotations
+
 from datetime import date, datetime, timedelta, timezone
 
 from biointel import config
@@ -19,9 +21,11 @@ def daily_bars(ticker: str, start: date, end: date) -> list[dict]:
     p1 = int(datetime(start.year, start.month, start.day, tzinfo=timezone.utc).timestamp())
     p2 = int(datetime(end.year, end.month, end.day, tzinfo=timezone.utc).timestamp())
     try:
-        raw = fetch_json(config.YAHOO_CHART.format(ticker=ticker.strip().upper()),
-                         params={"period1": p1, "period2": p2, "interval": "1d"},
-                         tag="yahoo_chart")
+        raw = fetch_json(
+            config.YAHOO_CHART.format(ticker=ticker.strip().upper()),
+            params={"period1": p1, "period2": p2, "interval": "1d"},
+            tag="yahoo_chart",
+        )
     except Exception:
         return []
 
@@ -38,18 +42,23 @@ def daily_bars(ticker: str, start: date, end: date) -> list[dict]:
         close = q["close"][i]
         if close is None:
             continue
-        rows.append({
-            "Ticker": ticker.strip().upper(),
-            "Date": datetime.fromtimestamp(epoch, timezone.utc).date(),
-            "Open": q["open"][i], "High": q["high"][i], "Low": q["low"][i],
-            "Close": close, "AdjClose": adj[i], "Volume": q["volume"][i],
-        })
+        rows.append(
+            {
+                "Ticker": ticker.strip().upper(),
+                "Date": datetime.fromtimestamp(epoch, timezone.utc).date(),
+                "Open": q["open"][i],
+                "High": q["high"][i],
+                "Low": q["low"][i],
+                "Close": close,
+                "AdjClose": adj[i],
+                "Volume": q["volume"][i],
+            }
+        )
     rows.sort(key=lambda r: r["Date"])
     return rows
 
 
-def event_window(ticker: str, event_date: date,
-                 pre: int = None, post: int = None) -> list[dict]:
+def event_window(ticker: str, event_date: date, pre: int = None, post: int = None) -> list[dict]:
     """Contiguous RelDay -pre..+post around an event.
 
     t0 = first trading session ON OR AFTER the event date. This is the
@@ -77,7 +86,6 @@ def event_window(ticker: str, event_date: date,
     for i in range(lo, hi + 1):
         b = dict(bars[i])
         b["RelDay"] = i - t0
-        b["PctFromT0"] = (None if not base
-                          else (b["AdjClose"] - base) / base * 100)
+        b["PctFromT0"] = None if not base else (b["AdjClose"] - base) / base * 100
         win.append(b)
     return win

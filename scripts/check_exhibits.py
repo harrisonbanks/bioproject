@@ -17,6 +17,7 @@ Makes N requests. Cached in bronze, so re-running is free.
   python check_exhibits.py 50         50 filings
   python check_exhibits.py 20 16      20 filings for IID 16 only
 """
+
 import sys
 from collections import Counter
 
@@ -81,12 +82,14 @@ def main():
     print("\n" + "=" * 78)
     if checked:
         pct = 100 * have_contract / checked
-        print(f"  Filings with a contract exhibit (EX-2 or EX-10): "
-              f"{have_contract}/{checked} = {pct:.0f}%")
+        print(
+            f"  Filings with a contract exhibit (EX-2 or EX-10): "
+            f"{have_contract}/{checked} = {pct:.0f}%"
+        )
     print(f"  Index unavailable: {no_index}")
     print("\n  Exhibit types seen:")
     for k, c in kinds.most_common():
-        print(f"     {k:<8}{c:>4}  {EXHIBIT_KINDS.get(k,'')}")
+        print(f"     {k:<8}{c:>4}  {EXHIBIT_KINDS.get(k, '')}")
     print("\n  Reference: the Material Contracts Corpus reports a mean of 3.07")
     print("  parties per contract (median 3). Your current extractor is")
     print("  averaging far more than that, which is the symptom of parsing")

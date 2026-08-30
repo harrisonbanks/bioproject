@@ -20,7 +20,9 @@ download URL, zip member names, and column headers are UNTESTED here.
 each header line verbatim, and parses patent.txt; the feature build
 refuses to run until a probe has succeeded on the operator machine.
 """
+
 from __future__ import annotations
+
 import io
 import zipfile
 from datetime import date, datetime, timezone
@@ -42,15 +44,17 @@ def _download(force: bool = False) -> bytes:
     EOB_ZIP.parent.mkdir(parents=True, exist_ok=True)
     if EOB_ZIP.exists() and not force:
         return EOB_ZIP.read_bytes()
-    r = requests.get(EOB_URL, headers={"User-Agent": config.require("BIOINTEL_USER_AGENT")},
-                     timeout=120)
+    r = requests.get(
+        EOB_URL, headers={"User-Agent": config.require("BIOINTEL_USER_AGENT")}, timeout=120
+    )
     r.raise_for_status()
     EOB_ZIP.write_bytes(r.content)
     (EOB_ZIP.parent / "eob.meta.json").write_text(
         f'{{"tag": "orangebook", "url": "{r.url}", "status": {r.status_code}, '
         f'"bytes": {len(r.content)}, '
         f'"fetched_at": "{datetime.now(timezone.utc).isoformat(timespec="seconds")}"}}',
-        encoding="utf-8")
+        encoding="utf-8",
+    )
     return r.content
 
 
@@ -63,8 +67,9 @@ def parse_table(text: str) -> tuple[list[str], list[dict]]:
     rows = []
     for ln in lines[1:]:
         vals = ln.split("~")
-        rows.append({header[i]: (vals[i].strip() if i < len(vals) else "")
-                     for i in range(len(header))})
+        rows.append(
+            {header[i]: (vals[i].strip() if i < len(vals) else "") for i in range(len(header))}
+        )
     return header, rows
 
 
@@ -73,48 +78,55 @@ def probe() -> dict:
     try:
         blob = _download()
     except Exception as exc:
-        return {"status": "fail",
-                "message": f"FETCH FAILED: {exc}. fda.gov unreachable or "
-                           "URL wrong; paste this output back so the URL "
-                           "is repointed."}
+        return {
+            "status": "fail",
+            "message": f"FETCH FAILED: {exc}. fda.gov unreachable or "
+            "URL wrong; paste this output back so the URL "
+            "is repointed.",
+        }
     if blob[:2] != b"PK":
         head = blob[:600].decode("utf-8", errors="replace").replace("\n", " ")
-        return {"status": "fail",
-                "message": "NOT A ZIP -- the URL returned something else "
-                           "(likely an HTML page). Raw head follows; paste "
-                           f"this whole output back:\n{head}"}
+        return {
+            "status": "fail",
+            "message": "NOT A ZIP -- the URL returned something else "
+            "(likely an HTML page). Raw head follows; paste "
+            f"this whole output back:\n{head}",
+        }
     try:
         zf = zipfile.ZipFile(io.BytesIO(blob))
         members = zf.namelist()
-        pat_name = next((m for m in members
-                         if m.lower().endswith("patent.txt")), None)
+        pat_name = next((m for m in members if m.lower().endswith("patent.txt")), None)
         if not pat_name:
-            return {"status": "fail",
-                    "message": f"patent.txt not among members {members}; "
-                               "paste this output back."}
+            return {
+                "status": "fail",
+                "message": f"patent.txt not among members {members}; paste this output back.",
+            }
         text = zf.read(pat_name).decode("utf-8", errors="replace")
         header, rows = parse_table(text)
     except Exception as exc:
-        return {"status": "fail",
-                "message": f"PARSE FAILED: {exc}; paste this output back."}
+        return {"status": "fail", "message": f"PARSE FAILED: {exc}; paste this output back."}
 
     need = {"Appl_No", "Patent_No", "Patent_Expire_Date_Text"}
     if rows and need.issubset(set(header)):
         PROBE_MARKER.parent.mkdir(parents=True, exist_ok=True)
         PROBE_MARKER.write_text(date.today().isoformat())
         s = rows[0]
-        return {"status": "ok",
-                "message": f"PARSE OK: {len(members)} members {members}; "
-                           f"patent.txt {len(rows)} rows, header {header}. "
-                           f"Sample: Appl {s.get('Appl_No')} patent "
-                           f"{s.get('Patent_No')} expires "
-                           f"{s.get('Patent_Expire_Date_Text')}. "
-                           "Orange Book feature build is now unlocked."}
-    return {"status": "fail",
-            "message": f"HEADER MISMATCH: got {header} in {pat_name}, "
-                       f"need at least {sorted(need)}; {len(rows)} rows. "
-                       "Paste this whole output back so column names are "
-                       "corrected on real data."}
+        return {
+            "status": "ok",
+            "message": f"PARSE OK: {len(members)} members {members}; "
+            f"patent.txt {len(rows)} rows, header {header}. "
+            f"Sample: Appl {s.get('Appl_No')} patent "
+            f"{s.get('Patent_No')} expires "
+            f"{s.get('Patent_Expire_Date_Text')}. "
+            "Orange Book feature build is now unlocked.",
+        }
+    return {
+        "status": "fail",
+        "message": f"HEADER MISMATCH: got {header} in {pat_name}, "
+        f"need at least {sorted(need)}; {len(rows)} rows. "
+        "Paste this whole output back so column names are "
+        "corrected on real data.",
+    }
 
 
 def _protection_end_by_appno() -> dict:
@@ -124,21 +136,18 @@ def _protection_end_by_appno() -> dict:
     Book and simply do not match -- missing, never wrong."""
     if not EOB_ZIP.exists():
         raise FileNotFoundError(
-            "Orange Book zip not cached; run `python -m biointel "
-            "orangebook-probe` first.")
+            "Orange Book zip not cached; run `python -m biointel orangebook-probe` first."
+        )
     zf = zipfile.ZipFile(io.BytesIO(EOB_ZIP.read_bytes()))
     ends: dict = {}
 
     def _feed(member_suffix: str, date_col: str):
-        name = next((m for m in zf.namelist()
-                     if m.lower().endswith(member_suffix)), None)
+        name = next((m for m in zf.namelist() if m.lower().endswith(member_suffix)), None)
         if not name:
             return
-        _, rows = parse_table(zf.read(name).decode("utf-8",
-                                                   errors="replace"))
+        _, rows = parse_table(zf.read(name).decode("utf-8", errors="replace"))
         for r in rows:
-            ap = "".join(ch for ch in (r.get("Appl_No") or "")
-                         if ch.isdigit()).zfill(6)
+            ap = "".join(ch for ch in (r.get("Appl_No") or "") if ch.isdigit()).zfill(6)
             txt = (r.get(date_col) or "").strip()
             try:
                 d = datetime.strptime(txt, "%b %d, %Y").date()
@@ -159,17 +168,15 @@ def loe_urgency(as_of: date, horizon_years: int = 3) -> dict:
     now). Count-based proxy -- free data carries no product revenue;
     stated as such wherever reported."""
     import csv as _csv
+
     ends = _protection_end_by_appno()
-    limit = date(as_of.year + horizon_years, as_of.month,
-                 min(as_of.day, 28))
+    limit = date(as_of.year + horizon_years, as_of.month, min(as_of.day, 28))
     apps: dict = {}
-    with (config.SILVER / "events.csv").open(encoding="utf-8", newline="",
-                                             errors="replace") as f:
+    with (config.SILVER / "events.csv").open(encoding="utf-8", newline="", errors="replace") as f:
         for r in _csv.DictReader(f):
             if "pproval" not in (r.get("Outcome") or ""):
                 continue
-            ap = "".join(ch for ch in (r.get("AppNo") or "")
-                         if ch.isdigit()).zfill(6)
+            ap = "".join(ch for ch in (r.get("AppNo") or "") if ch.isdigit()).zfill(6)
             if ap != "000000":
                 apps.setdefault(str(r["IID"]), set()).add(ap)
     out = {}

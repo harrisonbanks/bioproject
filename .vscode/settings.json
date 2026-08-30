@@ -2,8 +2,18 @@
   "terminal.integrated.profiles.windows": {
     "PowerShell venv": {
       "path": "powershell.exe",
-      "args": ["-NoExit", "-ExecutionPolicy", "Bypass", "-Command", "& '${workspaceFolder}\\.venv\\Scripts\\Activate.ps1'"]
+      "args": [
+        "-NoExit",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "& '${workspaceFolder}\\.venv\\Scripts\\Activate.ps1'"
+      ]
     }
   },
-  "terminal.integrated.defaultProfile.windows": "PowerShell venv"
+  "terminal.integrated.defaultProfile.windows": "PowerShell venv",
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true
+  }
 }

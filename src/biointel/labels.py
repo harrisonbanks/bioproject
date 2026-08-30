@@ -36,7 +36,9 @@ merger 8-Ks as bridge lenders -- verified live in the Vertex/Crinetics
 2026 deal, where the extraction surfaced Morgan Stanley Senior Funding,
 the lender, instead of Vertex, the buyer).
 """
+
 from __future__ import annotations
+
 import re
 from collections import defaultdict
 from datetime import date, timedelta
@@ -46,35 +48,71 @@ from biointel.store import fetch_json
 
 SHELL_RE = re.compile(
     r"(?i)\b(?:acquisition|merger)\s+(?:sub|subsidiary|corp|corporation|"
-    r"company|co\.?|holdings?)\b|^project\s|\bmergeco\b|\bnewco\b")
+    r"company|co\.?|holdings?)\b|^project\s|\bmergeco\b|\bnewco\b"
+)
 
 JUNK_RE = re.compile(
     r"(?i)offer price|competition authority|antitrust|commission$|"
-    r"exchange ratio|tender offer|effective time")
+    r"exchange ratio|tender offer|effective time"
+)
 
 FIN_AGENT_RE = re.compile(
     r"(?i)senior funding|morgan stanley|goldman sachs|jpmorgan|"
     r"j\.p\. morgan|citibank|citigroup|bank of america|barclays|"
     r"deutsche bank|credit suisse|ubs|wells fargo|\bbank\b|"
     r"\bn\.a\.?$|capital markets|securities llc|leerink|lazard|"
-    r"funding, inc")
+    r"funding, inc"
+)
 
 TARGET_PROXY_FORMS = {"DEFM14A", "PREM14A", "SC 14D9", "SC 14D9/A", "DEFM14C"}
 DELIST_FORMS = {"25", "25/A", "25-NSE", "25-NSE/A", "15-12B", "15-12G", "15-15D"}
 CONTINUED_FORMS = {"10-K", "10-Q", "8-K", "10-K/A", "10-Q/A"}
 
-MA_COLS = ["FilerIID", "Filer", "FilerTicker", "Role", "Counterparty",
-           "CounterpartyIID", "AnnounceDate", "CompletionDate", "Status",
-           "S1_MergerRow", "S2_ProxyForms", "S3_CompletionNamed",
-           "S4_Delisting", "S5_CeasedFiling", "Confidence",
-           "Verified", "VerifiedAcquirer", "VerifiedNote", "Evidence"]
+MA_COLS = [
+    "FilerIID",
+    "Filer",
+    "FilerTicker",
+    "Role",
+    "Counterparty",
+    "CounterpartyIID",
+    "AnnounceDate",
+    "CompletionDate",
+    "Status",
+    "S1_MergerRow",
+    "S2_ProxyForms",
+    "S3_CompletionNamed",
+    "S4_Delisting",
+    "S5_CeasedFiling",
+    "Confidence",
+    "Verified",
+    "VerifiedAcquirer",
+    "VerifiedNote",
+    "Evidence",
+]
 
-PANEL_COLS = ["IID", "Ticker", "Company", "QuarterEnd",
-              "AcquiredNext12m", "AcquiredNext24m", "MadeAcquisition12m",
-              "AnnounceDate", "Acquirer", "LabelSource"]
+PANEL_COLS = [
+    "IID",
+    "Ticker",
+    "Company",
+    "QuarterEnd",
+    "AcquiredNext12m",
+    "AcquiredNext24m",
+    "MadeAcquisition12m",
+    "AnnounceDate",
+    "Acquirer",
+    "LabelSource",
+]
 
-VERIFIED_COLS = ["FilerTicker", "AnnounceDate", "Acquirer", "PricePerShare",
-                 "DealValue", "Status", "Note", "Source"]
+VERIFIED_COLS = [
+    "FilerTicker",
+    "AnnounceDate",
+    "Acquirer",
+    "PricePerShare",
+    "DealValue",
+    "Status",
+    "Note",
+    "Source",
+]
 
 
 # ------------------------------------------------------------ SEC trails
@@ -96,11 +134,9 @@ def merger_trail(cik10: str) -> list[tuple[str, str]]:
     return [(f, d) for f, d in _recent(cik10) if f in keep]
 
 
-def still_filing_after(cik10: str, announce: str,
-                       months: int = 15) -> bool | None:
+def still_filing_after(cik10: str, announce: str, months: int = 15) -> bool | None:
     """True: survivor. False: filings cease. None: too recent to judge."""
-    cutoff = (date.fromisoformat(announce)
-              + timedelta(days=months * 30)).isoformat()
+    cutoff = (date.fromisoformat(announce) + timedelta(days=months * 30)).isoformat()
     if cutoff >= date.today().isoformat():
         return None
     for f, d in _recent(cik10):
@@ -115,6 +151,7 @@ def read_verified() -> list[dict]:
     if not path.exists():
         return []
     import csv
+
     with path.open(encoding="utf-8") as f:
         return list(csv.DictReader(f))
 
@@ -123,6 +160,7 @@ def read_verified() -> list[dict]:
 def build_ma_events(read_companies, read_deals, read_cparty) -> list[dict]:
     """Machine-PROPOSED events with per-signal evidence + verified overlay."""
     from biointel import network
+
     companies = read_companies()
     co_by_iid = {int(c["IID"]): c for c in companies}
     key_to_iid = {}
@@ -141,9 +179,9 @@ def build_ma_events(read_companies, read_deals, read_cparty) -> list[dict]:
     for r in read_cparty():
         k = (int(r["IID"]), str(r.get("Accession", "")))
         if k in acc_201:
-            completions_by_key[(int(r["IID"]),
-                                network._norm(r["Counterparty"]))].append(
-                str(r["FilingDate"]))
+            completions_by_key[(int(r["IID"]), network._norm(r["Counterparty"]))].append(
+                str(r["FilingDate"])
+            )
 
     # S1 merger-agreement rows, grouped
     grouped = defaultdict(list)
@@ -156,13 +194,12 @@ def build_ma_events(read_companies, read_deals, read_cparty) -> list[dict]:
         grouped[(int(r["IID"]), network._norm(nm))].append(r)
 
     proposals = []
-    consumed_probe = set()          # (iid, episode announce) covered by S1
+    consumed_probe = set()  # (iid, episode announce) covered by S1
     for (iid, key), rs in sorted(grouped.items()):
         co = co_by_iid.get(iid, {})
         announce = sorted(str(r["FilingDate"]) for r in rs)[0]
         name = max((r["Counterparty"] for r in rs), key=len)
-        p = _assemble(co, iid, key, name, announce, rs,
-                      completions_by_key, key_to_iid, s1=True)
+        p = _assemble(co, iid, key, name, announce, rs, completions_by_key, key_to_iid, s1=True)
         proposals.append(p)
         consumed_probe.add((iid, announce[:4]))
 
@@ -170,28 +207,37 @@ def build_ma_events(read_companies, read_deals, read_cparty) -> list[dict]:
     # independent of extraction. Episodes = proxy dates > 1y apart.
     for c in companies:
         iid = int(c["IID"])
-        proxies = sorted(d for f, d in merger_trail(c.get("CIK", ""))
-                         if f in TARGET_PROXY_FORMS)
+        proxies = sorted(d for f, d in merger_trail(c.get("CIK", "")) if f in TARGET_PROXY_FORMS)
         episodes = []
         for d in proxies:
-            if episodes and (date.fromisoformat(d)
-                             - date.fromisoformat(episodes[-1][-1])).days <= 365:
+            if (
+                episodes
+                and (date.fromisoformat(d) - date.fromisoformat(episodes[-1][-1])).days <= 365
+            ):
                 episodes[-1].append(d)
             else:
                 episodes.append([d])
         for ep in episodes:
             announce = ep[0]
             if (iid, announce[:4]) in consumed_probe:
-                continue            # already proposed with a named party
-            p = _assemble(c, iid, "", "(acquirer unresolved)", announce, [],
-                          completions_by_key, key_to_iid, s1=False)
+                continue  # already proposed with a named party
+            p = _assemble(
+                c,
+                iid,
+                "",
+                "(acquirer unresolved)",
+                announce,
+                [],
+                completions_by_key,
+                key_to_iid,
+                s1=False,
+            )
             if p["Confidence"] >= 2:
                 proposals.append(p)
 
     # verified overlay wins on (ticker, announce year)
     ver = read_verified()
-    vidx = {(v["FilerTicker"].strip().upper(),
-             str(v["AnnounceDate"])[:4]): v for v in ver}
+    vidx = {(v["FilerTicker"].strip().upper(), str(v["AnnounceDate"])[:4]): v for v in ver}
     matched = set()
     for p in proposals:
         k = (p["FilerTicker"].strip().upper(), str(p["AnnounceDate"])[:4])
@@ -201,8 +247,7 @@ def build_ma_events(read_companies, read_deals, read_cparty) -> list[dict]:
             p["Verified"] = "yes"
             p["Role"] = "target"
             p["VerifiedAcquirer"] = v.get("Acquirer", "")
-            p["VerifiedNote"] = (v.get("Note", "") + " | " +
-                                 v.get("Source", "")).strip(" |")
+            p["VerifiedNote"] = (v.get("Note", "") + " | " + v.get("Source", "")).strip(" |")
             if v.get("AnnounceDate"):
                 p["AnnounceDate"] = v["AnnounceDate"]
     # verified events with no proposal stand alone -- the curated record
@@ -214,25 +259,33 @@ def build_ma_events(read_companies, read_deals, read_cparty) -> list[dict]:
         c = tick_to_co.get(k[0])
         if not c:
             continue
-        proposals.append({
-            "FilerIID": int(c["IID"]), "Filer": c.get("Name", ""),
-            "FilerTicker": c.get("Ticker", ""), "Role": "target",
-            "Counterparty": v.get("Acquirer", ""), "CounterpartyIID": "",
-            "AnnounceDate": v["AnnounceDate"], "CompletionDate": "",
-            "Status": v.get("Status", "announced/pending"),
-            "S1_MergerRow": "", "S2_ProxyForms": "", "S3_CompletionNamed": "",
-            "S4_Delisting": "", "S5_CeasedFiling": "too-recent",
-            "Confidence": 0, "Verified": "yes",
-            "VerifiedAcquirer": v.get("Acquirer", ""),
-            "VerifiedNote": (v.get("Note", "") + " | " +
-                             v.get("Source", "")).strip(" |"),
-            "Evidence": "",
-        })
+        proposals.append(
+            {
+                "FilerIID": int(c["IID"]),
+                "Filer": c.get("Name", ""),
+                "FilerTicker": c.get("Ticker", ""),
+                "Role": "target",
+                "Counterparty": v.get("Acquirer", ""),
+                "CounterpartyIID": "",
+                "AnnounceDate": v["AnnounceDate"],
+                "CompletionDate": "",
+                "Status": v.get("Status", "announced/pending"),
+                "S1_MergerRow": "",
+                "S2_ProxyForms": "",
+                "S3_CompletionNamed": "",
+                "S4_Delisting": "",
+                "S5_CeasedFiling": "too-recent",
+                "Confidence": 0,
+                "Verified": "yes",
+                "VerifiedAcquirer": v.get("Acquirer", ""),
+                "VerifiedNote": (v.get("Note", "") + " | " + v.get("Source", "")).strip(" |"),
+                "Evidence": "",
+            }
+        )
     return proposals
 
 
-def _assemble(co, iid, key, name, announce, rs, completions_by_key,
-              key_to_iid, s1: bool) -> dict:
+def _assemble(co, iid, key, name, announce, rs, completions_by_key, key_to_iid, s1: bool) -> dict:
     cik = co.get("CIK", "")
     lo = announce
     hi = (date.fromisoformat(announce) + timedelta(days=548)).isoformat()
@@ -246,17 +299,26 @@ def _assemble(co, iid, key, name, announce, rs, completions_by_key,
             break
 
     trail = merger_trail(cik)
-    proxies = sorted({f for f, d in trail
-                      if f in TARGET_PROXY_FORMS and win_lo <= d <= win_prox})
-    delist = any(f in DELIST_FORMS and
-                 (comp and abs((date.fromisoformat(d)
-                                - date.fromisoformat(comp)).days) <= 90
-                  or not comp and lo <= d <= hi)
-                 for f, d in trail)
+    proxies = sorted({f for f, d in trail if f in TARGET_PROXY_FORMS and win_lo <= d <= win_prox})
+    delist = any(
+        f in DELIST_FORMS
+        and (
+            comp
+            and abs((date.fromisoformat(d) - date.fromisoformat(comp)).days) <= 90
+            or not comp
+            and lo <= d <= hi
+        )
+        for f, d in trail
+    )
     ceased = still_filing_after(cik, announce)
 
-    conf = (1 if s1 else 0) + (1 if proxies else 0) + (1 if comp else 0) \
-        + (1 if delist else 0) + (1 if ceased is False else 0)
+    conf = (
+        (1 if s1 else 0)
+        + (1 if proxies else 0)
+        + (1 if comp else 0)
+        + (1 if delist else 0)
+        + (1 if ceased is False else 0)
+    )
 
     # role: completion naming -> acquirer; else target-side evidence,
     # unless the survivor test says the filer kept filing (share-issuing
@@ -271,21 +333,25 @@ def _assemble(co, iid, key, name, announce, rs, completions_by_key,
         role = "unknown"
 
     return {
-        "FilerIID": iid, "Filer": co.get("Name", ""),
-        "FilerTicker": co.get("Ticker", ""), "Role": role,
-        "Counterparty": name, "CounterpartyIID": key_to_iid.get(key, ""),
-        "AnnounceDate": announce, "CompletionDate": comp,
-        "Status": "completed" if (comp or delist or ceased is False)
-                  else "announced/pending",
+        "FilerIID": iid,
+        "Filer": co.get("Name", ""),
+        "FilerTicker": co.get("Ticker", ""),
+        "Role": role,
+        "Counterparty": name,
+        "CounterpartyIID": key_to_iid.get(key, ""),
+        "AnnounceDate": announce,
+        "CompletionDate": comp,
+        "Status": "completed" if (comp or delist or ceased is False) else "announced/pending",
         "S1_MergerRow": "yes" if s1 else "",
         "S2_ProxyForms": "; ".join(proxies),
         "S3_CompletionNamed": comp,
         "S4_Delisting": "yes" if delist else "",
         "S5_CeasedFiling": {True: "no", False: "yes", None: "too-recent"}[ceased],
-        "Confidence": conf, "Verified": "", "VerifiedAcquirer": "",
+        "Confidence": conf,
+        "Verified": "",
+        "VerifiedAcquirer": "",
         "VerifiedNote": "",
-        "Evidence": "; ".join(sorted({str(r.get("Accession", ""))
-                                      for r in rs})[:4]),
+        "Evidence": "; ".join(sorted({str(r.get("Accession", "")) for r in rs})[:4]),
     }
 
 
@@ -300,8 +366,9 @@ def _quarter_ends(first: str, last: str) -> list[str]:
     return out
 
 
-def build_label_panel(read_companies, ma_events: list[dict],
-                      start: str = "2010-01-01") -> list[dict]:
+def build_label_panel(
+    read_companies, ma_events: list[dict], start: str = "2010-01-01"
+) -> list[dict]:
     """Firm-quarter panel; target labels ONLY from verified events or
     proposals with >= 2 independent target-side signals. Provenance in
     LabelSource: 'verified' or 'proposed-cNN'."""
@@ -316,14 +383,13 @@ def build_label_panel(read_companies, ma_events: list[dict],
             nm = e["VerifiedAcquirer"] or e["Counterparty"]
             if FIN_AGENT_RE.search(nm):
                 nm = "(acquirer unresolved)"
-            src = ("verified" if e["Verified"] == "yes"
-                   else f"proposed-c{e['Confidence']}")
+            src = "verified" if e["Verified"] == "yes" else f"proposed-c{e['Confidence']}"
             tgt[int(e["FilerIID"])].append((e["AnnounceDate"], nm, src))
         elif e["Role"] == "acquirer":
             acq[int(e["FilerIID"])].append(e["AnnounceDate"])
             if e["CounterpartyIID"] != "":
                 pass  # in-universe mirror requires the counterparty's own
-                      # trail to propose it; the prober covers that side.
+                # trail to propose it; the prober covers that side.
 
     rows = []
     for c in read_companies():
@@ -334,23 +400,38 @@ def build_label_panel(read_companies, ma_events: list[dict],
             t12 = [(d, a, s) for d, a, s in tgt.get(iid, []) if q < d <= h12]
             t24 = [(d, a, s) for d, a, s in tgt.get(iid, []) if q < d <= h24]
             m12 = [d for d in acq.get(iid, []) if q < d <= h12]
-            rows.append({
-                "IID": iid, "Ticker": c.get("Ticker", ""),
-                "Company": c.get("Name", ""), "QuarterEnd": q,
-                "AcquiredNext12m": 1 if t12 else 0,
-                "AcquiredNext24m": 1 if t24 else 0,
-                "MadeAcquisition12m": 1 if m12 else 0,
-                "AnnounceDate": t24[0][0] if t24 else "",
-                "Acquirer": t24[0][1] if t24 else "",
-                "LabelSource": t24[0][2] if t24 else "",
-            })
+            rows.append(
+                {
+                    "IID": iid,
+                    "Ticker": c.get("Ticker", ""),
+                    "Company": c.get("Name", ""),
+                    "QuarterEnd": q,
+                    "AcquiredNext12m": 1 if t12 else 0,
+                    "AcquiredNext24m": 1 if t24 else 0,
+                    "MadeAcquisition12m": 1 if m12 else 0,
+                    "AnnounceDate": t24[0][0] if t24 else "",
+                    "Acquirer": t24[0][1] if t24 else "",
+                    "LabelSource": t24[0][2] if t24 else "",
+                }
+            )
     return rows
 
 
 # ------------------------------------------------- universe-wide harvest
-HARVEST_COLS = ["CIK", "Name", "Tickers", "Delisted", "AnnounceDate",
-                "ProxyForms", "Form25Date", "CeasedFiling", "Confidence",
-                "Verified", "Acquirer", "Note"]
+HARVEST_COLS = [
+    "CIK",
+    "Name",
+    "Tickers",
+    "Delisted",
+    "AnnounceDate",
+    "ProxyForms",
+    "Form25Date",
+    "CeasedFiling",
+    "Confidence",
+    "Verified",
+    "Acquirer",
+    "Note",
+]
 
 
 def harvest_universe() -> dict:
@@ -362,6 +443,7 @@ def harvest_universe() -> dict:
     ma_events_verified.csv after checking against public deal records.
     """
     import csv as _csv
+
     upath = config.SILVER / "universe.csv"
     if not upath.exists():
         return {"status": "empty", "message": "Run `universe` first."}
@@ -371,8 +453,7 @@ def harvest_universe() -> dict:
     rows = []
     for i, m in enumerate(members, 1):
         if i % 100 == 0:
-            print(f"  harvesting {i}/{len(members)}: "
-                  f"{len(rows)} proposals so far", flush=True)
+            print(f"  harvesting {i}/{len(members)}: {len(rows)} proposals so far", flush=True)
         cik10 = str(m["CIK"]).zfill(10)
         trail = merger_trail(cik10)
         proxies = sorted(d for f, d in trail if f in TARGET_PROXY_FORMS)
@@ -381,8 +462,10 @@ def harvest_universe() -> dict:
         f25 = sorted(d for f, d in trail if f in FORM25_H)
         episodes = []
         for d in proxies:
-            if episodes and (date.fromisoformat(d)
-                             - date.fromisoformat(episodes[-1][-1])).days <= 365:
+            if (
+                episodes
+                and (date.fromisoformat(d) - date.fromisoformat(episodes[-1][-1])).days <= 365
+            ):
                 episodes[-1].append(d)
             else:
                 episodes.append([d])
@@ -394,63 +477,81 @@ def harvest_universe() -> dict:
             ceased = still_filing_after(cik10, announce)
             conf = 1 + (1 if f25_near else 0) + (1 if ceased is False else 0)
             if ceased is True and not f25_near:
-                continue      # survivor with a proxy: share-issuing acquirer
-            rows.append({
-                "CIK": cik10, "Name": m["Name"], "Tickers": m["Tickers"],
-                "Delisted": m.get("Delisted", ""),
-                "AnnounceDate": announce,
-                "ProxyForms": "; ".join(sorted({f for f, d in trail
-                                                if f in TARGET_PROXY_FORMS
-                                                and d in ep})),
-                "Form25Date": f25_near[0] if f25_near else "",
-                "CeasedFiling": {True: "no", False: "yes",
-                                 None: "too-recent"}[ceased],
-                "Confidence": conf, "Verified": "", "Acquirer": "",
-                "Note": "",
-            })
+                continue  # survivor with a proxy: share-issuing acquirer
+            rows.append(
+                {
+                    "CIK": cik10,
+                    "Name": m["Name"],
+                    "Tickers": m["Tickers"],
+                    "Delisted": m.get("Delisted", ""),
+                    "AnnounceDate": announce,
+                    "ProxyForms": "; ".join(
+                        sorted({f for f, d in trail if f in TARGET_PROXY_FORMS and d in ep})
+                    ),
+                    "Form25Date": f25_near[0] if f25_near else "",
+                    "CeasedFiling": {True: "no", False: "yes", None: "too-recent"}[ceased],
+                    "Confidence": conf,
+                    "Verified": "",
+                    "Acquirer": "",
+                    "Note": "",
+                }
+            )
 
     rows.sort(key=lambda r: (-r["Confidence"], r["AnnounceDate"]))
     out = config.SILVER / "ma_events_universe.csv"
     with out.open("w", newline="", encoding="utf-8") as f:
         w = _csv.DictWriter(f, fieldnames=HARVEST_COLS, extrasaction="ignore")
-        w.writeheader(); w.writerows(rows)
+        w.writeheader()
+        w.writerows(rows)
     strong = sum(1 for r in rows if r["Confidence"] >= 2)
-    return {"status": "ok",
-            "message": f"{len(rows)} proposed acquisition events -> {out} "
-                       f"({strong} at confidence >= 2 -- the verification "
-                       f"worklist; {len(members)} members scanned)."}
+    return {
+        "status": "ok",
+        "message": f"{len(rows)} proposed acquisition events -> {out} "
+        f"({strong} at confidence >= 2 -- the verification "
+        f"worklist; {len(members)} members scanned).",
+    }
 
 
 FORM25_H = {"25", "25/A", "25-NSE", "25-NSE/A"}
 
 
 # --------------------------------------------- acquirer auto-extraction
-ACQ_ORG = (r"((?:[A-Z][\w&.\-\u2019']*\s+){0,6}[A-Z][\w&.\-\u2019']*"
-           r"(?:,?\s+(?:Inc\.?|Incorporated|LLC|Ltd\.?|Limited|Corp\.?|"
-           r"Corporation|Company|PLC|plc|N\.V\.|S\.A\.|AG|AB|GmbH|LP|"
-           r"L\.P\.|Holdings?|Group))?)")
+ACQ_ORG = (
+    r"((?:[A-Z][\w&.\-\u2019']*\s+){0,6}[A-Z][\w&.\-\u2019']*"
+    r"(?:,?\s+(?:Inc\.?|Incorporated|LLC|Ltd\.?|Limited|Corp\.?|"
+    r"Corporation|Company|PLC|plc|N\.V\.|S\.A\.|AG|AB|GmbH|LP|"
+    r"L\.P\.|Holdings?|Group))?)"
+)
 
 PLACEHOLDER_RE = re.compile(
     r"(?i)^(?:the\s+)?(?:holdco|hold\s?co|topco|newco|parent|purchaser|"
-    r"buyer|merger\s+partner|acquiror|acquirer)\.?$")
+    r"buyer|merger\s+partner|acquiror|acquirer)\.?$"
+)
 
 ACQ_PATTERNS = [
-    ("subsidiary-of",
-     re.compile(r"(?:wholly[\s-]owned\s+(?:direct\s+|indirect\s+)?"
-                r"subsidiary\s+of|a\s+subsidiary\s+of)\s+" + ACQ_ORG)),
-    ("acquired-by",
-     re.compile(r"(?:be\s+acquired\s+by|acquisition\s+of\s+the\s+"
-                r"Compan\w+\s+by|acquired?\s+by)\s+" + ACQ_ORG)),
-    ("merger-with",
-     re.compile(r"[Mm]erger\s+(?:[Aa]greement\s+)?with\s+" + ACQ_ORG)),
-    ("by-and-among",
-     re.compile(r"by\s+and\s+among\s+(?:the\s+Company,?\s+)?" + ACQ_ORG)),
+    (
+        "subsidiary-of",
+        re.compile(
+            r"(?:wholly[\s-]owned\s+(?:direct\s+|indirect\s+)?"
+            r"subsidiary\s+of|a\s+subsidiary\s+of)\s+" + ACQ_ORG
+        ),
+    ),
+    (
+        "acquired-by",
+        re.compile(
+            r"(?:be\s+acquired\s+by|acquisition\s+of\s+the\s+"
+            r"Compan\w+\s+by|acquired?\s+by)\s+" + ACQ_ORG
+        ),
+    ),
+    ("merger-with", re.compile(r"[Mm]erger\s+(?:[Aa]greement\s+)?with\s+" + ACQ_ORG)),
+    ("by-and-among", re.compile(r"by\s+and\s+among\s+(?:the\s+Company,?\s+)?" + ACQ_ORG)),
 ]
 
 
 def _acquirer_from_text(text: str, self_name: str) -> tuple[str, str]:
     """(acquirer, pattern) from proxy/8-K text; ("", "") when none holds."""
     from biointel.sources.counterparty import _clean, _plausible, _self_keys
+
     head = text[:20000]
     keys = _self_keys(self_name)
     for label, pat in ACQ_PATTERNS:
@@ -473,6 +574,7 @@ def verify_fill() -> dict:
     a human decision on spot-check. Fetches are bronze-cached; reruns
     are free."""
     import csv as _csv
+
     path = config.SILVER / "ma_events_universe.csv"
     if not path.exists():
         return {"status": "empty", "message": "Run `harvest` first."}
@@ -480,30 +582,34 @@ def verify_fill() -> dict:
         rows = list(_csv.DictReader(f))
 
     from biointel.sources.counterparty import fetch_text
+
     filled = fetched = 0
     for i, r in enumerate(rows, 1):
         if i % 25 == 0:
-            print(f"  verifying {i}/{len(rows)}: {filled} acquirers filled",
-                  flush=True)
+            print(f"  verifying {i}/{len(rows)}: {filled} acquirers filled", flush=True)
         if r.get("Acquirer") and PLACEHOLDER_RE.match(r["Acquirer"]):
-            r["Acquirer"] = ""; r["Verified"] = ""; r["Note"] = ""
+            r["Acquirer"] = ""
+            r["Verified"] = ""
+            r["Note"] = ""
         if r.get("Acquirer") or int(r["Confidence"]) < 2:
             continue
         cik10 = str(r["CIK"]).zfill(10)
         data = _submissions(cik10)
         rec = (data.get("filings") or {}).get("recent") or {}
         cand = []
-        for f, d, acc, doc in zip(rec.get("form", []),
-                                  rec.get("filingDate", []),
-                                  rec.get("accessionNumber", []),
-                                  rec.get("primaryDocument", [])):
-            near = abs((date.fromisoformat(d)
-                        - date.fromisoformat(r["AnnounceDate"])).days)
+        for f, d, acc, doc in zip(
+            rec.get("form", []),
+            rec.get("filingDate", []),
+            rec.get("accessionNumber", []),
+            rec.get("primaryDocument", []),
+        ):
+            near = abs((date.fromisoformat(d) - date.fromisoformat(r["AnnounceDate"])).days)
             if f in TARGET_PROXY_FORMS and near <= 400 and doc:
                 cand.append((near, acc, doc))
         for near, acc, doc in sorted(cand)[:2]:
-            url = (f"https://www.sec.gov/Archives/edgar/data/"
-                   f"{int(cik10)}/{acc.replace('-', '')}/{doc}")
+            url = (
+                f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{acc.replace('-', '')}/{doc}"
+            )
             text = fetch_text(url)
             if not text:
                 continue
@@ -518,13 +624,15 @@ def verify_fill() -> dict:
 
     with path.open("w", newline="", encoding="utf-8") as f:
         w = _csv.DictWriter(f, fieldnames=HARVEST_COLS, extrasaction="ignore")
-        w.writeheader(); w.writerows(rows)
-    todo = sum(1 for r in rows if int(r["Confidence"]) >= 2
-               and not r.get("Acquirer"))
-    return {"status": "ok",
-            "message": f"{filled} acquirers auto-filled "
-                       f"({fetched} documents read) -> {path}. "
-                       f"{todo} confidence>=2 rows still blank (manual)."}
+        w.writeheader()
+        w.writerows(rows)
+    todo = sum(1 for r in rows if int(r["Confidence"]) >= 2 and not r.get("Acquirer"))
+    return {
+        "status": "ok",
+        "message": f"{filled} acquirers auto-filled "
+        f"({fetched} documents read) -> {path}. "
+        f"{todo} confidence>=2 rows still blank (manual).",
+    }
 
 
 def merged_events(read_companies, read_deals, read_cparty) -> list[dict]:
@@ -537,9 +645,11 @@ def merged_events(read_companies, read_deals, read_cparty) -> list[dict]:
     > dev-set proposal.
     """
     import csv as _csv
+
     base = build_ma_events(read_companies, read_deals, read_cparty)
-    cik_to_iid = {str(c.get("CIK", "")).lstrip("0"): int(c["IID"])
-                  for c in read_companies() if c.get("CIK")}
+    cik_to_iid = {
+        str(c.get("CIK", "")).lstrip("0"): int(c["IID"]) for c in read_companies() if c.get("CIK")
+    }
     hpath = config.SILVER / "ma_events_universe.csv"
     harvest = []
     if hpath.exists():
@@ -549,8 +659,12 @@ def merged_events(read_companies, read_deals, read_cparty) -> list[dict]:
     def rank(e):
         if e.get("Verified") == "yes":
             return 3
-        if e.get("Verified") == "auto" and e.get("VerifiedAcquirer") or \
-           e.get("Verified") == "auto" and e.get("Counterparty"):
+        if (
+            e.get("Verified") == "auto"
+            and e.get("VerifiedAcquirer")
+            or e.get("Verified") == "auto"
+            and e.get("Counterparty")
+        ):
             return 2
         return 1
 
@@ -563,26 +677,31 @@ def merged_events(read_companies, read_deals, read_cparty) -> list[dict]:
             out[k] = e
     n_skip = 0
     for h in harvest:
-        ok = (h.get("Verified") in ("auto", "yes") and h.get("Acquirer")) \
-             or int(h.get("Confidence") or 0) >= 2
+        ok = (h.get("Verified") in ("auto", "yes") and h.get("Acquirer")) or int(
+            h.get("Confidence") or 0
+        ) >= 2
         if not ok:
             continue
         iid = cik_to_iid.get(str(h["CIK"]).lstrip("0"))
         if iid is None:
             n_skip += 1
             continue
-        e = {"FilerIID": iid, "Filer": h["Name"],
-             "FilerTicker": (h.get("Tickers") or "").split(";")[0].strip(),
-             "Role": "target", "Counterparty": h.get("Acquirer") or
-                     "(acquirer unresolved)",
-             "CounterpartyIID": "",
-             "AnnounceDate": h.get("AgreementDate") or h["AnnounceDate"],
-             "CompletionDate": "", "Status": "harvested",
-             "Confidence": int(h.get("Confidence") or 0),
-             "Verified": "yes" if h.get("Verified") in ("auto", "yes")
-                         and h.get("Acquirer") else "",
-             "VerifiedAcquirer": h.get("Acquirer") or "",
-             "VerifiedNote": "universe harvest", "Evidence": ""}
+        e = {
+            "FilerIID": iid,
+            "Filer": h["Name"],
+            "FilerTicker": (h.get("Tickers") or "").split(";")[0].strip(),
+            "Role": "target",
+            "Counterparty": h.get("Acquirer") or "(acquirer unresolved)",
+            "CounterpartyIID": "",
+            "AnnounceDate": h.get("AgreementDate") or h["AnnounceDate"],
+            "CompletionDate": "",
+            "Status": "harvested",
+            "Confidence": int(h.get("Confidence") or 0),
+            "Verified": "yes" if h.get("Verified") in ("auto", "yes") and h.get("Acquirer") else "",
+            "VerifiedAcquirer": h.get("Acquirer") or "",
+            "VerifiedNote": "universe harvest",
+            "Evidence": "",
+        }
         k = (iid, str(h["AnnounceDate"])[:4])
         if k not in out or 2 > rank(out[k]):
             if k not in out or rank(out[k]) < 2:
@@ -595,25 +714,63 @@ def merged_events(read_companies, read_deals, read_cparty) -> list[dict]:
 
 
 # ----------------------------------------------------------- QA pass
-MONTHS = {m: i for i, m in enumerate(
-    ["January", "February", "March", "April", "May", "June", "July",
-     "August", "September", "October", "November", "December"], 1)}
+MONTHS = {
+    m: i
+    for i, m in enumerate(
+        [
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        ],
+        1,
+    )
+}
 
 AGREE_DATE_RE = re.compile(
     r"(?:Agreement\s+and\s+Plan\s+of\s+Merger|Merger\s+Agreement|"
     r"Transaction\s+Agreement)[^.]{0,160}?dated\s+(?:as\s+of\s+)?"
-    r"([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})")
+    r"([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})"
+)
 
 CLASS_PATTERNS = [
-    ("spac", re.compile(r"(?i)special\s+purpose\s+acquisition|\bSPAC\b|"
-                        r"business\s+combination\s+agreement")),
-    ("bankruptcy", re.compile(r"(?i)chapter\s+11|plan\s+of\s+reorganization|"
-                              r"bankruptcy\s+court")),
-    ("going-private", re.compile(r"(?i)take[- ]private|going[- ]private|"
-                                 r"affiliates?\s+of\s+(?:[A-Z]\w+\s+){0,3}"
-                                 r"(?:Capital|Partners|Equity|Management)")),
-    ("reverse-merger", re.compile(r"(?i)reverse\s+merger|"
-                                  r"will\s+be\s+renamed")),
+    (
+        "spac",
+        re.compile(
+            r"(?i)special\s+purpose\s+acquisition|\bSPAC\b|"
+            r"business\s+combination\s+agreement"
+        ),
+    ),
+    (
+        "bankruptcy",
+        re.compile(
+            r"(?i)chapter\s+11|plan\s+of\s+reorganization|"
+            r"bankruptcy\s+court"
+        ),
+    ),
+    (
+        "going-private",
+        re.compile(
+            r"(?i)take[- ]private|going[- ]private|"
+            r"affiliates?\s+of\s+(?:[A-Z]\w+\s+){0,3}"
+            r"(?:Capital|Partners|Equity|Management)"
+        ),
+    ),
+    (
+        "reverse-merger",
+        re.compile(
+            r"(?i)reverse\s+merger|"
+            r"will\s+be\s+renamed"
+        ),
+    ),
 ]
 
 QA_COLS = HARVEST_COLS + ["AgreementDate", "EventClass", "QAFlag"]
@@ -627,6 +784,7 @@ def qa_pass(sample_n: int = 60, seed: int = 11) -> dict:
     sample plus every structurally suspicious row."""
     import csv as _csv
     import random as _random
+
     path = config.SILVER / "ma_events_universe.csv"
     if not path.exists():
         return {"status": "empty", "message": "Run harvest/verify-fill first."}
@@ -634,11 +792,11 @@ def qa_pass(sample_n: int = 60, seed: int = 11) -> dict:
         rows = list(_csv.DictReader(f))
 
     from biointel.sources.counterparty import fetch_text
+
     n_date = n_class = 0
     for i, r in enumerate(rows, 1):
         if i % 25 == 0:
-            print(f"  qa {i}/{len(rows)}: {n_date} agreement dates, "
-                  f"{n_class} classed", flush=True)
+            print(f"  qa {i}/{len(rows)}: {n_date} agreement dates, {n_class} classed", flush=True)
         r.setdefault("AgreementDate", "")
         r.setdefault("EventClass", "")
         r.setdefault("QAFlag", "")
@@ -648,20 +806,30 @@ def qa_pass(sample_n: int = 60, seed: int = 11) -> dict:
         data = _submissions(cik10)
         rec = (data.get("filings") or {}).get("recent") or {}
         cand = []
-        for f_, d_, acc, doc in zip(rec.get("form", []),
-                                    rec.get("filingDate", []),
-                                    rec.get("accessionNumber", []),
-                                    rec.get("primaryDocument", [])):
-            if f_ in TARGET_PROXY_FORMS and doc and \
-               abs((date.fromisoformat(d_)
-                    - date.fromisoformat(r["AnnounceDate"])).days) <= 400:
-                cand.append((abs((date.fromisoformat(d_)
-                                  - date.fromisoformat(r["AnnounceDate"])).days),
-                             acc, doc))
+        for f_, d_, acc, doc in zip(
+            rec.get("form", []),
+            rec.get("filingDate", []),
+            rec.get("accessionNumber", []),
+            rec.get("primaryDocument", []),
+        ):
+            if (
+                f_ in TARGET_PROXY_FORMS
+                and doc
+                and abs((date.fromisoformat(d_) - date.fromisoformat(r["AnnounceDate"])).days)
+                <= 400
+            ):
+                cand.append(
+                    (
+                        abs((date.fromisoformat(d_) - date.fromisoformat(r["AnnounceDate"])).days),
+                        acc,
+                        doc,
+                    )
+                )
         text = ""
         for _, acc, doc in sorted(cand)[:2]:
-            url = (f"https://www.sec.gov/Archives/edgar/data/"
-                   f"{int(cik10)}/{acc.replace('-', '')}/{doc}")
+            url = (
+                f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{acc.replace('-', '')}/{doc}"
+            )
             text = fetch_text(url)
             if text:
                 break
@@ -691,15 +859,16 @@ def qa_pass(sample_n: int = 60, seed: int = 11) -> dict:
         if int(r.get("Confidence") or 0) >= 2 and not r.get("Acquirer"):
             r["QAFlag"] = (r.get("QAFlag", "") + "; blank-acquirer").strip("; ")
         if r.get("AgreementDate") and r["AgreementDate"] < r["AnnounceDate"]:
-            gap = (date.fromisoformat(r["AnnounceDate"])
-                   - date.fromisoformat(r["AgreementDate"])).days
+            gap = (
+                date.fromisoformat(r["AnnounceDate"]) - date.fromisoformat(r["AgreementDate"])
+            ).days
             if gap > 45:
-                r["QAFlag"] = (r.get("QAFlag", "")
-                               + f"; proxy-lag-{gap}d").strip("; ")
+                r["QAFlag"] = (r.get("QAFlag", "") + f"; proxy-lag-{gap}d").strip("; ")
 
     with path.open("w", newline="", encoding="utf-8") as f:
         w = _csv.DictWriter(f, fieldnames=QA_COLS, extrasaction="ignore")
-        w.writeheader(); w.writerows(rows)
+        w.writeheader()
+        w.writerows(rows)
 
     filled = [r for r in rows if r.get("Acquirer")]
     _random.seed(seed)
@@ -708,16 +877,17 @@ def qa_pass(sample_n: int = 60, seed: int = 11) -> dict:
     worklist = {id(r): r for r in sample + flagged}.values()
     out = config.GOLD / "qa_worklist.csv"
     with out.open("w", newline="", encoding="utf-8") as f:
-        w = _csv.DictWriter(f, fieldnames=QA_COLS + ["HumanVerdict"],
-                            extrasaction="ignore")
+        w = _csv.DictWriter(f, fieldnames=QA_COLS + ["HumanVerdict"], extrasaction="ignore")
         w.writeheader()
         for r in worklist:
             w.writerow({**r, "HumanVerdict": ""})
-    return {"status": "ok",
-            "message": f"QA: {n_date} agreement dates extracted, "
-                       f"{n_class} events classed; worklist "
-                       f"{len(list(worklist))} rows ({len(sample)} sample + "
-                       f"{len(flagged)} flagged) -> {out}"}
+    return {
+        "status": "ok",
+        "message": f"QA: {n_date} agreement dates extracted, "
+        f"{n_class} events classed; worklist "
+        f"{len(list(worklist))} rows ({len(sample)} sample + "
+        f"{len(flagged)} flagged) -> {out}",
+    }
 
 
 def _filings_reaching(cik10: str, anchor: str):
@@ -731,9 +901,14 @@ def _filings_reaching(cik10: str, anchor: str):
     """
     data = _submissions(cik10)
     rec = (data.get("filings") or {}).get("recent") or {}
-    quads = list(zip(rec.get("form", []), rec.get("filingDate", []),
-                     rec.get("accessionNumber", []),
-                     rec.get("primaryDocument", [])))
+    quads = list(
+        zip(
+            rec.get("form", []),
+            rec.get("filingDate", []),
+            rec.get("accessionNumber", []),
+            rec.get("primaryDocument", []),
+        )
+    )
     oldest = min((d for _, d, _, _ in quads), default="9999")
     for extra in (data.get("filings") or {}).get("files") or []:
         if oldest <= anchor:
@@ -742,13 +917,19 @@ def _filings_reaching(cik10: str, anchor: str):
         if not name:
             continue
         try:
-            page = fetch_json(f"https://data.sec.gov/submissions/{name}",
-                              tag="sec_submissions_extra")
+            page = fetch_json(
+                f"https://data.sec.gov/submissions/{name}", tag="sec_submissions_extra"
+            )
         except Exception:
             break
-        quads += list(zip(page.get("form", []), page.get("filingDate", []),
-                          page.get("accessionNumber", []),
-                          page.get("primaryDocument", [])))
+        quads += list(
+            zip(
+                page.get("form", []),
+                page.get("filingDate", []),
+                page.get("accessionNumber", []),
+                page.get("primaryDocument", []),
+            )
+        )
         oldest = min(oldest, extra.get("filingFrom", oldest))
     return quads
 
@@ -777,6 +958,7 @@ def _acquirer_cik(name: str, read_companies) -> str:
     missed EDGAR filers with short names (Alcon, Mereo) and foreign
     suffixes (Novo Nordisk A/S, Grifols S.A.)."""
     from biointel import network
+
     raw = re.sub(r"(?i)\s+hold(?:ing)?co(?:\s+us)?\b", "", name or "")
     key = network._norm(raw)
     if not key:
@@ -786,19 +968,21 @@ def _acquirer_cik(name: str, read_companies) -> str:
             key = network._norm(parent)
             break
 
-    registry = [(network._norm(c.get("Name", "")),
-                 str(c.get("CIK", "")).zfill(10)) for c in read_companies()]
+    registry = [
+        (network._norm(c.get("Name", "")), str(c.get("CIK", "")).zfill(10))
+        for c in read_companies()
+    ]
     for k, cik in registry:
         if k == key:
             return cik
     try:
-        data = fetch_json("https://www.sec.gov/files/company_tickers.json",
-                          tag="sec_ticker_map")
+        data = fetch_json("https://www.sec.gov/files/company_tickers.json", tag="sec_ticker_map")
     except Exception:
         data = {}
-    tmap = [(network._norm(v.get("title", "")),
-             str(v.get("cik_str", "")).zfill(10))
-            for v in (data or {}).values()]
+    tmap = [
+        (network._norm(v.get("title", "")), str(v.get("cik_str", "")).zfill(10))
+        for v in (data or {}).values()
+    ]
     for k, cik in tmap:
         if k == key:
             return cik
@@ -808,9 +992,15 @@ def _acquirer_cik(name: str, read_companies) -> str:
         for k, cik in pool:
             if not k:
                 continue
-            if k.startswith(key + " ") or key.startswith(k + " ") \
-               or (len(key) >= 5 and k.split()[0] == key.split()[0]
-                   and (len(key.split()) == 1 or len(k.split()) == 1)):
+            if (
+                k.startswith(key + " ")
+                or key.startswith(k + " ")
+                or (
+                    len(key) >= 5
+                    and k.split()[0] == key.split()[0]
+                    and (len(key.split()) == 1 or len(k.split()) == 1)
+                )
+            ):
                 return cik
     # two-token prefix
     toks = key.split()
@@ -828,8 +1018,10 @@ def qa_corroborate(read_companies) -> dict:
     HumanVerdict='ok(machine-corroborated)' on strong agreement so the
     human worklist shrinks to the genuine residue."""
     import csv as _csv
+
     from biointel import network
     from biointel.sources.counterparty import fetch_text
+
     path = config.SILVER / "ma_events_universe.csv"
     with path.open(encoding="utf-8") as f:
         rows = list(_csv.DictReader(f))
@@ -840,8 +1032,10 @@ def qa_corroborate(read_companies) -> dict:
     cik_cache = {}
     for i, r in enumerate(rows, 1):
         if i % 25 == 0:
-            print(f"  corroborating {i}/{len(rows)}: "
-                  f"{strong} strong / {weak} weak / {none} none", flush=True)
+            print(
+                f"  corroborating {i}/{len(rows)}: {strong} strong / {weak} weak / {none} none",
+                flush=True,
+            )
         acq = (r.get("Acquirer") or "").strip()
         if not acq or acq.startswith("("):
             continue
@@ -862,8 +1056,7 @@ def qa_corroborate(read_companies) -> dict:
         near = []
         for f_, d_, acc, doc in _filings_reaching(cik, anchor):
             if f_ in CORROB_FORMS and doc:
-                gap = abs((date.fromisoformat(d_)
-                           - date.fromisoformat(anchor)).days)
+                gap = abs((date.fromisoformat(d_) - date.fromisoformat(anchor)).days)
                 if gap <= 45:
                     near.append((gap, acc, doc))
         if not near:
@@ -875,8 +1068,7 @@ def qa_corroborate(read_companies) -> dict:
         tgt_tok = tgt_key.split()[0] if tgt_key.split() else ""
         hit = False
         for gap, acc, doc in sorted(near)[:2]:
-            url = (f"https://www.sec.gov/Archives/edgar/data/"
-                   f"{int(cik)}/{acc.replace('-', '')}/{doc}")
+            url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc.replace('-', '')}/{doc}"
             text = fetch_text(url)
             if text and tgt_tok and tgt_tok.lower() in text[:60000].lower():
                 hit = True
@@ -893,15 +1085,15 @@ def qa_corroborate(read_companies) -> dict:
         cols.append("Corroboration")
     with path.open("w", newline="", encoding="utf-8") as f:
         w = _csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
-        w.writeheader(); w.writerows(rows)
+        w.writeheader()
+        w.writerows(rows)
 
     # regenerate the human worklist: strong rows pre-verdicted, residue open
     wl = config.GOLD / "qa_worklist.csv"
     if wl.exists():
         with wl.open(encoding="utf-8") as f:
             wrows = list(_csv.DictReader(f))
-        cmap = {(r["CIK"], r["AnnounceDate"]): r.get("Corroboration", "")
-                for r in rows}
+        cmap = {(r["CIK"], r["AnnounceDate"]): r.get("Corroboration", "") for r in rows}
         open_rows = 0
         for wr in wrows:
             c = cmap.get((wr["CIK"], wr["AnnounceDate"]), "")
@@ -915,13 +1107,16 @@ def qa_corroborate(read_companies) -> dict:
             wcols.append("Corroboration")
         with wl.open("w", newline="", encoding="utf-8") as f:
             w = _csv.DictWriter(f, fieldnames=wcols, extrasaction="ignore")
-            w.writeheader(); w.writerows(wrows)
+            w.writeheader()
+            w.writerows(wrows)
     else:
         open_rows = -1
-    return {"status": "ok",
-            "message": f"Corroboration: {strong} strong, {weak} weak, "
-                       f"{none} none. Worklist rows still needing a human: "
-                       f"{open_rows}."}
+    return {
+        "status": "ok",
+        "message": f"Corroboration: {strong} strong, {weak} weak, "
+        f"{none} none. Worklist rows still needing a human: "
+        f"{open_rows}.",
+    }
 
 
 # --------------------------------------- Wikipedia corroboration (residue)
@@ -934,7 +1129,9 @@ def qa_wiki(read_companies) -> dict:
     the worklist. No API key; graceful per-row failure; cached.
     """
     import csv as _csv
+
     from biointel import network
+
     path = config.SILVER / "ma_events_universe.csv"
     with path.open(encoding="utf-8") as f:
         rows = list(_csv.DictReader(f))
@@ -944,15 +1141,17 @@ def qa_wiki(read_companies) -> dict:
             js = fetch_json(
                 "https://en.wikipedia.org/w/api.php?action=query&list=search"
                 f"&srsearch={query.replace(' ', '%20')}&format=json&srlimit=2",
-                tag="wiki_search")
-            hits = (((js or {}).get("query") or {}).get("search") or [])
+                tag="wiki_search",
+            )
+            hits = ((js or {}).get("query") or {}).get("search") or []
             if not hits:
                 return ""
             title = hits[0]["title"].replace(" ", "%20")
             pg = fetch_json(
                 "https://en.wikipedia.org/w/api.php?action=query&prop=extracts"
                 f"&explaintext=1&titles={title}&format=json",
-                tag="wiki_page")
+                tag="wiki_page",
+            )
             pages = ((pg or {}).get("query") or {}).get("pages") or {}
             return " ".join(p.get("extract", "") for p in pages.values())
         except Exception:
@@ -966,8 +1165,7 @@ def qa_wiki(read_companies) -> dict:
             continue
         checked += 1
         if checked % 10 == 0:
-            print(f"  wiki {checked} checked, {confirmed} confirmed",
-                  flush=True)
+            print(f"  wiki {checked} checked, {confirmed} confirmed", flush=True)
         text = wiki_extract(f"{r['Name']} acquisition")
         if not text:
             text = wiki_extract(r["Name"])
@@ -980,9 +1178,8 @@ def qa_wiki(read_companies) -> dict:
         near = False
         if tok and tok.lower() in low:
             j = low.find(tok.lower())
-            ctx = low[max(0, j - 300):j + 300]
-            near = any(w in ctx for w in ("acquir", "merger", "bought",
-                                          "takeover", "purchase"))
+            ctx = low[max(0, j - 300) : j + 300]
+            near = any(w in ctx for w in ("acquir", "merger", "bought", "takeover", "purchase"))
         if near:
             r["Corroboration"] = "wiki:page-names-acquirer-in-deal-context"
             confirmed += 1
@@ -992,30 +1189,31 @@ def qa_wiki(read_companies) -> dict:
     cols = list(rows[0].keys())
     with path.open("w", newline="", encoding="utf-8") as f:
         w = _csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
-        w.writeheader(); w.writerows(rows)
+        w.writeheader()
+        w.writerows(rows)
 
     wl = config.GOLD / "qa_worklist.csv"
     open_rows = -1
     if wl.exists():
         with wl.open(encoding="utf-8") as f:
             wrows = list(_csv.DictReader(f))
-        cmap = {(r["CIK"], r["AnnounceDate"]): r.get("Corroboration", "")
-                for r in rows}
+        cmap = {(r["CIK"], r["AnnounceDate"]): r.get("Corroboration", "") for r in rows}
         open_rows = 0
         for wr in wrows:
             c = cmap.get((wr["CIK"], wr["AnnounceDate"]), wr.get("Corroboration", ""))
             wr["Corroboration"] = c
-            if (c.startswith(("strong", "wiki:page"))
-                    and not wr.get("HumanVerdict")):
+            if c.startswith(("strong", "wiki:page")) and not wr.get("HumanVerdict"):
                 wr["HumanVerdict"] = "ok(machine-corroborated)"
             if not wr.get("HumanVerdict"):
                 open_rows += 1
         with wl.open("w", newline="", encoding="utf-8") as f:
-            w = _csv.DictWriter(f, fieldnames=list(wrows[0].keys()),
-                                extrasaction="ignore")
-            w.writeheader(); w.writerows(wrows)
-    return {"status": "ok",
-            "message": f"Wikipedia: {checked} residue rows checked, "
-                       f"{confirmed} confirmed. Worklist rows still open: "
-                       f"{open_rows}. Remaining opens are excluded from the "
-                       f"strict-label model run, so nothing gates on them."}
+            w = _csv.DictWriter(f, fieldnames=list(wrows[0].keys()), extrasaction="ignore")
+            w.writeheader()
+            w.writerows(wrows)
+    return {
+        "status": "ok",
+        "message": f"Wikipedia: {checked} residue rows checked, "
+        f"{confirmed} confirmed. Worklist rows still open: "
+        f"{open_rows}. Remaining opens are excluded from the "
+        f"strict-label model run, so nothing gates on them.",
+    }

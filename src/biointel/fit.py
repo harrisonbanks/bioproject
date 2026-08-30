@@ -14,30 +14,31 @@ few dozen standardized features neither needs nor benefits from more.
 The transparent checklist score remains in `predict` as the baseline
 comparator the paper reports against.
 """
+
 from __future__ import annotations
+
 import csv as _csv
 import math
-import random
 
 from biointel import config
 
-SPLIT = "2021-12-31"          # train <= SPLIT < test
+SPLIT = "2021-12-31"  # train <= SPLIT < test
 
 FEATURES = [
-    ("logCashSTI",   lambda r: _log1p(_n(r["CashSTI"]))),
-    ("logRevenue",   lambda r: _log1p(_n(r["Revenue"]))),
+    ("logCashSTI", lambda r: _log1p(_n(r["CashSTI"]))),
+    ("logRevenue", lambda r: _log1p(_n(r["Revenue"]))),
     ("logMarketCap", lambda r: _log1p(_n(r["MarketCap"]))),
-    ("Runway",       lambda r: min(_n(r["RunwayMonths"]) or 60.0, 120.0)),
-    ("HasApproved",  lambda r: _n(r["HasApprovedDrug"]) or 0.0),
-    ("LeadPhase",    lambda r: _n(r["LeadPhase"]) or 0.0),
-    ("TrialsPh3",    lambda r: min(_n(r["TrialsPh3"]) or 0.0, 30.0)),
-    ("Started12m",   lambda r: min(_n(r["TrialsStarted12m"]) or 0.0, 30.0)),
+    ("Runway", lambda r: min(_n(r["RunwayMonths"]) or 60.0, 120.0)),
+    ("HasApproved", lambda r: _n(r["HasApprovedDrug"]) or 0.0),
+    ("LeadPhase", lambda r: _n(r["LeadPhase"]) or 0.0),
+    ("TrialsPh3", lambda r: min(_n(r["TrialsPh3"]) or 0.0, 30.0)),
+    ("Started12m", lambda r: min(_n(r["TrialsStarted12m"]) or 0.0, 30.0)),
     ("Approvals12m", lambda r: _n(r["Approvals12m"]) or 0.0),
     ("Rejections12m", lambda r: _n(r["Rejections12m"]) or 0.0),
-    ("CAR12m",       lambda r: _n(r["CAR12m_mean"]) or 0.0),
-    ("Drift12m",     lambda r: _n(r["Drift12m_mean"]) or 0.0),
-    ("Drawdown52w",  lambda r: _n(r["Drawdown52w"]) or 0.0),
-    ("RelDeal",      lambda r: min(_n(r["RelDeal"]) or 0.0, 60.0)),
+    ("CAR12m", lambda r: _n(r["CAR12m_mean"]) or 0.0),
+    ("Drift12m", lambda r: _n(r["Drift12m_mean"]) or 0.0),
+    ("Drawdown52w", lambda r: _n(r["Drawdown52w"]) or 0.0),
+    ("RelDeal", lambda r: min(_n(r["RelDeal"]) or 0.0, 60.0)),
     ("RelInUniverse", lambda r: min(_n(r["RelInUniverse"]) or 0.0, 20.0)),
 ]
 
@@ -65,8 +66,9 @@ def _standardize(X, mu=None, sd=None):
     n, d = len(X), len(X[0])
     if mu is None:
         mu = [sum(x[j] for x in X) / n for j in range(d)]
-        sd = [math.sqrt(sum((x[j] - mu[j]) ** 2 for x in X) / max(n - 1, 1))
-              or 1.0 for j in range(d)]
+        sd = [
+            math.sqrt(sum((x[j] - mu[j]) ** 2 for x in X) / max(n - 1, 1)) or 1.0 for j in range(d)
+        ]
     Z = [[(x[j] - mu[j]) / sd[j] for j in range(d)] for x in X]
     return Z, mu, sd
 
@@ -181,17 +183,23 @@ def fit(censor_lead_days: int = 0) -> dict:
                     if iid not in announce_by_iid or d < announce_by_iid[iid]:
                         announce_by_iid[iid] = d
     if censor_lead_days:
-        from datetime import date as _d, timedelta as _td
-        announce_by_iid = {k: (_d.fromisoformat(v)
-                               - _td(days=censor_lead_days)).isoformat()
-                           for k, v in announce_by_iid.items()}
+        from datetime import date as _d
+        from datetime import timedelta as _td
 
-    usable = [r for r in rows
-              if (r.get("Currency") or "USD") == "USD"
-              and (_n(r.get("CashSTI")) is not None
-                   or (_n(r.get("TrialsTotal")) or 0) > 0)
-              and not (str(r["IID"]) in announce_by_iid
-                       and r["QuarterEnd"] >= announce_by_iid[str(r["IID"])])]
+        announce_by_iid = {
+            k: (_d.fromisoformat(v) - _td(days=censor_lead_days)).isoformat()
+            for k, v in announce_by_iid.items()
+        }
+
+    usable = [
+        r
+        for r in rows
+        if (r.get("Currency") or "USD") == "USD"
+        and (_n(r.get("CashSTI")) is not None or (_n(r.get("TrialsTotal")) or 0) > 0)
+        and not (
+            str(r["IID"]) in announce_by_iid and r["QuarterEnd"] >= announce_by_iid[str(r["IID"])]
+        )
+    ]
     train = [r for r in usable if r["QuarterEnd"] <= SPLIT]
     test = [r for r in usable if r["QuarterEnd"] > SPLIT]
 
@@ -204,10 +212,12 @@ def fit(censor_lead_days: int = 0) -> dict:
     Xte, yte = matrix(test)
     n_pos_tr, n_pos_te = sum(ytr), sum(yte)
     if n_pos_tr < 10:
-        return {"status": "insufficient",
-                "message": f"Only {n_pos_tr} positive train firm-quarters "
-                           f"(need >= 10). Panel not label-complete yet -- "
-                           f"run labels/features after full rebuild."}
+        return {
+            "status": "insufficient",
+            "message": f"Only {n_pos_tr} positive train firm-quarters "
+            f"(need >= 10). Panel not label-complete yet -- "
+            f"run labels/features after full rebuild.",
+        }
 
     Ztr, mu, sd = _standardize(Xtr)
     Zte, _, _ = _standardize(Xte, mu, sd)
@@ -216,12 +226,13 @@ def fit(censor_lead_days: int = 0) -> dict:
     def _score(Z):
         try:
             import numpy as np
+
             Za = np.asarray(Z, dtype=np.float64)
             zz = np.clip(Za @ np.asarray(w) + b, -35, 35)
             return list(map(float, 1.0 / (1.0 + np.exp(-zz))))
         except ImportError:
-            return [_sigmoid(b + sum(wj * xj for wj, xj in zip(w, z)))
-                    for z in Z]
+            return [_sigmoid(b + sum(wj * xj for wj, xj in zip(w, z))) for z in Z]
+
     str_ = _score(Ztr)
     ste = _score(Zte)
 
@@ -229,6 +240,7 @@ def fit(censor_lead_days: int = 0) -> dict:
     # window must have fully elapsed, or missing future deals read as
     # false negatives by construction.
     from datetime import date, timedelta
+
     mature_cut = (date.today() - timedelta(days=365)).isoformat()
     mature_qs = [r["QuarterEnd"] for r in test if r["QuarterEnd"] <= mature_cut]
     last_q = max(mature_qs) if mature_qs else max(r["QuarterEnd"] for r in test)
@@ -247,20 +259,27 @@ def fit(censor_lead_days: int = 0) -> dict:
     ranked = sorted(best.values(), key=lambda i: -ste[i])[:20]
 
     lines = []
-    lines.append(f"TRAIN <= {SPLIT}: {len(train)} firm-quarters, "
-                 f"{n_pos_tr} positives ({100*n_pos_tr/len(train):.2f}%)")
-    lines.append(f"TEST  >  {SPLIT}: {len(test)} firm-quarters, "
-                 f"{n_pos_te} positives ({100*n_pos_te/max(len(test),1):.2f}%)")
+    lines.append(
+        f"TRAIN <= {SPLIT}: {len(train)} firm-quarters, "
+        f"{n_pos_tr} positives ({100 * n_pos_tr / len(train):.2f}%)"
+    )
+    lines.append(
+        f"TEST  >  {SPLIT}: {len(test)} firm-quarters, "
+        f"{n_pos_te} positives ({100 * n_pos_te / max(len(test), 1):.2f}%)"
+    )
     br = n_pos_te / max(len(test), 1)
     ap_te = _auc_pr(ste, yte)
-    lines.append(f"AUC-PR  train {_auc_pr(str_, ytr):.3f}   "
-                 f"test {ap_te:.3f}   (base rate {br:.4f}, "
-                 f"lift {ap_te/br if br else 0:.1f}x over random)")
-    lines.append(f"AUC-ROC train {_auc_roc(str_, ytr):.3f}   "
-                 f"test {_auc_roc(ste, yte):.3f}")
-    lines.append(f"precision@10 / @25, latest MATURE quarter ({last_q}): "
-                 f"{prec_at(10, idx_last, ste, yte):.2f} / "
-                 f"{prec_at(25, idx_last, ste, yte):.2f}")
+    lines.append(
+        f"AUC-PR  train {_auc_pr(str_, ytr):.3f}   "
+        f"test {ap_te:.3f}   (base rate {br:.4f}, "
+        f"lift {ap_te / br if br else 0:.1f}x over random)"
+    )
+    lines.append(f"AUC-ROC train {_auc_roc(str_, ytr):.3f}   test {_auc_roc(ste, yte):.3f}")
+    lines.append(
+        f"precision@10 / @25, latest MATURE quarter ({last_q}): "
+        f"{prec_at(10, idx_last, ste, yte):.2f} / "
+        f"{prec_at(25, idx_last, ste, yte):.2f}"
+    )
     lines.append("")
     lines.append("coefficients (standardized):")
     for (name, _), wj in sorted(zip(FEATURES, w), key=lambda t: -abs(t[1])):
@@ -270,19 +289,17 @@ def fit(censor_lead_days: int = 0) -> dict:
     for i in ranked:
         r = test[i]
         hit = " <== ACQUIRED" if yte[i] else ""
-        lines.append(f"  {ste[i]:.3f}  {r['Ticker'] or '':<6} "
-                     f"{r['Company'][:40]:<42} {r['QuarterEnd']}{hit}")
+        lines.append(
+            f"  {ste[i]:.3f}  {r['Ticker'] or '':<6} {r['Company'][:40]:<42} {r['QuarterEnd']}{hit}"
+        )
 
     report = "\n".join(lines)
     (config.GOLD / "fit_report.txt").write_text(report, encoding="utf-8")
-    with (config.GOLD / "fit_scores.csv").open("w", newline="",
-                                               encoding="utf-8") as f:
+    with (config.GOLD / "fit_scores.csv").open("w", newline="", encoding="utf-8") as f:
         wcsv = _csv.writer(f)
-        wcsv.writerow(["Ticker", "Company", "QuarterEnd", "Score",
-                       "AcquiredNext12m"])
+        wcsv.writerow(["Ticker", "Company", "QuarterEnd", "Score", "AcquiredNext12m"])
         for i, r in enumerate(test):
-            wcsv.writerow([r["Ticker"], r["Company"], r["QuarterEnd"],
-                           f"{ste[i]:.4f}", yte[i]])
+            wcsv.writerow([r["Ticker"], r["Company"], r["QuarterEnd"], f"{ste[i]:.4f}", yte[i]])
     return {"status": "ok", "message": report}
 
 
@@ -290,12 +307,12 @@ def _events_for_robust(strict: bool):
     """Target events (iid, announce) from ma_events.csv; strict keeps only
     machine-corroborated ones (EDGAR-strong, wiki, or dev-verified)."""
     import csv as _c
+
     ev = []
     with (config.SILVER / "ma_events.csv").open(encoding="utf-8") as f:
         for e in _c.DictReader(f):
             if e.get("Role") == "target" and e.get("AnnounceDate"):
-                ev.append((str(e["FilerIID"]), e["AnnounceDate"],
-                           e.get("Verified", "")))
+                ev.append((str(e["FilerIID"]), e["AnnounceDate"], e.get("Verified", "")))
     if not strict:
         return [(i, d) for i, d, _ in ev]
     corro = {}
@@ -303,9 +320,12 @@ def _events_for_robust(strict: bool):
     if upath.exists():
         with upath.open(encoding="utf-8") as f:
             for h in _c.DictReader(f):
-                corro[(str(h["CIK"]).lstrip("0"),
-                       str(h.get("AgreementDate") or h["AnnounceDate"])[:4])] = \
-                    (h.get("Corroboration") or "")
+                corro[
+                    (
+                        str(h["CIK"]).lstrip("0"),
+                        str(h.get("AgreementDate") or h["AnnounceDate"])[:4],
+                    )
+                ] = h.get("Corroboration") or ""
     cik_by_iid = {}
     with (config.SILVER / "companies.csv").open(encoding="utf-8") as f:
         for c in _c.DictReader(f):
@@ -318,9 +338,10 @@ def _events_for_robust(strict: bool):
     return keep
 
 
-def _evaluate(feat_rows, events, split, feature_names,
-              require_price=False):
-    from datetime import date as _d, timedelta as _td
+def _evaluate(feat_rows, events, split, feature_names, require_price=False):
+    from datetime import date as _d
+    from datetime import timedelta as _td
+
     tgt = {}
     for iid, d in events:
         if iid not in tgt or d < tgt[iid]:
@@ -337,7 +358,7 @@ def _evaluate(feat_rows, events, split, feature_names,
         iid, q = str(r["IID"]), r["QuarterEnd"]
         a = tgt.get(iid)
         if a and q >= a:
-            continue                       # censored at announcement
+            continue  # censored at announcement
         h12 = (_d.fromisoformat(q) + _td(days=365)).isoformat()
         yy = 1 if (a and q < a <= h12) else 0
         X.append([FEATURES[i][1](r) for i in fidx])
@@ -348,34 +369,51 @@ def _evaluate(feat_rows, events, split, feature_names,
     Xtr, ytr = [X[i] for i in tr], [y[i] for i in tr]
     Xte, yte = [X[i] for i in te], [y[i] for i in te]
     if sum(ytr) < 10 or sum(yte) < 5:
-        return {"n_tr": len(tr), "p_tr": sum(ytr), "n_te": len(te),
-                "p_te": sum(yte), "insufficient": True}
+        return {
+            "n_tr": len(tr),
+            "p_tr": sum(ytr),
+            "n_te": len(te),
+            "p_te": sum(yte),
+            "insufficient": True,
+        }
     Ztr, mu, sd = _standardize(Xtr)
     Zte, _, _ = _standardize(Xte, mu, sd)
     w, b = _fit_logistic(Ztr, ytr)
     try:
         import numpy as np
-        ste = list(map(float, 1.0 / (1.0 + np.exp(-np.clip(
-            np.asarray(Zte) @ np.asarray(w) + b, -35, 35)))))
+
+        ste = list(
+            map(float, 1.0 / (1.0 + np.exp(-np.clip(np.asarray(Zte) @ np.asarray(w) + b, -35, 35))))
+        )
     except ImportError:
         ste = [_sigmoid(b + sum(wj * xj for wj, xj in zip(w, z))) for z in Zte]
     br = sum(yte) / len(yte)
     ap = _auc_pr(ste, yte)
-    from datetime import date as _d2, timedelta as _td2
+    from datetime import date as _d2
+    from datetime import timedelta as _td2
+
     mature = (_d2.today() - _td2(days=365)).isoformat()
     mq = [meta[te[i]][0] for i in range(len(te)) if meta[te[i]][0] <= mature]
     lastq = max(mq) if mq else max(meta[te[i]][0] for i in range(len(te)))
     idx = [i for i in range(len(te)) if meta[te[i]][0] == lastq]
     top10 = sorted(idx, key=lambda i: -ste[i])[:10]
-    return {"n_tr": len(tr), "p_tr": sum(ytr), "n_te": len(te),
-            "p_te": sum(yte), "aucpr": ap, "lift": ap / br if br else 0,
-            "roc": _auc_roc(ste, yte),
-            "p10": sum(yte[i] for i in top10) / max(len(top10), 1),
-            "lastq": lastq, "insufficient": False}
+    return {
+        "n_tr": len(tr),
+        "p_tr": sum(ytr),
+        "n_te": len(te),
+        "p_te": sum(yte),
+        "aucpr": ap,
+        "lift": ap / br if br else 0,
+        "roc": _auc_roc(ste, yte),
+        "p10": sum(yte[i] for i in top10) / max(len(top10), 1),
+        "lastq": lastq,
+        "insufficient": False,
+    }
 
 
 def robust() -> dict:
     import csv as _c
+
     fpath = config.GOLD / "feature_panel.csv"
     if not fpath.exists():
         return {"status": "empty", "message": "Run features first."}
@@ -388,26 +426,30 @@ def robust() -> dict:
     ev_all = _events_for_robust(strict=False)
     ev_strict = _events_for_robust(strict=True)
     scen = [
-        ("baseline",      ev_all,    SPLIT,        allf),
-        ("strict-labels", ev_strict, SPLIT,        allf),
-        ("split-2019",    ev_all,    "2019-12-31", allf),
-        ("split-2020",    ev_all,    "2020-12-31", allf),
-        ("no-price",      ev_all,    SPLIT,        noprice),
-        ("price-only",    ev_all,    SPLIT,        priceonly),
-        ("covered-only",  ev_all,    SPLIT,        allf),
-        ("fundamentals",  ev_all,    SPLIT,        fundamentals),
-        ("fundamentals-strict", ev_strict, SPLIT,  fundamentals),
+        ("baseline", ev_all, SPLIT, allf),
+        ("strict-labels", ev_strict, SPLIT, allf),
+        ("split-2019", ev_all, "2019-12-31", allf),
+        ("split-2020", ev_all, "2020-12-31", allf),
+        ("no-price", ev_all, SPLIT, noprice),
+        ("price-only", ev_all, SPLIT, priceonly),
+        ("covered-only", ev_all, SPLIT, allf),
+        ("fundamentals", ev_all, SPLIT, fundamentals),
+        ("fundamentals-strict", ev_strict, SPLIT, fundamentals),
     ]
-    lines = [f"ROBUSTNESS SUITE  (events: {len(ev_all)} all, "
-             f"{len(ev_strict)} machine-corroborated strict)",
-             f"{'scenario':<15}{'train(+)':<14}{'test(+)':<13}"
-             f"{'AUC-PR':<9}{'lift':<7}{'ROC':<7}{'P@10':<6}mature-q"]
+    lines = [
+        f"ROBUSTNESS SUITE  (events: {len(ev_all)} all, "
+        f"{len(ev_strict)} machine-corroborated strict)",
+        f"{'scenario':<15}{'train(+)':<14}{'test(+)':<13}"
+        f"{'AUC-PR':<9}{'lift':<7}{'ROC':<7}{'P@10':<6}mature-q",
+    ]
     # leakage diagnostic: does price MISSINGNESS correlate with the label?
     tgt = {}
     for iid, d in ev_all:
         if iid not in tgt or d < tgt[iid]:
             tgt[iid] = d
-    from datetime import date as _dd, timedelta as _tt
+    from datetime import date as _dd
+    from datetime import timedelta as _tt
+
     pos_cov = [0, 0]
     neg_cov = [0, 0]
     for r in feat:
@@ -415,33 +457,36 @@ def robust() -> dict:
         a = tgt.get(iid)
         if a and q >= a:
             continue
-        yy = 1 if (a and q < a <= (_dd.fromisoformat(q)
-                                   + _tt(days=365)).isoformat()) else 0
+        yy = 1 if (a and q < a <= (_dd.fromisoformat(q) + _tt(days=365)).isoformat()) else 0
         has = 1 if (r.get("PriceQ") or "").strip() else 0
         (pos_cov if yy else neg_cov)[has] += 1
     pc = pos_cov[1] / max(sum(pos_cov), 1)
     nc = neg_cov[1] / max(sum(neg_cov), 1)
-    diag = (f"price coverage: positives {pc:.1%} ({sum(pos_cov)}) vs "
-            f"negatives {nc:.1%} ({sum(neg_cov)}) -- "
-            + ("MISSINGNESS-LEAK LIKELY" if abs(pc - nc) > 0.15
-               else "no material coverage gap"))
+    diag = (
+        f"price coverage: positives {pc:.1%} ({sum(pos_cov)}) vs "
+        f"negatives {nc:.1%} ({sum(neg_cov)}) -- "
+        + ("MISSINGNESS-LEAK LIKELY" if abs(pc - nc) > 0.15 else "no material coverage gap")
+    )
     lines.insert(1, diag)
     print(diag, flush=True)
 
     for name, ev, split, feats in scen:
-        r = _evaluate(feat, ev, split, feats,
-                      require_price=(name == "covered-only"))
+        r = _evaluate(feat, ev, split, feats, require_price=(name == "covered-only"))
         if r["insufficient"]:
-            lines.append(f"{name:<15}{r['n_tr']}({r['p_tr']})"
-                         f"  {r['n_te']}({r['p_te']})   INSUFFICIENT")
+            lines.append(
+                f"{name:<15}{r['n_tr']}({r['p_tr']})  {r['n_te']}({r['p_te']})   INSUFFICIENT"
+            )
             print(lines[-1], flush=True)
             continue
-        lines.append(f"{name:<15}{r['n_tr']}({r['p_tr']})".ljust(29)
-                     + f"{r['n_te']}({r['p_te']})".ljust(13)
-                     + f"{r['aucpr']:.3f}".ljust(9)
-                     + f"{r['lift']:.1f}x".ljust(7)
-                     + f"{r['roc']:.3f}".ljust(7)
-                     + f"{r['p10']:.2f}".ljust(6) + r["lastq"])
+        lines.append(
+            f"{name:<15}{r['n_tr']}({r['p_tr']})".ljust(29)
+            + f"{r['n_te']}({r['p_te']})".ljust(13)
+            + f"{r['aucpr']:.3f}".ljust(9)
+            + f"{r['lift']:.1f}x".ljust(7)
+            + f"{r['roc']:.3f}".ljust(7)
+            + f"{r['p10']:.2f}".ljust(6)
+            + r["lastq"]
+        )
         print(lines[-1], flush=True)
     report = "\n".join(lines)
     (config.GOLD / "robustness_report.txt").write_text(report, encoding="utf-8")
@@ -452,21 +497,23 @@ TRAIN_END = "2019-12-31"
 VAL_END = "2022-12-31"
 
 V2_EXTRA = [
-    ("dCash4q",      lambda r: _n(r.get("dCash4q")) or 1.0),
-    ("dShares4q",    lambda r: min(_n(r.get("dShares4q")) or 1.0, 4.0)),
+    ("dCash4q", lambda r: _n(r.get("dCash4q")) or 1.0),
+    ("dShares4q", lambda r: min(_n(r.get("dShares4q")) or 1.0, 4.0)),
     ("RnDIntensity", lambda r: min(_n(r.get("RnDIntensity")) or 0.0, 2.0)),
     ("CashToAssets", lambda r: min(_n(r.get("CashToAssets")) or 0.0, 1.0)),
-    ("AgeYears",     lambda r: min(_n(r.get("AgeYears")) or 0.0, 40.0)),
+    ("AgeYears", lambda r: min(_n(r.get("AgeYears")) or 0.0, 40.0)),
     ("Ph3Started24m", lambda r: min(_n(r.get("Ph3Started24m")) or 0.0, 15.0)),
     ("FirstApprovalRecent24m", lambda r: _n(r.get("FirstApprovalRecent24m")) or 0.0),
-    ("HotTA",        lambda r: _n(r.get("HotTA")) or 0.0),
+    ("HotTA", lambda r: _n(r.get("HotTA")) or 0.0),
     ("FDAEventsEver", lambda r: min(_n(r.get("FDAEventsEver")) or 0.0, 60.0)),
 ]
 PRICE_NAMES = ("logMarketCap", "Drawdown52w", "CAR12m", "Drift12m")
 
 
 def _panel_xy(feat_rows, events, feats, lo, hi):
-    from datetime import date as _d, timedelta as _td
+    from datetime import date as _d
+    from datetime import timedelta as _td
+
     tgt = {}
     for iid, d in events:
         if iid not in tgt or d < tgt[iid]:
@@ -494,6 +541,7 @@ def improve() -> dict:
     scored on the VALIDATION window only. The 2023+ holdout is locked --
     `final` evaluates it exactly once, when iteration stops."""
     import csv as _c
+
     with (config.GOLD / "feature_panel.csv").open(encoding="utf-8") as f:
         feat = list(_c.DictReader(f))
     fund = [(n, f) for n, f in FEATURES if n not in PRICE_NAMES]
@@ -503,39 +551,46 @@ def improve() -> dict:
     Xtr, ytr = _panel_xy(feat, ev, fund_v2, "0000", TRAIN_END)
     Xva, yva = _panel_xy(feat, ev, fund_v2, TRAIN_END, VAL_END)
     if sum(ytr) < 10 or sum(yva) < 5:
-        return {"status": "insufficient",
-                "message": f"train +{sum(ytr)} / val +{sum(yva)}: "
-                           "rebuild features first."}
-    lines = [f"IMPROVE (validation window {TRAIN_END}..{VAL_END}; "
-             f"holdout 2023+ LOCKED)",
-             f"train {len(Xtr)} (+{sum(ytr)})  val {len(Xva)} (+{sum(yva)})  "
-             f"val base rate {sum(yva)/len(yva):.4f}"]
+        return {
+            "status": "insufficient",
+            "message": f"train +{sum(ytr)} / val +{sum(yva)}: rebuild features first.",
+        }
+    lines = [
+        f"IMPROVE (validation window {TRAIN_END}..{VAL_END}; holdout 2023+ LOCKED)",
+        f"train {len(Xtr)} (+{sum(ytr)})  val {len(Xva)} (+{sum(yva)})  "
+        f"val base rate {sum(yva) / len(yva):.4f}",
+    ]
 
     Ztr, mu, sd = _standardize(Xtr)
     Zva, _, _ = _standardize(Xva, mu, sd)
     w, b = _fit_logistic(Ztr, ytr)
     try:
         import numpy as np
-        sva = list(map(float, 1.0 / (1.0 + np.exp(-np.clip(
-            np.asarray(Zva) @ np.asarray(w) + b, -35, 35)))))
+
+        sva = list(
+            map(float, 1.0 / (1.0 + np.exp(-np.clip(np.asarray(Zva) @ np.asarray(w) + b, -35, 35))))
+        )
     except ImportError:
         sva = [_sigmoid(b + sum(wj * xj for wj, xj in zip(w, z))) for z in Zva]
     br = sum(yva) / len(yva)
     ap = _auc_pr(sva, yva)
-    lines.append(f"logistic-v2     AUC-PR {ap:.3f}  lift {ap/br:.1f}x  "
-                 f"ROC {_auc_roc(sva, yva):.3f}")
+    lines.append(
+        f"logistic-v2     AUC-PR {ap:.3f}  lift {ap / br:.1f}x  ROC {_auc_roc(sva, yva):.3f}"
+    )
 
     try:
-        from sklearn.ensemble import HistGradientBoostingClassifier
         import numpy as np
+        from sklearn.ensemble import HistGradientBoostingClassifier
+
         gb = HistGradientBoostingClassifier(
-            max_iter=300, learning_rate=0.06, max_depth=4,
-            class_weight="balanced", random_state=7)
+            max_iter=300, learning_rate=0.06, max_depth=4, class_weight="balanced", random_state=7
+        )
         gb.fit(np.asarray(Xtr), np.asarray(ytr))
         sgb = list(map(float, gb.predict_proba(np.asarray(Xva))[:, 1]))
         apg = _auc_pr(sgb, yva)
-        lines.append(f"gradboost-v2    AUC-PR {apg:.3f}  lift {apg/br:.1f}x  "
-                     f"ROC {_auc_roc(sgb, yva):.3f}")
+        lines.append(
+            f"gradboost-v2    AUC-PR {apg:.3f}  lift {apg / br:.1f}x  ROC {_auc_roc(sgb, yva):.3f}"
+        )
     except ImportError:
         lines.append("gradboost-v2    (pip install scikit-learn to enable)")
 

@@ -26,7 +26,9 @@ Ends with the step-0 regression check through the new entry point
 (`python -m biointel predict` / `pairs-full-exact`).
 Reverse before commit: git reset --hard HEAD ; git clean -fd ; move data/ back to app/data/.
 """
+
 from __future__ import annotations
+
 import re
 import shutil
 import subprocess
@@ -40,11 +42,20 @@ ROOT = R.ROOT
 APP = ROOT / "app"
 SRC = ROOT / "src" / "biointel"
 
-DIAGNOSTICS = ["check_exhibits.py", "check_names.py", "check_ocf.py", "check_one.py",
-               "cleanup_feed_junk.py", "debug_fit.py", "summary.py", "text_diag.py",
-               "migrate_from_excel.py", "suggest_aliases.py"]
+DIAGNOSTICS = [
+    "check_exhibits.py",
+    "check_names.py",
+    "check_ocf.py",
+    "check_one.py",
+    "cleanup_feed_junk.py",
+    "debug_fit.py",
+    "summary.py",
+    "text_diag.py",
+    "migrate_from_excel.py",
+    "suggest_aliases.py",
+]
 
-PYPROJECT = '''[build-system]
+PYPROJECT = """[build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
@@ -84,7 +95,7 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 markers = ["integration: requires network or real data; excluded from the default run"]
 addopts = "-m 'not integration'"
-'''
+"""
 
 MAIN_PY = '''"""Entry point: python -m biointel <command> [args]."""
 import sys
@@ -155,7 +166,7 @@ def write(p: Path, s: str) -> None:
 def rel_to_abs_imports(p: Path) -> int:
     """Rewrite `from .x import y` / `from ..x import y` to absolute `biointel...` imports."""
     parts = p.relative_to(SRC.parent).with_suffix("").parts  # ('biointel', 'sources', 'fda')
-    package = list(parts[:-1])                                # module's package path
+    package = list(parts[:-1])  # module's package path
     pat = re.compile(r"^(\s*)from (\.+)([\w.]*) import ", re.M)
     n = 0
 
@@ -192,7 +203,9 @@ def main() -> None:
         assert not (ROOT / "data").exists(), "data/ already exists at the root"
         shutil.move(str(APP / "data"), str(ROOT / "data"))
     git("rm", "-q", "app/requirements.txt")
-    print("  moved: package -> src/, cli -> interfaces/, 10 diagnostics -> scripts/, 2 docs -> docs/, data -> data/")
+    print(
+        "  moved: package -> src/, cli -> interfaces/, 10 diagnostics -> scripts/, 2 docs -> docs/, data -> data/"
+    )
 
     # 2. new files
     write(SRC / "interfaces" / "__init__.py", "")
@@ -201,7 +214,9 @@ def main() -> None:
     write(ROOT / ".python-version", "3.13\n")
     write(ROOT / "tests" / "unit" / "test_match_canon.py", TEST_CANON)
     write(ROOT / "tests" / "unit" / "test_config_require.py", TEST_REQUIRE)
-    print("  created: pyproject.toml, .python-version, __main__.py, interfaces/__init__.py, 2 unit tests")
+    print(
+        "  created: pyproject.toml, .python-version, __main__.py, interfaces/__init__.py, 2 unit tests"
+    )
 
     # 3. edits
     total = 0
@@ -211,9 +226,12 @@ def main() -> None:
 
     cfg = SRC / "config.py"
     s = read(cfg)
-    old = 'ROOT   = Path(__file__).resolve().parent.parent\n'
+    old = "ROOT   = Path(__file__).resolve().parent.parent\n"
     assert s.count(old) == 1, "config.py ROOT line not in expected form"
-    s = s.replace(old, 'ROOT   = Path(__file__).resolve().parents[2]   # <repo-root>: src/biointel/config.py\n')
+    s = s.replace(
+        old,
+        "ROOT   = Path(__file__).resolve().parents[2]   # <repo-root>: src/biointel/config.py\n",
+    )
     write(cfg, s)
 
     n_help = 0
@@ -222,7 +240,9 @@ def main() -> None:
         if "python cli.py" in s:
             n_help += s.count("python cli.py")
             write(p, s.replace("python cli.py", "python -m biointel"))
-    print(f"  config.py data root -> <repo-root>/data; {n_help} 'python cli.py' mentions -> 'python -m biointel'")
+    print(
+        f"  config.py data root -> <repo-root>/data; {n_help} 'python cli.py' mentions -> 'python -m biointel'"
+    )
 
     for f in ("text_diag.py", "debug_fit.py"):
         p = ROOT / "scripts" / f
@@ -235,7 +255,9 @@ def main() -> None:
         write(p, s2)
     gi = ROOT / ".gitignore"
     write(gi, read(gi).replace("app/data/\n", "").rstrip("\n") + "\n*.egg-info/\n")
-    print("  sys.path.insert removed from 2 scripts; .gitignore: app/data/ dropped, *.egg-info/ added")
+    print(
+        "  sys.path.insert removed from 2 scripts; .gitignore: app/data/ dropped, *.egg-info/ added"
+    )
 
     # 4. app/ must now be empty
     leftovers = [x for x in APP.rglob("*") if x.is_file() and "__pycache__" not in x.parts]
@@ -245,33 +267,62 @@ def main() -> None:
     print("  app/ removed (empty)")
 
     # 5. install editable + lock
-    r = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-e", str(ROOT)], capture_output=True, text=True)
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q", "-e", str(ROOT)],
+        capture_output=True,
+        text=True,
+    )
     if r.returncode != 0:
         sys.exit(f"pip install -e failed:\n{r.stdout}\n{r.stderr}")
-    r = subprocess.run([sys.executable, "-m", "pip", "freeze", "--exclude-editable"], capture_output=True, text=True)
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "freeze", "--exclude-editable"],
+        capture_output=True,
+        text=True,
+    )
     write(ROOT / "requirements.lock", r.stdout)
     print(f"  editable install OK; requirements.lock written ({len(r.stdout.splitlines())} pins)")
 
     # 6. structural checks from a neutral directory (no sys.path help)
-    r = subprocess.run([sys.executable, "-c", "import biointel, biointel.interfaces.cli; print(biointel.__file__)"],
-                       cwd=str(ROOT.parent), capture_output=True, text=True)
-    assert r.returncode == 0 and "src" in r.stdout, f"import biointel failed from outside the repo:\n{r.stderr}"
-    r = subprocess.run([sys.executable, "-m", "biointel"], cwd=str(ROOT.parent), capture_output=True, text=True)
+    r = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import biointel, biointel.interfaces.cli; print(biointel.__file__)",
+        ],
+        cwd=str(ROOT.parent),
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0 and "src" in r.stdout, (
+        f"import biointel failed from outside the repo:\n{r.stderr}"
+    )
+    r = subprocess.run(
+        [sys.executable, "-m", "biointel"], cwd=str(ROOT.parent), capture_output=True, text=True
+    )
     help_lines = [l for l in r.stdout.splitlines() if "python -m biointel " in l]
     assert len(help_lines) >= 45, f"help text unexpectedly short: {len(help_lines)} lines"
     cmds = sorted(set(re.findall(r'cmd == "([\w\-]+)"', read(SRC / "interfaces" / "cli.py"))))
     assert len(cmds) == 55, f"expected 55 commands, found {len(cmds)}"
-    print(f"  import from outside the repo OK; help prints {len(help_lines)} command lines; {len(cmds)} dispatched")
+    print(
+        f"  import from outside the repo OK; help prints {len(help_lines)} command lines; {len(cmds)} dispatched"
+    )
 
     # 7. unit tests
-    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "tests/unit"], cwd=str(ROOT), capture_output=True, text=True)
+    r = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "tests/unit"],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+    )
     if r.returncode != 0:
         sys.exit(f"pytest failed:\n{r.stdout}\n{r.stderr}")
     print("  pytest tests/unit: " + [l for l in r.stdout.splitlines() if "passed" in l][-1].strip())
 
     # 8. regression through the new entry point
     R.check()
-    print("Next: git add -A ; git commit -m \"Refactor step 2: src layout, pyproject, scripts/docs/data directories\"")
+    print(
+        'Next: git add -A ; git commit -m "Refactor step 2: src layout, pyproject, scripts/docs/data directories"'
+    )
 
 
 if __name__ == "__main__":

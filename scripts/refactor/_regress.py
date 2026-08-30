@@ -5,7 +5,9 @@ gold outputs, and compares to docs/regression_baseline.txt. Works before
 and after the src-layout move: it locates the CLI by probing both
 layouts. Run from anywhere; paths are resolved from this file.
 """
+
 from __future__ import annotations
+
 import hashlib
 import subprocess
 import sys
@@ -57,7 +59,11 @@ def write_baseline(h: dict[str, str]) -> None:
 def read_baseline() -> dict[str, str]:
     if not BASELINE.exists():
         sys.exit(f"no baseline at {BASELINE}; run 00_baseline.py first")
-    return dict(line.split() [::-1][::-1] for line in BASELINE.read_text(encoding="utf-8").splitlines() if line.strip())
+    return dict(
+        line.split()[::-1][::-1]
+        for line in BASELINE.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    )
 
 
 def check() -> None:

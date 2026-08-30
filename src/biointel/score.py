@@ -38,21 +38,61 @@ of that date, and report where the verified acquisitions ranked. The
 Vertex/Crinetics deal (announced 2026-07-06) is the live test: the
 2026-06-30 ranking is entirely pre-announcement.
 """
+
 from __future__ import annotations
+
 import csv as _csv
 import re
 from collections import defaultdict
 
 from biointel import config
 
-PRED_COLS = ["Rank", "Ticker", "Company", "QuarterEnd", "TargetScore",
-             "ScoreBreakdown", "Acquirer1", "Fit1", "Acquirer2", "Fit2",
-             "Acquirer3", "Fit3", "AcqLOE1", "AcqLOE2", "AcqLOE3", "KnownOutcome"]
+PRED_COLS = [
+    "Rank",
+    "Ticker",
+    "Company",
+    "QuarterEnd",
+    "TargetScore",
+    "ScoreBreakdown",
+    "Acquirer1",
+    "Fit1",
+    "Acquirer2",
+    "Fit2",
+    "Acquirer3",
+    "Fit3",
+    "AcqLOE1",
+    "AcqLOE2",
+    "AcqLOE3",
+    "KnownOutcome",
+]
 
-_STOP = {"the", "of", "and", "a", "in", "with", "to", "type", "disease",
-         "diseases", "disorder", "disorders", "syndrome", "chronic",
-         "acute", "advanced", "adult", "pediatric", "healthy", "study",
-         "patients", "treatment", "moderate", "severe", "mild"}
+_STOP = {
+    "the",
+    "of",
+    "and",
+    "a",
+    "in",
+    "with",
+    "to",
+    "type",
+    "disease",
+    "diseases",
+    "disorder",
+    "disorders",
+    "syndrome",
+    "chronic",
+    "acute",
+    "advanced",
+    "adult",
+    "pediatric",
+    "healthy",
+    "study",
+    "patients",
+    "treatment",
+    "moderate",
+    "severe",
+    "mild",
+}
 
 
 def _load(path):
@@ -72,8 +112,7 @@ def _num(v):
 def _condition_tokens() -> dict[int, set]:
     toks = defaultdict(set)
     for r in _load(config.SILVER / "trials.csv"):
-        for w in re.sub(r"[^a-z0-9 ]", " ",
-                        (r.get("Conditions") or "").lower()).split():
+        for w in re.sub(r"[^a-z0-9 ]", " ", (r.get("Conditions") or "").lower()).split():
             if len(w) > 3 and w not in _STOP:
                 toks[int(r["IID"])].add(w)
     return toks
@@ -87,31 +126,39 @@ def target_score(r: dict) -> tuple[float, str]:
     lead = _num(r.get("LeadPhase")) or 0
     ph3 = _num(r.get("TrialsPh3")) or 0
     if approved > 0:
-        pts += 25; why.append("approved drug +25")
+        pts += 25
+        why.append("approved drug +25")
     elif lead >= 3:
-        pts += 20; why.append("Phase-3 lead +20")
+        pts += 20
+        why.append("Phase-3 lead +20")
     if ph3 >= 3:
-        pts += 5; why.append("3+ Ph3 trials +5")
+        pts += 5
+        why.append("3+ Ph3 trials +5")
 
     if (_num(r.get("Approvals12m")) or 0) > 0:
-        pts += 10; why.append("approval in 12m +10")
+        pts += 10
+        why.append("approval in 12m +10")
     car = _num(r.get("CAR12m_mean"))
     if car is not None and car > 0:
-        pts += 5; why.append("positive event CAR +5")
+        pts += 5
+        why.append("positive event CAR +5")
 
     mcap = _num(r.get("MarketCap"))
     if mcap is not None and 3e8 <= mcap <= 4e10:
-        pts += 15; why.append("acquirable size +15")
+        pts += 15
+        why.append("acquirable size +15")
 
     if (_num(r.get("RelInUniverse")) or 0) > 0:
-        pts += 10; why.append("in-universe partner +10")
+        pts += 10
+        why.append("in-universe partner +10")
     if (_num(r.get("RelDeal")) or 0) >= 5:
-        pts += 5; why.append("5+ deal ties +5")
+        pts += 5
+        why.append("5+ deal ties +5")
 
     runway = _num(r.get("RunwayMonths"))
-    if runway is not None and runway < 24 and \
-            (r.get("Currency") or "USD") == "USD":
-        pts += 10; why.append(f"runway {runway:.0f}m +10")
+    if runway is not None and runway < 24 and (r.get("Currency") or "USD") == "USD":
+        pts += 10
+        why.append(f"runway {runway:.0f}m +10")
 
     return pts, "; ".join(why)
 
@@ -121,24 +168,21 @@ def _annualized_revenue(r: dict):
     if rev is None:
         return None
     basis = r.get("TTMBasis") or ""
-    mult = {"annualized-Q1": 4.0, "annualized-Q2": 2.0,
-            "annualized-Q3": 4 / 3}.get(basis, 1.0)
+    mult = {"annualized-Q1": 4.0, "annualized-Q2": 2.0, "annualized-Q3": 4 / 3}.get(basis, 1.0)
     return rev * mult
 
 
 def _is_acquirer_side(r: dict) -> bool:
     rev = _annualized_revenue(r)
     mcap = _num(r.get("MarketCap"))
-    return (rev is not None and rev > 1e10) or \
-           (mcap is not None and mcap > 7.5e10)
+    return (rev is not None and rev > 1e10) or (mcap is not None and mcap > 7.5e10)
 
 
 def predict(quarter: str | None = None) -> dict:
     """Ranked predictions for one quarter (default: latest with data)."""
     panel = _load(config.GOLD / "model_panel.csv")
     if not panel:
-        return {"status": "empty",
-                "message": "model_panel.csv missing. Run: features"}
+        return {"status": "empty", "message": "model_panel.csv missing. Run: features"}
     quarters = sorted({r["QuarterEnd"] for r in panel})
     q = quarter or quarters[-1]
     rows = [r for r in panel if r["QuarterEnd"] == q]
@@ -148,7 +192,8 @@ def predict(quarter: str | None = None) -> dict:
     for r in _load(config.RELATIONSHIPS_CSV):
         if r.get("PartnerIID") not in ("", None):
             a, b = int(r["IID"]), int(r["PartnerIID"])
-            rels[a].add(b); rels[b].add(a)
+            rels[a].add(b)
+            rels[b].add(a)
 
     acquirers = [r for r in rows if _is_acquirer_side(r)]
     targets = [r for r in rows if not _is_acquirer_side(r)]
@@ -161,11 +206,14 @@ def predict(quarter: str | None = None) -> dict:
     # acquirer-side context the given-acquirer protocol is structurally
     # unable to score, reported as a labeled, count-based proxy, not a
     # validated component.
-    from biointel.pairs import exact_state, exact_score
+    from biointel.pairs import exact_score, exact_state
+
     e_ids, pos, lam, norms = exact_state(q)
     try:
-        from biointel.sources.orangebook import loe_urgency
         from datetime import date as _date
+
+        from biointel.sources.orangebook import loe_urgency
+
         loe = loe_urgency(_date.fromisoformat(q))
     except Exception:
         loe = {}
@@ -174,8 +222,7 @@ def predict(quarter: str | None = None) -> dict:
         sa, st = str(aid), str(tid)
         if lam is None or sa not in pos or st not in pos:
             return 0.0
-        return round(100 * float(
-            exact_score(lam, norms, pos[sa], [pos[st]])[0]), 1)
+        return round(100 * float(exact_score(lam, norms, pos[sa], [pos[st]])[0]), 1)
 
     scored = []
     for t in targets:
@@ -189,43 +236,60 @@ def predict(quarter: str | None = None) -> dict:
         fits = []
         for a in acquirers:
             aid = int(a["IID"])
-            fits.append((_fit(aid, iid), a["Ticker"], a["Company"],
-                         (loe.get(str(aid)) or ("", "", ""))[2]))
+            fits.append(
+                (_fit(aid, iid), a["Ticker"], a["Company"], (loe.get(str(aid)) or ("", "", ""))[2])
+            )
         fits.sort(key=lambda x: -x[0])
-        row = {"Rank": rank, "Ticker": t["Ticker"], "Company": t["Company"],
-               "QuarterEnd": q, "TargetScore": s, "ScoreBreakdown": why,
-               "KnownOutcome": (f"acquired by {t['Acquirer']} "
-                                f"(announced {t['AnnounceDate']})"
-                                if t.get("AcquiredNext12m") == "1" else "")}
+        row = {
+            "Rank": rank,
+            "Ticker": t["Ticker"],
+            "Company": t["Company"],
+            "QuarterEnd": q,
+            "TargetScore": s,
+            "ScoreBreakdown": why,
+            "KnownOutcome": (
+                f"acquired by {t['Acquirer']} (announced {t['AnnounceDate']})"
+                if t.get("AcquiredNext12m") == "1"
+                else ""
+            ),
+        }
         for i in range(3):
-            row[f"Acquirer{i+1}"] = fits[i][1] if i < len(fits) else ""
-            row[f"Fit{i+1}"] = fits[i][0] if i < len(fits) else ""
-            row[f"AcqLOE{i+1}"] = fits[i][3] if i < len(fits) else ""
+            row[f"Acquirer{i + 1}"] = fits[i][1] if i < len(fits) else ""
+            row[f"Fit{i + 1}"] = fits[i][0] if i < len(fits) else ""
+            row[f"AcqLOE{i + 1}"] = fits[i][3] if i < len(fits) else ""
         out.append(row)
 
     path = config.GOLD / "ma_predictions.csv"
     with path.open("w", newline="", encoding="utf-8") as f:
         w = _csv.DictWriter(f, fieldnames=PRED_COLS, extrasaction="ignore")
-        w.writeheader(); w.writerows(out)
-    return {"status": "ok", "quarter": q, "rows": out,
-            "message": f"{len(out)} targets ranked at {q} -> {path} "
-                       f"({len(acquirers)} acquirer-side companies)"}
+        w.writeheader()
+        w.writerows(out)
+    return {
+        "status": "ok",
+        "quarter": q,
+        "rows": out,
+        "message": f"{len(out)} targets ranked at {q} -> {path} "
+        f"({len(acquirers)} acquirer-side companies)",
+    }
 
 
 def backtest() -> list[str]:
     """Where did verified acquisitions rank, pre-announcement?"""
     panel = _load(config.GOLD / "model_panel.csv")
-    pos_quarters = sorted({(r["QuarterEnd"], r["Ticker"], r["Acquirer"])
-                           for r in panel if r.get("AcquiredNext12m") == "1"})
+    pos_quarters = sorted(
+        {
+            (r["QuarterEnd"], r["Ticker"], r["Acquirer"])
+            for r in panel
+            if r.get("AcquiredNext12m") == "1"
+        }
+    )
     lines = []
     for q, tick, acq in pos_quarters:
         res = predict(q)
         if res["status"] != "ok":
             continue
-        ranks = {r["Ticker"]: (r["Rank"], r["TargetScore"], len(res["rows"]))
-                 for r in res["rows"]}
+        ranks = {r["Ticker"]: (r["Rank"], r["TargetScore"], len(res["rows"])) for r in res["rows"]}
         if tick in ranks:
             rk, sc, n = ranks[tick]
-            lines.append(f"{q}: {tick} ranked {rk}/{n} "
-                         f"(score {sc:.0f}) -- later acquired by {acq}")
+            lines.append(f"{q}: {tick} ranked {rk}/{n} (score {sc:.0f}) -- later acquired by {acq}")
     return lines

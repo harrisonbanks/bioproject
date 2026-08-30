@@ -1,30 +1,69 @@
 """Silver layer: the three Excel workflows, as functions.
 
-  add_company(ticker)   <- CompanyLookup query + AddCompany macro
-  get_events(iid)       <- Events query + GetEvents macro
-  price_window(...)     <- PriceWindow query
+add_company(ticker)   <- CompanyLookup query + AddCompany macro
+get_events(iid)       <- Events query + GetEvents macro
+price_window(...)     <- PriceWindow query
 """
+
 from __future__ import annotations
+
 import csv
+import re
 from datetime import date
 from pathlib import Path
 
-from biointel import config
-from biointel.sources import sec, alphavantage, fda, prices, trials, financials, deals, counterparty
-from biointel import network
+from biointel import config, network
+from biointel.sources import alphavantage, counterparty, deals, fda, financials, prices, sec, trials
 
-COMPANY_COLS = ["IID", "Name", "Ticker", "Created", "Description",
-                "CIK", "SIC", "SICDescription", "Exchange", "StateOfIncorporation",
-                "FDAAliases", "CTGovName"]
-EVENT_COLS   = ["IID", "Name", "Event", "Date", "AppNo", "Drug",
-                "Outcome", "Priority", "ClassCode", "SubType"]
-PRICE_COLS   = ["IID", "Ticker", "Date", "Open", "High", "Low",
-                "Close", "AdjClose", "Volume"]
-TRIAL_COLS   = ["IID", "Company", "NCTId", "Sponsor", "SponsorClass", "Title",
-                "Phase", "Status", "StudyType", "Conditions", "Drugs",
-                "Interventions", "Enrollment", "Collaborators",
-                "CollaboratorClasses", "CollaboratorCount", "StartDate",
-                "PrimaryCompletion", "CompletionDate", "LastUpdate"]
+COMPANY_COLS = [
+    "IID",
+    "Name",
+    "Ticker",
+    "Created",
+    "Description",
+    "CIK",
+    "SIC",
+    "SICDescription",
+    "Exchange",
+    "StateOfIncorporation",
+    "FDAAliases",
+    "CTGovName",
+]
+EVENT_COLS = [
+    "IID",
+    "Name",
+    "Event",
+    "Date",
+    "AppNo",
+    "Drug",
+    "Outcome",
+    "Priority",
+    "ClassCode",
+    "SubType",
+]
+PRICE_COLS = ["IID", "Ticker", "Date", "Open", "High", "Low", "Close", "AdjClose", "Volume"]
+TRIAL_COLS = [
+    "IID",
+    "Company",
+    "NCTId",
+    "Sponsor",
+    "SponsorClass",
+    "Title",
+    "Phase",
+    "Status",
+    "StudyType",
+    "Conditions",
+    "Drugs",
+    "Interventions",
+    "Enrollment",
+    "Collaborators",
+    "CollaboratorClasses",
+    "CollaboratorCount",
+    "StartDate",
+    "PrimaryCompletion",
+    "CompletionDate",
+    "LastUpdate",
+]
 
 
 # ---------------------------------------------------------------- csv helpers
@@ -60,30 +99,45 @@ def add_company(ticker: str) -> dict:
 
     for r in rows:
         if str(r.get("Ticker", "")).strip().upper() == t:
-            return {"status": "duplicate", "iid": int(r["IID"]),
-                    "message": f"{t} is already IID {r['IID']}."}
+            return {
+                "status": "duplicate",
+                "iid": int(r["IID"]),
+                "message": f"{t} is already IID {r['IID']}.",
+            }
 
     ident = sec.company_identity(t)
     if not ident["name"] or ident["name"] == "TICKER NOT FOUND":
-        return {"status": "not_found",
-                "message": f"{t} was not found at SEC. Nothing added."}
+        return {"status": "not_found", "message": f"{t} was not found at SEC. Nothing added."}
 
     desc = alphavantage.description(t)
-    next_iid = max((int(r["IID"]) for r in rows if str(r.get("IID", "")).strip().isdigit()),
-                   default=-1) + 1
+    next_iid = (
+        max((int(r["IID"]) for r in rows if str(r.get("IID", "")).strip().isdigit()), default=-1)
+        + 1
+    )
 
-    rows.append({
-        "IID": next_iid, "Name": ident["name"], "Ticker": t,
-        "Created": date.today().isoformat(), "Description": desc,
-        "CIK": ident["cik"], "SIC": ident["sic"],
-        "SICDescription": ident["sic_description"],
-        "Exchange": ident["exchange"],
-        "StateOfIncorporation": ident["state_of_incorporation"],
-        "FDAAliases": "", "CTGovName": "",
-    })
+    rows.append(
+        {
+            "IID": next_iid,
+            "Name": ident["name"],
+            "Ticker": t,
+            "Created": date.today().isoformat(),
+            "Description": desc,
+            "CIK": ident["cik"],
+            "SIC": ident["sic"],
+            "SICDescription": ident["sic_description"],
+            "Exchange": ident["exchange"],
+            "StateOfIncorporation": ident["state_of_incorporation"],
+            "FDAAliases": "",
+            "CTGovName": "",
+        }
+    )
     _write(config.COMPANIES_CSV, COMPANY_COLS, rows)
-    return {"status": "added", "iid": next_iid, "name": ident["name"],
-            "message": f"Added {ident['name']} ({t}) as IID {next_iid}."}
+    return {
+        "status": "added",
+        "iid": next_iid,
+        "name": ident["name"],
+        "message": f"Added {ident['name']} ({t}) as IID {next_iid}.",
+    }
 
 
 # ----------------------------------------------------------------- get_events
@@ -93,14 +147,17 @@ def get_events(iid: int) -> dict:
     companies = read_companies()
     hit = next((c for c in companies if str(c.get("IID")) == str(iid)), None)
     if hit is None:
-        return {"status": "no_such_iid", "added": 0, "skipped": 0,
-                "message": f"IID {iid} is not in companies.csv."}
+        return {
+            "status": "no_such_iid",
+            "added": 0,
+            "skipped": 0,
+            "message": f"IID {iid} is not in companies.csv.",
+        }
 
     aliases = [a.strip() for a in str(hit.get("FDAAliases") or "").split(";") if a.strip()]
     fresh = fda.events_for(int(iid), hit["Name"], aliases)
     existing = read_events()
-    seen = {(str(r["IID"]), r["Event"], str(r["Date"]), str(r["AppNo"]))
-            for r in existing}
+    seen = {(str(r["IID"]), r["Event"], str(r["Date"]), str(r["AppNo"])) for r in existing}
 
     added = 0
     for r in fresh:
@@ -113,9 +170,13 @@ def get_events(iid: int) -> dict:
 
     existing.sort(key=lambda r: (int(r["IID"]), str(r["Date"])), reverse=False)
     _write(config.EVENTS_CSV, EVENT_COLS, existing)
-    return {"status": "ok", "added": added, "skipped": len(fresh) - added,
-            "total": len(existing),
-            "message": f"{hit['Name']}: added {added}, skipped {len(fresh)-added}."}
+    return {
+        "status": "ok",
+        "added": added,
+        "skipped": len(fresh) - added,
+        "total": len(existing),
+        "message": f"{hit['Name']}: added {added}, skipped {len(fresh) - added}.",
+    }
 
 
 def get_all_events() -> dict:
@@ -123,18 +184,23 @@ def get_all_events() -> dict:
     out = []
     for c in read_companies():
         out.append(get_events(int(c["IID"])))
-    return {"companies": len(out),
-            "added": sum(r.get("added", 0) for r in out), "detail": out}
+    return {"companies": len(out), "added": sum(r.get("added", 0) for r in out), "detail": out}
 
 
 # --------------------------------------------------------------- price_window
-def price_window(appno: str, event_date: str | date,
-                 pre: int = None, post: int = None) -> list[dict]:
+def price_window(
+    appno: str, event_date: str | date, pre: int = None, post: int = None
+) -> list[dict]:
     """Port of PriceWindow. Selects one event by AppNo + Date."""
     d = date.fromisoformat(str(event_date)) if not isinstance(event_date, date) else event_date
-    ev = next((e for e in read_events()
-               if str(e["AppNo"]).strip() == str(appno).strip()
-               and str(e["Date"]) == d.isoformat()), None)
+    ev = next(
+        (
+            e
+            for e in read_events()
+            if str(e["AppNo"]).strip() == str(appno).strip() and str(e["Date"]) == d.isoformat()
+        ),
+        None,
+    )
     if ev is None:
         return []
 
@@ -167,6 +233,7 @@ def _trial_search_name(company: dict) -> str:
     if override:
         return override
     from biointel.match import canon
+
     k = canon(company.get("Name"))
     return k.split()[0] if k else ""
 
@@ -176,13 +243,19 @@ def get_trials(iid: int) -> dict:
     companies = read_companies()
     hit = next((c for c in companies if str(c.get("IID")) == str(iid)), None)
     if hit is None:
-        return {"status": "no_such_iid", "added": 0,
-                "message": f"IID {iid} is not in companies.csv."}
+        return {
+            "status": "no_such_iid",
+            "added": 0,
+            "message": f"IID {iid} is not in companies.csv.",
+        }
 
     term = _trial_search_name(hit)
     if not term:
-        return {"status": "no_search_term", "added": 0,
-                "message": f"IID {iid}: no usable sponsor name."}
+        return {
+            "status": "no_search_term",
+            "added": 0,
+            "message": f"IID {iid}: no usable sponsor name.",
+        }
 
     fresh = trials.trials_for(term)
     existing = read_trials()
@@ -199,16 +272,19 @@ def get_trials(iid: int) -> dict:
 
     existing.sort(key=lambda r: (int(r["IID"]), str(r.get("StartDate") or "")))
     _write(config.TRIALS_CSV, TRIAL_COLS, existing)
-    return {"status": "ok", "added": added, "found": len(fresh),
-            "total": len(existing), "term": term,
-            "message": f"{hit['Name']}: searched '{term}', "
-                       f"found {len(fresh)}, added {added}."}
+    return {
+        "status": "ok",
+        "added": added,
+        "found": len(fresh),
+        "total": len(existing),
+        "term": term,
+        "message": f"{hit['Name']}: searched '{term}', found {len(fresh)}, added {added}.",
+    }
 
 
 def get_all_trials() -> dict:
     out = [get_trials(int(c["IID"])) for c in read_companies()]
-    return {"companies": len(out),
-            "added": sum(r.get("added", 0) for r in out), "detail": out}
+    return {"companies": len(out), "added": sum(r.get("added", 0) for r in out), "detail": out}
 
 
 def pipeline_calendar(iid: int) -> list[dict]:
@@ -218,41 +294,81 @@ def pipeline_calendar(iid: int) -> list[dict]:
     for t in read_trials():
         if str(t["IID"]) != str(iid):
             continue
-        rows.append({
-            "Date": t.get("StartDate") or "",
-            "Stage": t.get("Phase") or t.get("StudyType") or "TRIAL",
-            "Drug": t.get("Drugs") or t.get("Interventions") or "",
-            "Detail": t.get("Conditions") or "",
-            "Status": t.get("Status") or "",
-            "Ref": t.get("NCTId") or "",
-            "Source": "CT.gov",
-        })
+        rows.append(
+            {
+                "Date": t.get("StartDate") or "",
+                "Stage": t.get("Phase") or t.get("StudyType") or "TRIAL",
+                "Drug": t.get("Drugs") or t.get("Interventions") or "",
+                "Detail": t.get("Conditions") or "",
+                "Status": t.get("Status") or "",
+                "Ref": t.get("NCTId") or "",
+                "Source": "CT.gov",
+            }
+        )
     for e in read_events():
         if str(e["IID"]) != str(iid):
             continue
-        rows.append({
-            "Date": e.get("Date") or "",
-            "Stage": "FDA " + str(e.get("Event") or ""),
-            "Drug": e.get("Drug") or "",
-            "Detail": e.get("Outcome") or "",
-            "Status": e.get("SubType") or "",
-            "Ref": e.get("AppNo") or "",
-            "Source": "FDA",
-        })
+        rows.append(
+            {
+                "Date": e.get("Date") or "",
+                "Stage": "FDA " + str(e.get("Event") or ""),
+                "Drug": e.get("Drug") or "",
+                "Detail": e.get("Outcome") or "",
+                "Status": e.get("SubType") or "",
+                "Ref": e.get("AppNo") or "",
+                "Source": "FDA",
+            }
+        )
     rows.sort(key=lambda r: r["Date"], reverse=True)
     return rows
 
 
 # --------------------------------------------------------------- financials
-FIN_COLS  = ["IID", "Company", "CIK", "PeriodEnd", "Currency", "Form", "FY", "FP",
-             "Cash", "ShortTermInvestments", "Revenue", "RnD", "OpEx",
-             "OperatingIncome", "NetIncome", "TotalAssets", "TotalLiabilities",
-             "Equity", "LongTermDebt", "NetCashOperating", "SharesOutstanding",
-             "Accession", "Filed"]
-SNAP_COLS = ["IID", "Company", "Ticker", "CIK", "CashAsOf", "Cash",
-             "ShortTermInvestments", "TotalCash", "Revenue", "RnD",
-             "LongTermDebt", "SharesOutstanding", "NetCashOperating",
-             "OCFAsOf", "TTMMethod", "BurnAnnual", "RunwayMonths", "Periods"]
+FIN_COLS = [
+    "IID",
+    "Company",
+    "CIK",
+    "PeriodEnd",
+    "Currency",
+    "Form",
+    "FY",
+    "FP",
+    "Cash",
+    "ShortTermInvestments",
+    "Revenue",
+    "RnD",
+    "OpEx",
+    "OperatingIncome",
+    "NetIncome",
+    "TotalAssets",
+    "TotalLiabilities",
+    "Equity",
+    "LongTermDebt",
+    "NetCashOperating",
+    "SharesOutstanding",
+    "Accession",
+    "Filed",
+]
+SNAP_COLS = [
+    "IID",
+    "Company",
+    "Ticker",
+    "CIK",
+    "CashAsOf",
+    "Cash",
+    "ShortTermInvestments",
+    "TotalCash",
+    "Revenue",
+    "RnD",
+    "LongTermDebt",
+    "SharesOutstanding",
+    "NetCashOperating",
+    "OCFAsOf",
+    "TTMMethod",
+    "BurnAnnual",
+    "RunwayMonths",
+    "Periods",
+]
 
 
 def read_financials() -> list[dict]:
@@ -264,14 +380,20 @@ def get_financials(iid: int) -> dict:
     companies = read_companies()
     hit = next((c for c in companies if str(c.get("IID")) == str(iid)), None)
     if hit is None:
-        return {"status": "no_such_iid", "added": 0,
-                "message": f"IID {iid} is not in companies.csv."}
+        return {
+            "status": "no_such_iid",
+            "added": 0,
+            "message": f"IID {iid} is not in companies.csv.",
+        }
 
     cik = str(hit.get("CIK") or "").strip()
     if not cik:
-        return {"status": "no_cik", "added": 0,
-                "message": f"IID {iid} ({hit.get('Ticker')}): no CIK. "
-                           f"Migrated rows have it blank; re-add or fill it in."}
+        return {
+            "status": "no_cik",
+            "added": 0,
+            "message": f"IID {iid} ({hit.get('Ticker')}): no CIK. "
+            f"Migrated rows have it blank; re-add or fill it in.",
+        }
 
     rows = financials.financial_series(cik)
     existing = read_financials()
@@ -283,30 +405,53 @@ def get_financials(iid: int) -> dict:
         if k in seen:
             continue
         seen.add(k)
-        existing.append({
-            "IID": iid, "Company": hit["Name"], "CIK": cik,
-            "PeriodEnd": r["PeriodEnd"], "Currency": r.get("Currency", "USD"),
-            "Form": r.get("_form"),
-            "FY": r.get("_fy"), "FP": r.get("_fp"),
-            "Accession": r.get("_accn"), "Filed": r.get("_filed"),
-            **{k2: r.get(k2) for k2 in
-               ["Cash", "ShortTermInvestments", "Revenue", "RnD", "OpEx",
-                "OperatingIncome", "NetIncome", "TotalAssets",
-                "TotalLiabilities", "Equity", "LongTermDebt",
-                "NetCashOperating", "SharesOutstanding"]},
-        })
+        existing.append(
+            {
+                "IID": iid,
+                "Company": hit["Name"],
+                "CIK": cik,
+                "PeriodEnd": r["PeriodEnd"],
+                "Currency": r.get("Currency", "USD"),
+                "Form": r.get("_form"),
+                "FY": r.get("_fy"),
+                "FP": r.get("_fp"),
+                "Accession": r.get("_accn"),
+                "Filed": r.get("_filed"),
+                **{
+                    k2: r.get(k2)
+                    for k2 in [
+                        "Cash",
+                        "ShortTermInvestments",
+                        "Revenue",
+                        "RnD",
+                        "OpEx",
+                        "OperatingIncome",
+                        "NetIncome",
+                        "TotalAssets",
+                        "TotalLiabilities",
+                        "Equity",
+                        "LongTermDebt",
+                        "NetCashOperating",
+                        "SharesOutstanding",
+                    ]
+                },
+            }
+        )
         added += 1
 
     existing.sort(key=lambda r: (int(r["IID"]), str(r["PeriodEnd"])))
     _write(config.FINANCIALS_CSV, FIN_COLS, existing)
-    return {"status": "ok", "added": added, "periods": len(rows),
-            "message": f"{hit['Name']}: {len(rows)} periods, added {added}."}
+    return {
+        "status": "ok",
+        "added": added,
+        "periods": len(rows),
+        "message": f"{hit['Name']}: {len(rows)} periods, added {added}.",
+    }
 
 
 def get_all_financials() -> dict:
     out = [get_financials(int(c["IID"])) for c in read_companies()]
-    return {"companies": len(out),
-            "added": sum(r.get("added", 0) for r in out), "detail": out}
+    return {"companies": len(out), "added": sum(r.get("added", 0) for r in out), "detail": out}
 
 
 def build_snapshot() -> list[dict]:
@@ -324,10 +469,10 @@ def build_snapshot() -> list[dict]:
         snap = financials.latest_snapshot(cik)
         if not snap:
             continue
-        rows.append({"IID": int(c["IID"]), "Company": c["Name"],
-                     "Ticker": c["Ticker"], "CIK": cik, **snap})
-    rows.sort(key=lambda r: (r.get("RunwayMonths") is None,
-                             r.get("RunwayMonths") or 0))
+        rows.append(
+            {"IID": int(c["IID"]), "Company": c["Name"], "Ticker": c["Ticker"], "CIK": cik, **snap}
+        )
+    rows.sort(key=lambda r: (r.get("RunwayMonths") is None, r.get("RunwayMonths") or 0))
     _write(config.SNAPSHOT_CSV, SNAP_COLS, rows)
     return rows
 
@@ -362,19 +507,46 @@ def backfill_identity() -> dict:
         if extra not in cols and any(extra in c for c in companies):
             cols.append(extra)
     _write(config.COMPANIES_CSV, cols, companies)
-    return {"filled": filled, "failed": failed,
-            "message": f"Filled CIK for {filled} companies."
-                       + (f" Failed: {', '.join(failed)}" if failed else "")}
+    return {
+        "filled": filled,
+        "failed": failed,
+        "message": f"Filled CIK for {filled} companies."
+        + (f" Failed: {', '.join(failed)}" if failed else ""),
+    }
 
 
 # ------------------------------------------------------------------ network
-PARTNER_COLS = ["IID", "Ticker", "Company", "Collaborator", "CollaboratorKey",
-                "Type", "CTGovClass", "Trials", "Phases", "TherapyAreas",
-                "FirstTrial", "LastTrial"]
-PSUM_COLS = ["IID", "Ticker", "Company", "TotalPartners",
-             "Industry (unclassified)", "CRO", "CDMO/Manufacturing",
-             "Diagnostics/Lab", "Device/Delivery", "Imaging", "Academic",
-             "Foundation/Nonprofit", "Government", "Network", "Other"]
+PARTNER_COLS = [
+    "IID",
+    "Ticker",
+    "Company",
+    "Collaborator",
+    "CollaboratorKey",
+    "Type",
+    "CTGovClass",
+    "Trials",
+    "Phases",
+    "TherapyAreas",
+    "FirstTrial",
+    "LastTrial",
+]
+PSUM_COLS = [
+    "IID",
+    "Ticker",
+    "Company",
+    "TotalPartners",
+    "Industry (unclassified)",
+    "CRO",
+    "CDMO/Manufacturing",
+    "Diagnostics/Lab",
+    "Device/Delivery",
+    "Imaging",
+    "Academic",
+    "Foundation/Nonprofit",
+    "Government",
+    "Network",
+    "Other",
+]
 
 
 def build_partners() -> dict:
@@ -387,29 +559,51 @@ def build_partners() -> dict:
     trials_rows = read_trials()
     companies = read_companies()
     if not trials_rows:
-        return {"status": "no_trials", "edges": 0,
-                "message": "trials.csv is empty. Run: python -m biointel trials-all"}
+        return {
+            "status": "no_trials",
+            "edges": 0,
+            "message": "trials.csv is empty. Run: python -m biointel trials-all",
+        }
 
     has_field = any("Collaborators" in r for r in trials_rows[:5])
     if not has_field:
-        return {"status": "no_collaborator_field", "edges": 0,
-                "message": "trials.csv has no Collaborators column. It was "
-                           "pulled before the field was captured. Delete "
-                           "data/silver/trials.csv and re-run trials-all."}
+        return {
+            "status": "no_collaborator_field",
+            "edges": 0,
+            "message": "trials.csv has no Collaborators column. It was "
+            "pulled before the field was captured. Delete "
+            "data/silver/trials.csv and re-run trials-all.",
+        }
 
     net = network.build_network(trials_rows, companies)
     _write(config.PARTNERS_CSV, PARTNER_COLS, net["edges"])
     _write(config.PARTNER_SUMMARY_CSV, PSUM_COLS, net["summary"])
-    return {"status": "ok", "edges": len(net["edges"]),
-            "companies": len(net["summary"]),
-            "message": f"{len(net['edges'])} partnerships across "
-                       f"{len([s for s in net['summary'] if s['TotalPartners']])} companies."}
+    return {
+        "status": "ok",
+        "edges": len(net["edges"]),
+        "companies": len(net["summary"]),
+        "message": f"{len(net['edges'])} partnerships across "
+        f"{len([s for s in net['summary'] if s['TotalPartners']])} companies.",
+    }
 
 
 # ------------------------------------------------------- relationships (N2)
-REL_COLS = ["IID", "Ticker", "Company", "Partner", "PartnerKey", "PartnerIID",
-            "PartnerType", "RelKind", "AgreementType", "Count",
-            "FirstDate", "LastDate", "TherapyAreas", "Evidence"]
+REL_COLS = [
+    "IID",
+    "Ticker",
+    "Company",
+    "Partner",
+    "PartnerKey",
+    "PartnerIID",
+    "PartnerType",
+    "RelKind",
+    "AgreementType",
+    "Count",
+    "FirstDate",
+    "LastDate",
+    "TherapyAreas",
+    "Evidence",
+]
 
 
 def build_relationships() -> dict:
@@ -435,26 +629,33 @@ def build_relationships() -> dict:
 
     rows: dict[tuple, dict] = {}
 
-    def upsert(iid, partner_raw, key, rel_kind, agr_type, count, first, last,
-               areas, evidence, ptype):
+    def upsert(
+        iid, partner_raw, key, rel_kind, agr_type, count, first, last, areas, evidence, ptype
+    ):
         k = (iid, key, rel_kind, agr_type)
         r = rows.get(k)
         if r is None:
             co = co_by_iid.get(iid, {})
             rows[k] = {
-                "IID": iid, "Ticker": co.get("Ticker", ""),
-                "Company": co.get("Name", ""), "Partner": partner_raw,
+                "IID": iid,
+                "Ticker": co.get("Ticker", ""),
+                "Company": co.get("Name", ""),
+                "Partner": partner_raw,
                 "PartnerKey": key,
                 "PartnerIID": key_to_iid.get(key, ""),
-                "PartnerType": ptype, "RelKind": rel_kind,
-                "AgreementType": agr_type, "Count": count,
-                "FirstDate": first or "", "LastDate": last or "",
-                "TherapyAreas": areas or "", "Evidence": evidence or "",
+                "PartnerType": ptype,
+                "RelKind": rel_kind,
+                "AgreementType": agr_type,
+                "Count": count,
+                "FirstDate": first or "",
+                "LastDate": last or "",
+                "TherapyAreas": areas or "",
+                "Evidence": evidence or "",
             }
             return
         r["Count"] = int(r["Count"]) + count
         if len(partner_raw) > len(r["Partner"]):
-            r["Partner"] = partner_raw          # keep the fullest name seen
+            r["Partner"] = partner_raw  # keep the fullest name seen
         if first and (not r["FirstDate"] or first < r["FirstDate"]):
             r["FirstDate"] = first
         if last and (not r["LastDate"] or last > r["LastDate"]):
@@ -466,12 +667,19 @@ def build_relationships() -> dict:
     n_trial = 0
     if config.PARTNERS_CSV.exists():
         for e in _read(config.PARTNERS_CSV, PARTNER_COLS):
-            upsert(int(e["IID"]), e["Collaborator"],
-                   e["CollaboratorKey"] or network._norm(e["Collaborator"]),
-                   "Trial collaboration", "",
-                   int(e["Trials"] or 1), e.get("FirstTrial"),
-                   e.get("LastTrial"), e.get("TherapyAreas"), "",
-                   e.get("Type") or "")
+            upsert(
+                int(e["IID"]),
+                e["Collaborator"],
+                e["CollaboratorKey"] or network._norm(e["Collaborator"]),
+                "Trial collaboration",
+                "",
+                int(e["Trials"] or 1),
+                e.get("FirstTrial"),
+                e.get("LastTrial"),
+                e.get("TherapyAreas"),
+                "",
+                e.get("Type") or "",
+            )
             n_trial += 1
 
     # ---- deal counterparties (deal_counterparties.csv) ----------------
@@ -479,34 +687,60 @@ def build_relationships() -> dict:
     if config.COUNTERPARTY_CSV.exists():
         for d in _read(config.COUNTERPARTY_CSV, CP_COLS):
             nm = d["Counterparty"]
-            upsert(int(d["IID"]), nm, network._norm(nm),
-                   "Deal", d.get("AgreementType") or "Other", 1,
-                   d.get("FilingDate"), d.get("FilingDate"), "",
-                   d.get("Accession", ""), network.classify(nm))
+            upsert(
+                int(d["IID"]),
+                nm,
+                network._norm(nm),
+                "Deal",
+                d.get("AgreementType") or "Other",
+                1,
+                d.get("FilingDate"),
+                d.get("FilingDate"),
+                "",
+                d.get("Accession", ""),
+                network.classify(nm),
+            )
             n_deal += 1
 
     if not rows:
-        return {"status": "empty", "message":
-                "No partners.csv or deal_counterparties.csv. Run "
-                "partners and cparty-all first."}
+        return {
+            "status": "empty",
+            "message": "No partners.csv or deal_counterparties.csv. Run "
+            "partners and cparty-all first.",
+        }
 
-    out = sorted(rows.values(),
-                 key=lambda r: (r["IID"], r["RelKind"], -int(r["Count"])))
+    out = sorted(rows.values(), key=lambda r: (r["IID"], r["RelKind"], -int(r["Count"])))
     _write(config.RELATIONSHIPS_CSV, REL_COLS, out)
-    in_uni = [r for r in out if r["PartnerIID"] != ""
-              and int(r["PartnerIID"]) != int(r["IID"])]
+    in_uni = [r for r in out if r["PartnerIID"] != "" and int(r["PartnerIID"]) != int(r["IID"])]
     ma = [r for r in out if r["AgreementType"] == "Merger/Acquisition"]
-    return {"status": "ok", "rows": len(out),
-            "message": f"{len(out)} relationships ({n_trial} trial edges + "
-                       f"{n_deal} deal rows merged) -> relationships.csv. "
-                       f"In-universe pairs: {len(in_uni)}. "
-                       f"Merger/Acquisition rows (label candidates): {len(ma)}."}
+    return {
+        "status": "ok",
+        "rows": len(out),
+        "message": f"{len(out)} relationships ({n_trial} trial edges + "
+        f"{n_deal} deal rows merged) -> relationships.csv. "
+        f"In-universe pairs: {len(in_uni)}. "
+        f"Merger/Acquisition rows (label candidates): {len(ma)}.",
+    }
 
 
 # -------------------------------------------------------------------- deals
-DEAL_COLS = ["IID", "Company", "Ticker", "CIK", "FilingDate", "ReportDate",
-             "Item", "EventType", "Form", "Accession", "AllItems",
-             "AcceptedAt", "PrimaryDoc", "FilingURL", "IndexURL"]
+DEAL_COLS = [
+    "IID",
+    "Company",
+    "Ticker",
+    "CIK",
+    "FilingDate",
+    "ReportDate",
+    "Item",
+    "EventType",
+    "Form",
+    "Accession",
+    "AllItems",
+    "AcceptedAt",
+    "PrimaryDoc",
+    "FilingURL",
+    "IndexURL",
+]
 
 
 def read_deals() -> list[dict]:
@@ -524,13 +758,18 @@ def get_deals(iid: int) -> dict:
     companies = read_companies()
     hit = next((c for c in companies if str(c.get("IID")) == str(iid)), None)
     if hit is None:
-        return {"status": "no_such_iid", "added": 0,
-                "message": f"IID {iid} is not in companies.csv."}
+        return {
+            "status": "no_such_iid",
+            "added": 0,
+            "message": f"IID {iid} is not in companies.csv.",
+        }
     cik = str(hit.get("CIK") or "").strip()
     if not cik:
-        return {"status": "no_cik", "added": 0,
-                "message": f"IID {iid} ({hit.get('Ticker')}): no CIK. "
-                           f"Run: python -m biointel backfill"}
+        return {
+            "status": "no_cik",
+            "added": 0,
+            "message": f"IID {iid} ({hit.get('Ticker')}): no CIK. Run: python -m biointel backfill",
+        }
 
     rows = deals.deal_filings(cik)
     existing = read_deals()
@@ -542,25 +781,40 @@ def get_deals(iid: int) -> dict:
         if k in seen:
             continue
         seen.add(k)
-        existing.append({"IID": iid, "Company": hit["Name"],
-                         "Ticker": hit.get("Ticker", ""), "CIK": cik, **r})
+        existing.append(
+            {"IID": iid, "Company": hit["Name"], "Ticker": hit.get("Ticker", ""), "CIK": cik, **r}
+        )
         added += 1
 
     existing.sort(key=lambda r: (int(r["IID"]), str(r["FilingDate"])), reverse=False)
     _write(config.DEALS_CSV, DEAL_COLS, existing)
-    return {"status": "ok", "added": added, "found": len(rows),
-            "message": f"{hit['Name']}: {len(rows)} deal filings, added {added}."}
+    return {
+        "status": "ok",
+        "added": added,
+        "found": len(rows),
+        "message": f"{hit['Name']}: {len(rows)} deal filings, added {added}.",
+    }
 
 
 def get_all_deals() -> dict:
     out = [get_deals(int(c["IID"])) for c in read_companies()]
-    return {"companies": len(out),
-            "added": sum(r.get("added", 0) for r in out), "detail": out}
+    return {"companies": len(out), "added": sum(r.get("added", 0) for r in out), "detail": out}
 
 
 # ----------------------------------------------------------- counterparties
-CP_COLS = ["IID", "Company", "Ticker", "FilingDate", "Item", "EventType",
-           "AgreementType", "Counterparty", "Method", "Accession", "FilingURL"]
+CP_COLS = [
+    "IID",
+    "Company",
+    "Ticker",
+    "FilingDate",
+    "Item",
+    "EventType",
+    "AgreementType",
+    "Counterparty",
+    "Method",
+    "Accession",
+    "FilingURL",
+]
 
 
 def read_counterparties() -> list[dict]:
@@ -581,21 +835,26 @@ def get_counterparties(iid: int, limit: int | None = None) -> dict:
     companies = read_companies()
     hit = next((c for c in companies if str(c.get("IID")) == str(iid)), None)
     if hit is None:
-        return {"status": "no_such_iid", "added": 0,
-                "message": f"IID {iid} is not in companies.csv."}
+        return {
+            "status": "no_such_iid",
+            "added": 0,
+            "message": f"IID {iid} is not in companies.csv.",
+        }
 
     filings = [d for d in read_deals() if str(d["IID"]) == str(iid)]
     if not filings:
-        return {"status": "no_deals", "added": 0,
-                "message": f"No deal filings for IID {iid}. Run: python -m biointel deals {iid}"}
+        return {
+            "status": "no_deals",
+            "added": 0,
+            "message": f"No deal filings for IID {iid}. Run: python -m biointel deals {iid}",
+        }
 
     filings.sort(key=lambda r: str(r["FilingDate"]), reverse=True)
     if limit:
         filings = filings[:limit]
 
     existing = read_counterparties()
-    seen = {(str(r["IID"]), r["Accession"], r["Counterparty"].lower())
-            for r in existing}
+    seen = {(str(r["IID"]), r["Accession"], r["Counterparty"].lower()) for r in existing}
 
     added, parsed, empty = 0, 0, 0
     for f in filings:
@@ -615,29 +874,38 @@ def get_counterparties(iid: int, limit: int | None = None) -> dict:
             if k in seen:
                 continue
             seen.add(k)
-            existing.append({
-                "IID": int(iid), "Company": hit["Name"],
-                "Ticker": hit.get("Ticker", ""),
-                "FilingDate": f.get("FilingDate"), "Item": f.get("Item"),
-                "EventType": f.get("EventType"),
-                "AgreementType": r["AgreementType"],
-                "Counterparty": r["Counterparty"], "Method": r["Method"],
-                "Accession": f.get("Accession"), "FilingURL": url,
-            })
+            existing.append(
+                {
+                    "IID": int(iid),
+                    "Company": hit["Name"],
+                    "Ticker": hit.get("Ticker", ""),
+                    "FilingDate": f.get("FilingDate"),
+                    "Item": f.get("Item"),
+                    "EventType": f.get("EventType"),
+                    "AgreementType": r["AgreementType"],
+                    "Counterparty": r["Counterparty"],
+                    "Method": r["Method"],
+                    "Accession": f.get("Accession"),
+                    "FilingURL": url,
+                }
+            )
             added += 1
 
     existing.sort(key=lambda r: (int(r["IID"]), str(r["FilingDate"])))
     _write(config.COUNTERPARTY_CSV, CP_COLS, existing)
-    rate = f"{100*(parsed-empty)/parsed:.0f}%" if parsed else "n/a"
-    return {"status": "ok", "added": added, "parsed": parsed,
-            "message": f"{hit['Name']}: {parsed} filings read, {added} "
-                       f"counterparties, {rate} hit rate."}
+    rate = f"{100 * (parsed - empty) / parsed:.0f}%" if parsed else "n/a"
+    return {
+        "status": "ok",
+        "added": added,
+        "parsed": parsed,
+        "message": f"{hit['Name']}: {parsed} filings read, {added} "
+        f"counterparties, {rate} hit rate.",
+    }
 
 
 def get_all_counterparties(limit: int | None = None) -> dict:
     out = [get_counterparties(int(c["IID"]), limit) for c in read_companies()]
-    return {"companies": len(out),
-            "added": sum(r.get("added", 0) for r in out), "detail": out}
+    return {"companies": len(out), "added": sum(r.get("added", 0) for r in out), "detail": out}
 
 
 # ------------------------------------------------------ universe ingest
@@ -654,6 +922,7 @@ def ingest_universe(limit: int = 50) -> dict:
     them by design -- their LABELS need no prices.
     """
     import csv as _csv
+
     upath = config.SILVER / "universe.csv"
     if not upath.exists():
         return {"status": "empty", "message": "Run `universe` first."}
@@ -674,49 +943,64 @@ def ingest_universe(limit: int = 50) -> dict:
         cik10 = str(m["CIK"]).zfill(10)
         ticker = (m.get("Tickers") or "").split(";")[0].strip()
         row = {
-            "IID": next_iid, "Name": m["Name"], "Ticker": ticker,
-            "Created": date.today().isoformat(), "Description": "",
-            "CIK": cik10, "SIC": m.get("SIC", ""), "SICDescription": "",
+            "IID": next_iid,
+            "Name": m["Name"],
+            "Ticker": ticker,
+            "Created": date.today().isoformat(),
+            "Description": "",
+            "CIK": cik10,
+            "SIC": m.get("SIC", ""),
+            "SICDescription": "",
             "Exchange": (m.get("Exchanges") or "").split(";")[0].strip(),
-            "StateOfIncorporation": "", "FDAAliases": "", "CTGovName": "",
+            "StateOfIncorporation": "",
+            "FDAAliases": "",
+            "CTGovName": "",
         }
         companies.append(row)
         _write(config.COMPANIES_CSV, COMPANY_COLS, companies)
         iid = next_iid
         next_iid += 1
         parts = []
-        for fn, label in ((get_financials, "fin"), (get_trials, "trials"),
-                          (get_events, "events"), (get_deals, "deals")):
+        for fn, label in (
+            (get_financials, "fin"),
+            (get_trials, "trials"),
+            (get_events, "events"),
+            (get_deals, "deals"),
+        ):
             try:
                 r = fn(iid)
                 parts.append(f"{label}:{'ok' if r.get('status') != 'error' else 'err'}")
             except Exception as exc:
                 parts.append(f"{label}:EXC({type(exc).__name__})")
         done += 1
-        print(f"  [{done}/{len(batch)}] {m['Name'][:38]:<40} "
-              f"{'DELISTED ' if m.get('Delisted') else ''}{' '.join(parts)}",
-              flush=True)
+        print(
+            f"  [{done}/{len(batch)}] {m['Name'][:38]:<40} "
+            f"{'DELISTED ' if m.get('Delisted') else ''}{' '.join(parts)}",
+            flush=True,
+        )
 
     remaining = len(todo) - len(batch)
-    return {"status": "ok",
-            "message": f"Ingested {done} members ({remaining} remaining). "
-                       f"Re-run `ingest` for the next tranche."}
+    return {
+        "status": "ok",
+        "message": f"Ingested {done} members ({remaining} remaining). "
+        f"Re-run `ingest` for the next tranche.",
+    }
 
 
-# ---------------------------------------------------- CRSP integration
 # ---------------------------------------------------- 10-K text (Phase D)
-import re
 TENK_DIR = config.BRONZE / "tenk_text"
 
-_D = r"[.:\-\u2013\u2014\u00b7]?"          # ., :, -, en/em dash, mid-dot
+_D = r"[.:\-\u2013\u2014\u00b7]?"  # ., :, -, en/em dash, mid-dot
 ITEM1_START = re.compile(
     r"(?is)item\s*1\s*" + _D + r"\s*business|"
-    r"item\s*4\s*" + _D + r"\s*information\s+on\s+the\s+compan")
+    r"item\s*4\s*" + _D + r"\s*information\s+on\s+the\s+compan"
+)
 ITEM_NEXT = re.compile(
     r"(?is)item\s*1A\s*" + _D + r"\s*risk\s*factors|"
     r"item\s*2\s*" + _D + r"\s*propert|"
     r"item\s*4A\s*" + _D + r"|item\s*5\s*" + _D + r"\s*operat|"
-    r"item\s*3\s*" + _D + r"\s*key\s+information")
+    r"item\s*3\s*" + _D + r"\s*key\s+information"
+)
 
 
 def extract_item1(text: str, cap: int = 60000) -> str:
@@ -729,16 +1013,18 @@ def extract_item1(text: str, cap: int = 60000) -> str:
     for s in reversed(starts):
         m = ITEM_NEXT.search(text, s + 200)
         if m and m.start() - s > 2000:
-            return text[s:m.start()][:cap]
-    return text[starts[-1]:starts[-1] + cap]
+            return text[s : m.start()][:cap]
+    return text[starts[-1] : starts[-1] + cap]
 
 
 def text_ingest(limit: int = 100) -> dict:
     """Fetch Item-1 text for the next `limit` (company, fiscal-year)
     pairs not yet stored. One file per CIK-year under bronze/tenk_text."""
     import csv as _csv
+
+    from biointel.labels import _filings_reaching
     from biointel.sources.counterparty import fetch_text
-    from biointel.labels import _submissions, _filings_reaching
+
     TENK_DIR.mkdir(parents=True, exist_ok=True)
     with config.COMPANIES_CSV.open(encoding="utf-8") as f:
         comps = list(_csv.DictReader(f))
@@ -764,23 +1050,28 @@ def text_ingest(limit: int = 100) -> dict:
                 continue
             if fetched >= limit:
                 break
-            url = (f"https://www.sec.gov/Archives/edgar/data/"
-                   f"{int(cik10)}/{acc.replace('-', '')}/{doc}")
+            url = (
+                f"https://www.sec.gov/Archives/edgar/data/{int(cik10)}/{acc.replace('-', '')}/{doc}"
+            )
             raw = fetch_text(url)
             fetched += 1
             if fetched % 20 == 0:
-                print(f"  text-ingest: {fetched} fetched this tranche "
-                      f"({done} already stored, {skipped} unparsable)",
-                      flush=True)
+                print(
+                    f"  text-ingest: {fetched} fetched this tranche "
+                    f"({done} already stored, {skipped} unparsable)",
+                    flush=True,
+                )
             item1 = extract_item1(raw or "")
             if len(item1) < 1500:
                 skipped += 1
-                out.write_text("", encoding="utf-8")   # tombstone
+                out.write_text("", encoding="utf-8")  # tombstone
                 continue
             out.write_text(item1, encoding="utf-8")
     total = len(list(TENK_DIR.glob("*.txt")))
-    return {"status": "ok",
-            "message": f"text-ingest tranche: {fetched} fetched, "
-                       f"{skipped} unparsable, {done} pre-existing skips; "
-                       f"{total} CIK-year files stored. Re-run for the "
-                       f"next tranche."}
+    return {
+        "status": "ok",
+        "message": f"text-ingest tranche: {fetched} fetched, "
+        f"{skipped} unparsable, {done} pre-existing skips; "
+        f"{total} CIK-year files stored. Re-run for the "
+        f"next tranche.",
+    }

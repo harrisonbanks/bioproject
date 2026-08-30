@@ -8,10 +8,13 @@ Also gives a coverage-as-of record, which matters because the openFDA CRL
 dataset had publication paused in April 2026 -- today's pull may not be
 reproducible later.
 """
+
 from __future__ import annotations
-import hashlib, json, time
+
+import hashlib
+import json
+import time
 from datetime import datetime, timezone
-from pathlib import Path
 
 import requests
 
@@ -25,9 +28,16 @@ def _key(url: str, params: dict | None) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:20]
 
 
-def fetch_json(url: str, params: dict | None = None, headers: dict | None = None,
-               *, tag: str, cache: bool = True, timeout: int = 60,
-               raw_text: bool = False):
+def fetch_json(
+    url: str,
+    params: dict | None = None,
+    headers: dict | None = None,
+    *,
+    tag: str,
+    cache: bool = True,
+    timeout: int = 60,
+    raw_text: bool = False,
+):
     """GET an endpoint, storing the raw response in bronze.
 
     tag      -- subfolder name, e.g. 'sec_submissions', 'fda_crl'
@@ -47,7 +57,7 @@ def fetch_json(url: str, params: dict | None = None, headers: dict | None = None
         txt = body_path.read_text(encoding="utf-8", errors="replace")
         return txt if raw_text else json.loads(txt)
 
-    if "sec.gov" in url:                       # SEC limit is 10 req/sec
+    if "sec.gov" in url:  # SEC limit is 10 req/sec
         gap = time.time() - _last_sec_call
         if gap < config.SEC_RATE_LIMIT:
             time.sleep(config.SEC_RATE_LIMIT - gap)

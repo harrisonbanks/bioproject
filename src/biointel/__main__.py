@@ -1,4 +1,5 @@
 """Entry point: python -m biointel <command> [args]."""
+
 import sys
 
 from biointel.interfaces.cli import main

@@ -25,10 +25,11 @@ Coverage: XBRL was first required by the SEC in 2009, mandatory for large
 accelerated filers that year and extended to all filers by 2011. No history
 before then.
 """
+
 from __future__ import annotations
+
 from collections import defaultdict
 
-from biointel import config
 from biointel.store import fetch_json
 
 FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik10}.json"
@@ -82,7 +83,7 @@ SYNONYMS = {
     ],
 }
 
-SHARES = ["EntityCommonStockSharesOutstanding"]      # dei taxonomy
+SHARES = ["EntityCommonStockSharesOutstanding"]  # dei taxonomy
 
 # IFRS taxonomy for foreign private issuers (AstraZeneca, Takeda file 20-F
 # under ifrs-full; their facts carry NO us-gaap section at all). Tag list
@@ -114,8 +115,7 @@ IFRS_SYNONYMS = {
 
 
 def company_facts(cik10: str) -> dict:
-    return fetch_json(FACTS_URL.format(cik10=str(cik10).zfill(10)),
-                      tag="sec_companyfacts")
+    return fetch_json(FACTS_URL.format(cik10=str(cik10).zfill(10)), tag="sec_companyfacts")
 
 
 def inventory_tags(cik10: str) -> dict[str, int]:
@@ -233,6 +233,7 @@ def _duration_facts(data: dict, taxonomy: str, tags: list[str]) -> list[dict]:
             best[(st, en)] = f
     out = []
     from datetime import date
+
     for (st, en), f in best.items():
         try:
             d = (date.fromisoformat(en) - date.fromisoformat(st)).days + 1
@@ -280,15 +281,18 @@ def ttm_operating_cash_flow(cik10: str) -> dict:
     # 1. a real annual figure that is also the most recent report
     if annual and annual[-1]["_end"] == latest["_end"]:
         a = annual[-1]
-        return {"OCF_TTM": a["val"], "TTM_Method": "annual",
-                "TTM_Start": a["_start"], "TTM_End": a["_end"]}
+        return {
+            "OCF_TTM": a["val"],
+            "TTM_Method": "annual",
+            "TTM_Start": a["_start"],
+            "TTM_End": a["_end"],
+        }
 
     # 2. YTD + prior full year - prior matching YTD
     if annual:
         prior = annual[-1]
         ytd = latest
         if ytd["_end"] > prior["_end"]:
-            from datetime import date
             match = None
             for f in facts:
                 if f["_end"] >= prior["_end"]:
@@ -298,16 +302,27 @@ def ttm_operating_cash_flow(cik10: str) -> dict:
                         match = f
             if match is not None:
                 val = ytd["val"] + prior["val"] - match["val"]
-                return {"OCF_TTM": val, "TTM_Method": "ytd+fy-prior_ytd",
-                        "TTM_Start": match["_end"], "TTM_End": ytd["_end"]}
-        return {"OCF_TTM": prior["val"], "TTM_Method": "last_full_year",
-                "TTM_Start": prior["_start"], "TTM_End": prior["_end"]}
+                return {
+                    "OCF_TTM": val,
+                    "TTM_Method": "ytd+fy-prior_ytd",
+                    "TTM_Start": match["_end"],
+                    "TTM_End": ytd["_end"],
+                }
+        return {
+            "OCF_TTM": prior["val"],
+            "TTM_Method": "last_full_year",
+            "TTM_Start": prior["_start"],
+            "TTM_End": prior["_end"],
+        }
 
     # 3. longest period available, annualized
     longest = max(facts, key=lambda f: f["_days"])
-    return {"OCF_TTM": longest["val"] * 365.0 / longest["_days"],
-            "TTM_Method": f"annualized_from_{longest['_days']}d",
-            "TTM_Start": longest["_start"], "TTM_End": longest["_end"]}
+    return {
+        "OCF_TTM": longest["val"] * 365.0 / longest["_days"],
+        "TTM_Method": f"annualized_from_{longest['_days']}d",
+        "TTM_Start": longest["_start"],
+        "TTM_End": longest["_end"],
+    }
 
 
 def latest_snapshot(cik10: str) -> dict:
@@ -349,11 +364,14 @@ def latest_snapshot(cik10: str) -> dict:
         runway_months = round(total_cash / (burn_annual / 12.0), 1)
 
     return {
-        "Cash": cash, "CashAsOf": cash_end,
+        "Cash": cash,
+        "CashAsOf": cash_end,
         "ShortTermInvestments": sti,
         "TotalCash": total_cash or None,
-        "Revenue": rev, "RnD": rnd,
-        "LongTermDebt": debt, "SharesOutstanding": shares,
+        "Revenue": rev,
+        "RnD": rnd,
+        "LongTermDebt": debt,
+        "SharesOutstanding": shares,
         "NetCashOperating": ocf,
         "OCFAsOf": ttm.get("TTM_End"),
         "TTMMethod": ttm.get("TTM_Method"),

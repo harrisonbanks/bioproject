@@ -1,4 +1,5 @@
 """Unit tests for biointel.config.require (fail-fast settings)."""
+
 import pytest
 
 from biointel import config

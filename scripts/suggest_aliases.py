@@ -10,21 +10,50 @@ you decide.
   python suggest_aliases.py --iid 2    review one company
   python suggest_aliases.py --list     dump all FDA sponsor names, no prompts
 """
+
 from __future__ import annotations
-import argparse, csv, json, sys, urllib.request
+
+import argparse
+import csv
+import json
+import sys
+import urllib.request
 from difflib import SequenceMatcher
 
 from biointel import config
 from biointel.match import canon
-from biointel.pipeline import read_companies, COMPANY_COLS
+from biointel.pipeline import COMPANY_COLS, read_companies
 
 FDA_COUNT = "https://api.fda.gov/drug/drugsfda.json?count=sponsor_name&limit=1000"
 CRL_COUNT = "https://api.fda.gov/transparency/crl.json?count=company_name&limit=1000"
 
-NOISE = {"PHARMS", "PHARMA", "PHARMACEUTICAL", "PHARMACEUTICALS", "USA", "US",
-         "SUB", "AND", "CO", "INC", "LLC", "LTD", "CORP", "THERAPEUTICS",
-         "BIOTECH", "PRODS", "PRODUCTS", "LABS", "LABORATORIES", "HOLDINGS",
-         "GROUP", "INTERNATIONAL", "AMERICA", "SCIENCES", "BIOSCIENCES"}
+NOISE = {
+    "PHARMS",
+    "PHARMA",
+    "PHARMACEUTICAL",
+    "PHARMACEUTICALS",
+    "USA",
+    "US",
+    "SUB",
+    "AND",
+    "CO",
+    "INC",
+    "LLC",
+    "LTD",
+    "CORP",
+    "THERAPEUTICS",
+    "BIOTECH",
+    "PRODS",
+    "PRODUCTS",
+    "LABS",
+    "LABORATORIES",
+    "HOLDINGS",
+    "GROUP",
+    "INTERNATIONAL",
+    "AMERICA",
+    "SCIENCES",
+    "BIOSCIENCES",
+}
 
 
 def fetch(url: str) -> list[dict]:
@@ -101,9 +130,9 @@ def review(name: str, pool: list[dict]) -> list[str]:
         if raw.lower().startswith("s "):
             term = raw[2:].strip().upper()
             found = sorted(
-                [(1.0, x["term"], x["count"]) for x in pool
-                 if term in x["term"].upper()],
-                key=lambda r: -r[2])[:20]
+                [(1.0, x["term"], x["count"]) for x in pool if term in x["term"].upper()],
+                key=lambda r: -r[2],
+            )[:20]
             if not found:
                 print(f"   nothing matching {term!r}")
                 cands = []
@@ -135,9 +164,12 @@ def main():
         return
 
     companies = read_companies()
-    todo = [c for c in companies
-            if (args.iid is None and not str(c.get("FDAAliases", "")).strip())
-            or (args.iid is not None and str(c["IID"]) == str(args.iid))]
+    todo = [
+        c
+        for c in companies
+        if (args.iid is None and not str(c.get("FDAAliases", "")).strip())
+        or (args.iid is not None and str(c["IID"]) == str(args.iid))
+    ]
 
     if not todo:
         print("Nothing to review. Use --iid N to redo one.")

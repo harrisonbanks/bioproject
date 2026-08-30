@@ -1,9 +1,16 @@
-import json, urllib.request
+import json
+import urllib.request
+
 from biointel.match import canon
 
-NAMES = ["ALNYLAM PHARMACEUTICALS, INC.", "Axsome Therapeutics, Inc.",
-         "ACADIA PHARMACEUTICALS INC", "Vanda Pharmaceuticals Inc.",
-         "Harmony Biosciences Holdings, Inc.", "RHYTHM PHARMACEUTICALS, INC."]
+NAMES = [
+    "ALNYLAM PHARMACEUTICALS, INC.",
+    "Axsome Therapeutics, Inc.",
+    "ACADIA PHARMACEUTICALS INC",
+    "Vanda Pharmaceuticals Inc.",
+    "Harmony Biosciences Holdings, Inc.",
+    "RHYTHM PHARMACEUTICALS, INC.",
+]
 
 url = "https://api.fda.gov/drug/drugsfda.json?count=sponsor_name&limit=1000"
 pool = json.load(urllib.request.urlopen(url))["results"]

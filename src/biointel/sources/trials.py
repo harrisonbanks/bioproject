@@ -16,19 +16,36 @@ Known traps, all documented by users of this API:
   - Date formats are inconsistent: "2024-01-15", "January 2024", and
     "January 15, 2024" all occur. The API does not normalize them.
 """
-from __future__ import annotations
-import re
-from datetime import date
 
-from biointel import config
+from __future__ import annotations
+
+import re
+
 from biointel.store import fetch_json
 
 BASE = "https://clinicaltrials.gov"
 STUDIES = "api/v2/studies"
 
-MONTHS = {m: i for i, m in enumerate(
-    ["january", "february", "march", "april", "may", "june", "july",
-     "august", "september", "october", "november", "december"], start=1)}
+MONTHS = {
+    m: i
+    for i, m in enumerate(
+        [
+            "january",
+            "february",
+            "march",
+            "april",
+            "may",
+            "june",
+            "july",
+            "august",
+            "september",
+            "october",
+            "november",
+            "december",
+        ],
+        start=1,
+    )
+}
 
 
 def parse_date(s) -> str | None:
@@ -41,16 +58,16 @@ def parse_date(s) -> str | None:
         return None
     t = str(s).strip()
 
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", t):          # 2024-01-15
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", t):  # 2024-01-15
         return t
-    if re.fullmatch(r"\d{4}-\d{2}", t):                # 2024-01
+    if re.fullmatch(r"\d{4}-\d{2}", t):  # 2024-01
         return t + "-01"
 
-    m = re.fullmatch(r"([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})", t)   # January 15, 2024
+    m = re.fullmatch(r"([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})", t)  # January 15, 2024
     if m and m.group(1).lower() in MONTHS:
         return f"{int(m.group(3)):04d}-{MONTHS[m.group(1).lower()]:02d}-{int(m.group(2)):02d}"
 
-    m = re.fullmatch(r"([A-Za-z]+)\s+(\d{4})", t)                # January 2024
+    m = re.fullmatch(r"([A-Za-z]+)\s+(\d{4})", t)  # January 2024
     if m and m.group(1).lower() in MONTHS:
         return f"{int(m.group(2)):04d}-{MONTHS[m.group(1).lower()]:02d}-01"
 
@@ -84,10 +101,12 @@ def _flatten(study: dict) -> dict | None:
         return None
 
     phases = design.get("phases") or []
-    interventions = [i.get("name") for i in (arms.get("interventions") or [])
-                     if i.get("name")]
-    drugs = [i.get("name") for i in (arms.get("interventions") or [])
-             if i.get("type") in ("DRUG", "BIOLOGICAL") and i.get("name")]
+    interventions = [i.get("name") for i in (arms.get("interventions") or []) if i.get("name")]
+    drugs = [
+        i.get("name")
+        for i in (arms.get("interventions") or [])
+        if i.get("type") in ("DRUG", "BIOLOGICAL") and i.get("name")
+    ]
 
     enroll = (design.get("enrollmentInfo") or {}).get("count")
 
@@ -115,11 +134,10 @@ def _flatten(study: dict) -> dict | None:
         "CollaboratorCount": len(collab_names),
         "StartDate": parse_date((status.get("startDateStruct") or {}).get("date")),
         "PrimaryCompletion": parse_date(
-            (status.get("primaryCompletionDateStruct") or {}).get("date")),
-        "CompletionDate": parse_date(
-            (status.get("completionDateStruct") or {}).get("date")),
-        "LastUpdate": parse_date(
-            (status.get("lastUpdatePostDateStruct") or {}).get("date")),
+            (status.get("primaryCompletionDateStruct") or {}).get("date")
+        ),
+        "CompletionDate": parse_date((status.get("completionDateStruct") or {}).get("date")),
+        "LastUpdate": parse_date((status.get("lastUpdatePostDateStruct") or {}).get("date")),
     }
 
 
@@ -137,7 +155,7 @@ def trials_for(sponsor: str, max_pages: int = 10) -> list[dict]:
             data = _page(sponsor, token)
         except Exception:
             break
-        for s in (data.get("studies") or []):
+        for s in data.get("studies") or []:
             r = _flatten(s)
             if r:
                 rows.append(r)
@@ -152,7 +170,7 @@ def trials_for(sponsor: str, max_pages: int = 10) -> list[dict]:
             continue
         seen.add(r["NCTId"])
         out.append(r)
-    out.sort(key=lambda r: (r["StartDate"] or ""), reverse=True)
+    out.sort(key=lambda r: r["StartDate"] or "", reverse=True)
     return out
 
 
@@ -166,9 +184,9 @@ def sponsor_landscape(limit_note: bool = True) -> list[dict]:
     Useful for large caps, useless for small ones -- use trials_for()
     with the AREA filter for those.
     """
-    data = fetch_json(f"{BASE}/api/v2/stats/field/values",
-                      params={"fields": "LeadSponsorName"},
-                      tag="ctgov_stats")
+    data = fetch_json(
+        f"{BASE}/api/v2/stats/field/values", params={"fields": "LeadSponsorName"}, tag="ctgov_stats"
+    )
     if isinstance(data, list) and data:
         return data[0].get("topValues") or []
     return []

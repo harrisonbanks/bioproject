@@ -9,15 +9,16 @@ Both are keyed on a free-text company name. Verification uses exact
 equality of the canonicalized name, so another company's records cannot
 enter the result.
 """
+
 from __future__ import annotations
-from datetime import date, datetime
+
+from datetime import datetime
 
 from biointel import config
 from biointel.match import canon
 from biointel.store import fetch_json
 
-COLUMNS = ["Event", "Date", "AppNo", "Drug", "Outcome",
-           "Priority", "ClassCode", "SubType"]
+COLUMNS = ["Event", "Date", "AppNo", "Drug", "Outcome", "Priority", "ClassCode", "SubType"]
 
 
 def _get(url: str, search: str, tag: str):
@@ -42,14 +43,27 @@ def rejections(key: str) -> list[dict]:
             continue
         apps = r.get("application_number") or []
         appno = "; ".join(str(a) for a in apps)
-        appno = appno.split("/")[0].strip() or None      # drop "/Original n"
+        appno = appno.split("/")[0].strip() or None  # drop "/Original n"
         st = r.get("approval_status")
-        outcome = ("Never approved" if st == "Unapproved"
-                   else "Later approved" if st == "Approved"
-                   else (str(st) if st else None))
-        rows.append({"Event": "Rejection", "Date": d, "AppNo": appno,
-                     "Drug": None, "Outcome": outcome, "Priority": None,
-                     "ClassCode": r.get("letter_type"), "SubType": None})
+        outcome = (
+            "Never approved"
+            if st == "Unapproved"
+            else "Later approved"
+            if st == "Approved"
+            else (str(st) if st else None)
+        )
+        rows.append(
+            {
+                "Event": "Rejection",
+                "Date": d,
+                "AppNo": appno,
+                "Drug": None,
+                "Outcome": outcome,
+                "Priority": None,
+                "ClassCode": r.get("letter_type"),
+                "SubType": None,
+            }
+        )
     return rows
 
 
@@ -83,14 +97,18 @@ def approvals(key: str) -> list[dict]:
                 d = datetime.strptime(str(raw_date), "%Y%m%d").date()
             except Exception:
                 continue
-            rows.append({
-                "Event": "Approval", "Date": d,
-                "AppNo": app.get("application_number"),
-                "Drug": drug,
-                "Outcome": "New drug" if subtype == "ORIG" else "New indication",
-                "Priority": sub.get("review_priority"),
-                "ClassCode": classcode, "SubType": subtype,
-            })
+            rows.append(
+                {
+                    "Event": "Approval",
+                    "Date": d,
+                    "AppNo": app.get("application_number"),
+                    "Drug": drug,
+                    "Outcome": "New drug" if subtype == "ORIG" else "New indication",
+                    "Priority": sub.get("review_priority"),
+                    "ClassCode": classcode,
+                    "SubType": subtype,
+                }
+            )
     return rows
 
 
@@ -99,9 +117,14 @@ def approvals(key: str) -> list[dict]:
 # hand-curated aliases: "ALNYLAM PHARMACEUTICALS, INC." is filed by FDA
 # as "ALNYLAM PHARMS INC"; "ACADIA PHARMACEUTICALS INC" as "ACADIA
 # PHARMS INC". Verification stays exact-canonical per variant.
-_ABBREV = [("PHARMACEUTICALS", "PHARMS"), ("PHARMACEUTICAL", "PHARM"),
-           ("LABORATORIES", "LABS"), ("THERAPEUTICS", "THERAP"),
-           ("BIOSCIENCES", "BIOSCI"), ("TECHNOLOGIES", "TECHS")]
+_ABBREV = [
+    ("PHARMACEUTICALS", "PHARMS"),
+    ("PHARMACEUTICAL", "PHARM"),
+    ("LABORATORIES", "LABS"),
+    ("THERAPEUTICS", "THERAP"),
+    ("BIOSCIENCES", "BIOSCI"),
+    ("TECHNOLOGIES", "TECHS"),
+]
 _SUFFIX = (" INC", " CORP", " CO", " LTD", " PLC", " HOLDINGS", " GROUP")
 
 
@@ -122,7 +145,7 @@ def name_variants(name: str) -> list[str]:
         if stripped and stripped != v:
             more.append(stripped)
         first = v.split()[0]
-        if len(first) >= 6:                      # distinctive single token
+        if len(first) >= 6:  # distinctive single token
             more.append(first)
     return list(dict.fromkeys(out + more))
 
@@ -138,7 +161,7 @@ def events_for(iid: int, name: str, aliases: list[str] | None = None) -> list[di
     that was searched, so contamination remains impossible.
     """
     keys = name_variants(name) + [canon(a) for a in (aliases or [])]
-    keys = [k for k in dict.fromkeys(keys) if k]      # dedupe, drop blanks
+    keys = [k for k in dict.fromkeys(keys) if k]  # dedupe, drop blanks
     rows = []
     for k in keys:
         rows += rejections(k) + approvals(k)

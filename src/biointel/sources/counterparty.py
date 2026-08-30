@@ -30,7 +30,9 @@ Hit rate below 100% is expected and honest.
 Public API unchanged: extract(), fetch_text(), strip_html(),
 agreement_type() -- pipeline.py needs no modification.
 """
+
 from __future__ import annotations
+
 import html
 import re
 
@@ -39,67 +41,223 @@ from biointel.store import fetch_json
 # Agreement types worth distinguishing. A licensing deal and a credit
 # facility are both Item 1.01 events but very different partnerships.
 AGREEMENT_TYPES = [
-    ("License",        ["license agreement", "licensing agreement", "sublicense"]),
-    ("Collaboration",  ["collaboration", "co-development", "codevelopment",
-                        "research agreement", "research collaboration",
-                        "joint development", "development agreement",
-                        "option agreement", "joint venture"]),
-    ("Supply/Manufacturing", ["supply agreement", "manufacturing agreement",
-                              "manufacture and supply", "toll manufacturing",
-                              "commercial supply"]),
-    ("Distribution/Commercial", ["distribution agreement", "commercialization agreement",
-                                 "co-promotion", "promotion agreement",
-                                 "marketing agreement"]),
+    ("License", ["license agreement", "licensing agreement", "sublicense"]),
+    (
+        "Collaboration",
+        [
+            "collaboration",
+            "co-development",
+            "codevelopment",
+            "research agreement",
+            "research collaboration",
+            "joint development",
+            "development agreement",
+            "option agreement",
+            "joint venture",
+        ],
+    ),
+    (
+        "Supply/Manufacturing",
+        [
+            "supply agreement",
+            "manufacturing agreement",
+            "manufacture and supply",
+            "toll manufacturing",
+            "commercial supply",
+        ],
+    ),
+    (
+        "Distribution/Commercial",
+        [
+            "distribution agreement",
+            "commercialization agreement",
+            "co-promotion",
+            "promotion agreement",
+            "marketing agreement",
+        ],
+    ),
     ("Asset purchase", ["asset purchase agreement", "purchase and sale agreement"]),
-    ("Merger/Acquisition", ["merger agreement", "agreement and plan of merger",
-                            "plan of merger", "tender offer"]),
-    ("Stake purchase",  ["share purchase agreement", "stock purchase agreement"]),
-    ("Financing",      ["securities purchase agreement", "underwriting agreement",
-                        "credit agreement", "loan and security", "loan agreement",
-                        "placement agency", "note purchase", "at the market",
-                        "sales agreement", "royalty purchase", "revenue interest",
-                        "equity distribution", "term loan", "subscription agreement"]),
+    (
+        "Merger/Acquisition",
+        ["merger agreement", "agreement and plan of merger", "plan of merger", "tender offer"],
+    ),
+    ("Stake purchase", ["share purchase agreement", "stock purchase agreement"]),
+    (
+        "Financing",
+        [
+            "securities purchase agreement",
+            "underwriting agreement",
+            "credit agreement",
+            "loan and security",
+            "loan agreement",
+            "placement agency",
+            "note purchase",
+            "at the market",
+            "sales agreement",
+            "royalty purchase",
+            "revenue interest",
+            "equity distribution",
+            "term loan",
+            "subscription agreement",
+        ],
+    ),
     ("Settlement/Legal", ["settlement agreement", "settlement and license"]),
-    ("Lease",          ["lease agreement", "sublease"]),
-    ("Employment",     ["employment agreement", "separation agreement",
-                        "retention agreement", "consulting agreement"]),
+    ("Lease", ["lease agreement", "sublease"]),
+    (
+        "Employment",
+        [
+            "employment agreement",
+            "separation agreement",
+            "retention agreement",
+            "consulting agreement",
+        ],
+    ),
 ]
 
 STOP = {
-    "the company", "the registrant", "the parties", "the agreement", "the board",
-    "the sec", "the securities", "this agreement", "the closing", "certain",
-    "each", "such", "any", "all", "no", "if", "exhibit", "item", "form",
-    "current report", "united states", "delaware", "new york", "california",
-    "common stock", "the effective date", "an",
+    "the company",
+    "the registrant",
+    "the parties",
+    "the agreement",
+    "the board",
+    "the sec",
+    "the securities",
+    "this agreement",
+    "the closing",
+    "certain",
+    "each",
+    "such",
+    "any",
+    "all",
+    "no",
+    "if",
+    "exhibit",
+    "item",
+    "form",
+    "current report",
+    "united states",
+    "delaware",
+    "new york",
+    "california",
+    "common stock",
+    "the effective date",
+    "an",
 }
 
 ROLE_WORDS = {
-    "administrative agent", "collateral agent", "agent", "lessor", "lessee",
-    "landlord", "tenant", "purchaser", "purchasers", "seller", "sellers",
-    "borrower", "borrowers", "lender", "lenders", "issuer", "investor",
-    "investors", "guarantor", "guarantors", "trustee", "underwriter",
-    "underwriters", "placement agent", "sales agent", "escrow agent",
-    "administrative agents", "counterparty", "licensee", "licensor",
-    "buyer", "buyers", "holder", "holders", "subscriber", "subscribers",
-    "the purchaser", "the seller", "the borrower", "the lender",
-    "the issuer", "the investor", "the investors", "the guarantor",
-    "the lessor", "the lessee", "the parties hereto", "parent", "merger sub",
+    "administrative agent",
+    "collateral agent",
+    "agent",
+    "lessor",
+    "lessee",
+    "landlord",
+    "tenant",
+    "purchaser",
+    "purchasers",
+    "seller",
+    "sellers",
+    "borrower",
+    "borrowers",
+    "lender",
+    "lenders",
+    "issuer",
+    "investor",
+    "investors",
+    "guarantor",
+    "guarantors",
+    "trustee",
+    "underwriter",
+    "underwriters",
+    "placement agent",
+    "sales agent",
+    "escrow agent",
+    "administrative agents",
+    "counterparty",
+    "licensee",
+    "licensor",
+    "buyer",
+    "buyers",
+    "holder",
+    "holders",
+    "subscriber",
+    "subscribers",
+    "the purchaser",
+    "the seller",
+    "the borrower",
+    "the lender",
+    "the issuer",
+    "the investor",
+    "the investors",
+    "the guarantor",
+    "the lessor",
+    "the lessee",
+    "the parties hereto",
+    "parent",
+    "merger sub",
 }
 
 DOC_WORDS = {
-    "amendment", "first amendment", "second amendment", "third amendment",
-    "fourth amendment", "fifth amendment", "agreement", "the amendment",
-    "letter agreement", "amended and restated", "schedule", "annex",
-    "appendix", "press release", "credit facility", "note", "notes",
-    "warrant", "warrants", "indenture", "plan", "effective date",
+    "amendment",
+    "first amendment",
+    "second amendment",
+    "third amendment",
+    "fourth amendment",
+    "fifth amendment",
+    "agreement",
+    "the amendment",
+    "letter agreement",
+    "amended and restated",
+    "schedule",
+    "annex",
+    "appendix",
+    "press release",
+    "credit facility",
+    "note",
+    "notes",
+    "warrant",
+    "warrants",
+    "indenture",
+    "plan",
+    "effective date",
 }
 
 SUFFIX_ONLY = {
-    "inc", "inc.", "incorporated", "llc", "l.l.c.", "ltd", "ltd.", "limited",
-    "corp", "corp.", "corporation", "company", "co.", "plc", "n.v.", "b.v.",
-    "s.a.", "ag", "ab", "gmbh", "lp", "l.p.", "llp", "holdings", "group",
-    "pharmaceuticals", "pharma", "therapeutics", "sciences", "technologies",
-    "partners", "capital", "bank", "trust", "university", "institute",
+    "inc",
+    "inc.",
+    "incorporated",
+    "llc",
+    "l.l.c.",
+    "ltd",
+    "ltd.",
+    "limited",
+    "corp",
+    "corp.",
+    "corporation",
+    "company",
+    "co.",
+    "plc",
+    "n.v.",
+    "b.v.",
+    "s.a.",
+    "ag",
+    "ab",
+    "gmbh",
+    "lp",
+    "l.p.",
+    "llp",
+    "holdings",
+    "group",
+    "pharmaceuticals",
+    "pharma",
+    "therapeutics",
+    "sciences",
+    "technologies",
+    "partners",
+    "capital",
+    "bank",
+    "trust",
+    "university",
+    "institute",
 }
 
 # MCC-style generic-entity exclusions: patterns that NER tags as ORG but
@@ -110,14 +268,16 @@ GENERIC_RE = re.compile(
     r"exhibit|act|law|code|statute|committee|board of directors|"
     r"securities and exchange commission|internal revenue|"
     r"nasdaq|new york stock exchange|nyse|stock market|"
-    r"general corporation law|exchange act|securities act)\b")
+    r"general corporation law|exchange act|securities act)\b"
+)
 
 # Regulators appear constantly in deal prose but are never the party.
 REGULATOR_RE = re.compile(
     r"(?i)^(?:the\s+)?(?:u\.?s\.?\s+)?(?:sec|ftc|irs|fda|"
     r"food and drug administration|federal trade commission|"
     r"internal revenue service|department of justice|"
-    r"european medicines agency|ema)$")
+    r"european medicines agency|ema)$"
+)
 
 # Drug/program codes NER mislabels as ORG: IMVT-1401, ALN-AT3, BTK, OTEZLA(R).
 DRUG_CODE_RE = re.compile(r"^[A-Z]{2,6}[- ]?\d+[A-Za-z0-9-]*$|[\u00ae\u2122]")
@@ -125,35 +285,124 @@ DRUG_CODE_RE = re.compile(r"^[A-Z]{2,6}[- ]?\d+[A-Za-z0-9-]*$|[\u00ae\u2122]")
 # If ANY word of the candidate is a document/deal-mechanics noun, it is
 # contract furniture, not an organisation.
 BAD_WORDS = {
-    "agreement", "agreements", "amendment", "lease", "sublease", "indenture",
-    "warrant", "warrants", "note", "notes", "report", "reports", "statement",
-    "statements", "program", "plan", "merger", "closing", "shares", "stock",
-    "consideration", "placement", "purchasers", "offering", "loan",
-    "facility", "ownership", "products", "date", "exchange",
-    "terms", "term", "transactions", "transaction", "combination", "award",
-    "awards", "share",
-    "counterparties", "time", "license", "licenses", "call", "rights",
-    "hereto", "thereto", "units", "securities", "endpoint", "shareholders",
-    "stockholders", "space", "owner", "association", "phase",
+    "agreement",
+    "agreements",
+    "amendment",
+    "lease",
+    "sublease",
+    "indenture",
+    "warrant",
+    "warrants",
+    "note",
+    "notes",
+    "report",
+    "reports",
+    "statement",
+    "statements",
+    "program",
+    "plan",
+    "merger",
+    "closing",
+    "shares",
+    "stock",
+    "consideration",
+    "placement",
+    "purchasers",
+    "offering",
+    "loan",
+    "facility",
+    "ownership",
+    "products",
+    "date",
+    "exchange",
+    "terms",
+    "term",
+    "transactions",
+    "transaction",
+    "combination",
+    "award",
+    "awards",
+    "share",
+    "counterparties",
+    "time",
+    "license",
+    "licenses",
+    "call",
+    "rights",
+    "hereto",
+    "thereto",
+    "units",
+    "securities",
+    "endpoint",
+    "shareholders",
+    "stockholders",
+    "space",
+    "owner",
+    "association",
+    "phase",
 }
 
 STATE_NAMES = {
-    "alabama","alaska","arizona","arkansas","california","colorado",
-    "connecticut","delaware","florida","georgia","hawaii","idaho","illinois",
-    "indiana","iowa","kansas","kentucky","louisiana","maine","maryland",
-    "massachusetts","michigan","minnesota","mississippi","missouri","montana",
-    "nebraska","nevada","new hampshire","new jersey","new mexico","new york",
-    "north carolina","north dakota","ohio","oklahoma","oregon","pennsylvania",
-    "rhode island","south carolina","south dakota","tennessee","texas","utah",
-    "vermont","virginia","washington","west virginia","wisconsin","wyoming",
+    "alabama",
+    "alaska",
+    "arizona",
+    "arkansas",
+    "california",
+    "colorado",
+    "connecticut",
+    "delaware",
+    "florida",
+    "georgia",
+    "hawaii",
+    "idaho",
+    "illinois",
+    "indiana",
+    "iowa",
+    "kansas",
+    "kentucky",
+    "louisiana",
+    "maine",
+    "maryland",
+    "massachusetts",
+    "michigan",
+    "minnesota",
+    "mississippi",
+    "missouri",
+    "montana",
+    "nebraska",
+    "nevada",
+    "new hampshire",
+    "new jersey",
+    "new mexico",
+    "new york",
+    "north carolina",
+    "north dakota",
+    "ohio",
+    "oklahoma",
+    "oregon",
+    "pennsylvania",
+    "rhode island",
+    "south carolina",
+    "south dakota",
+    "tennessee",
+    "texas",
+    "utah",
+    "vermont",
+    "virginia",
+    "washington",
+    "west virginia",
+    "wisconsin",
+    "wyoming",
 }
 
-ORG_TAIL = (r"(?:Inc|Inc\.|Incorporated|LLC|L\.L\.C\.|Ltd|Ltd\.|Limited|Corp|Corp\.|"
-            r"Corporation|Company|Co\.|PLC|plc|N\.V\.|B\.V\.|S\.A\.|S\.A\.S\.|A/S|"
-            r"AG|AB|GmbH|KGaA|LP|L\.P\.|LLP|University|College|Institute|Hospital|"
-            r"Foundation|Trust|Holdings|Group|Pharmaceuticals|Pharma|Therapeutics|"
-            r"Biosciences|Bioscience|Laboratories|Sciences|Health|Healthcare|"
-            r"Technologies|Partners|Capital|Bank|Center|Centre)")
+ORG_TAIL = (
+    r"(?:Inc|Inc\.|Incorporated|LLC|L\.L\.C\.|Ltd|Ltd\.|Limited|Corp|Corp\.|"
+    r"Corporation|Company|Co\.|PLC|plc|N\.V\.|B\.V\.|S\.A\.|S\.A\.S\.|A/S|"
+    r"AG|AB|GmbH|KGaA|LP|L\.P\.|LLP|University|College|Institute|Hospital|"
+    r"Foundation|Trust|Holdings|Group|Pharmaceuticals|Pharma|Therapeutics|"
+    r"Biosciences|Bioscience|Laboratories|Sciences|Health|Healthcare|"
+    r"Technologies|Partners|Capital|Bank|Center|Centre)"
+)
 
 ORG = rf"((?:[A-Z][\w&.\-']*\s+){{0,7}}[A-Z][\w&.\-']*(?:,?\s+{ORG_TAIL})?)"
 
@@ -168,7 +417,12 @@ def strip_html(raw: str) -> str:
     s = re.sub(r"(?i)</(p|div|tr|td|li|h\d)>", "\n", s)
     s = re.sub(r"<[^>]+>", " ", s)
     s = html.unescape(s)
-    s = s.replace("\u00a0", " ").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
+    s = (
+        s.replace("\u00a0", " ")
+        .replace("\u2019", "'")
+        .replace("\u201c", '"')
+        .replace("\u201d", '"')
+    )
     s = re.sub(r"[ \t]+", " ", s)
     s = re.sub(r"\n\s*\n+", "\n", s)
     return s.strip()
@@ -231,7 +485,12 @@ def _clean(name: str) -> str:
     # leading contract-role prefix: "Administrative Agent and Bank of America"
     n = re.sub(r"^(?:[A-Z][a-z]+\s+)?Agent(?:s)?\s+and\s+", "", n)
     n = re.sub(r"^Company\s+(?:of|and)\s+", "", n)
-    n = re.sub(r"\s+(?:dated|effective|pursuant|whereby|under|for|in|on|relating|that|regarding|concerning)\b.*$", "", n, flags=re.I)
+    n = re.sub(
+        r"\s+(?:dated|effective|pursuant|whereby|under|for|in|on|relating|that|regarding|concerning)\b.*$",
+        "",
+        n,
+        flags=re.I,
+    )
     n = re.sub(r"\s*,?\s+as\s+(?:the\s+)?[a-z].*$", "", n)
     n = re.sub(r"\s*\(.*$", "", n)
     return n.strip(" ,;:.")
@@ -258,9 +517,9 @@ def _plausible(name: str, self_keys: set[str]) -> bool:
         return False
     if n.split()[0].islower():
         return False
-    if re.fullmatch(r"[A-Z]{2,4}", n):          # bare acronym: BTK, TICV
+    if re.fullmatch(r"[A-Z]{2,4}", n):  # bare acronym: BTK, TICV
         return False
-    if re.search(r"\b\d{5}\b", n):              # zip fragment: MA 02421
+    if re.search(r"\b\d{5}\b", n):  # zip fragment: MA 02421
         return False
     if not re.search(r"[A-Za-z]", n):
         return False
@@ -268,8 +527,9 @@ def _plausible(name: str, self_keys: set[str]) -> bool:
         return False
     if sum(1 for w in n.split() if w[:1].isupper()) < 1:
         return False
-    core = [w for w in re.sub(r"[^A-Za-z ]", " ", low).split()
-            if w not in SUFFIX_ONLY and len(w) > 1]
+    core = [
+        w for w in re.sub(r"[^A-Za-z ]", " ", low).split() if w not in SUFFIX_ONLY and len(w) > 1
+    ]
     if not core:
         return False
     if any(low.endswith(" " + r) for r in ROLE_WORDS):
@@ -323,7 +583,7 @@ def _extract_ner(section: str, self_keys: set[str], typ_default: str) -> list[di
         return []
     anchors = list(ANCHOR_RE.finditer(section))
     for m in anchors:
-        ctx = section[max(0, m.start() - 160):m.end() + 300]
+        ctx = section[max(0, m.start() - 160) : m.end() + 300]
         typ = agreement_type(ctx)
         if typ == "Other":
             typ = typ_default
@@ -339,8 +599,14 @@ def _extract_ner(section: str, self_keys: set[str], typ_default: str) -> list[di
             if n.lower() in seen:
                 continue
             seen.add(n.lower())
-            out.append({"Counterparty": n, "AgreementType": typ,
-                        "Method": "ner", "Context": ctx[:220].strip()})
+            out.append(
+                {
+                    "Counterparty": n,
+                    "AgreementType": typ,
+                    "Method": "ner",
+                    "Context": ctx[:220].strip(),
+                }
+            )
     return out
 
 
@@ -348,11 +614,28 @@ def _self_keys(self_name: str) -> set[str]:
     keys = set()
     if self_name:
         k = re.sub(r"[^A-Z0-9 ]", "", self_name.upper())
-        k = " ".join(w for w in k.split()
-                     if len(w) > 1 and w not in
-                     {"INC", "LLC", "LTD", "CORP", "CO", "COMPANY", "PLC",
-                      "HOLDINGS", "PHARMACEUTICALS", "PHARMA", "THERAPEUTICS",
-                      "INCORPORATED", "LIMITED", "CORPORATION"})
+        k = " ".join(
+            w
+            for w in k.split()
+            if len(w) > 1
+            and w
+            not in {
+                "INC",
+                "LLC",
+                "LTD",
+                "CORP",
+                "CO",
+                "COMPANY",
+                "PLC",
+                "HOLDINGS",
+                "PHARMACEUTICALS",
+                "PHARMA",
+                "THERAPEUTICS",
+                "INCORPORATED",
+                "LIMITED",
+                "CORPORATION",
+            }
+        )
         if k:
             keys.add(k)
             keys.add(k.split()[0])
@@ -381,25 +664,37 @@ def extract(text: str, self_name: str = "") -> list[dict]:
         if key in seen:
             return
         seen.add(key)
-        out.append({"Counterparty": n, "AgreementType": typ,
-                    "Method": method, "Context": ctx[:220].strip()})
+        out.append(
+            {
+                "Counterparty": n,
+                "AgreementType": typ,
+                "Method": method,
+                "Context": ctx[:220].strip(),
+            }
+        )
 
     # ---- 1. exhibit description lines --------------------------------
     for desc in exhibit_lines(text):
         typ = agreement_type(desc)
-        for m in re.finditer(rf"by and (?:between|among)\s+{ORG}\s*(?:,|\s+and\s+)\s*{ORG}"
-                             rf"(?:\s*(?:,|\s+and\s+)\s*{ORG})?", desc):
+        for m in re.finditer(
+            rf"by and (?:between|among)\s+{ORG}\s*(?:,|\s+and\s+)\s*{ORG}"
+            rf"(?:\s*(?:,|\s+and\s+)\s*{ORG})?",
+            desc,
+        ):
             for g in m.groups():
                 if g:
                     add(g, typ, "exhibit-index", desc)
 
     # ---- 2..4 bounded narrative sections -----------------------------
     for item, sec in deal_sections(text):
-        typ_default = ("Merger/Acquisition" if item == "2.01" else "Other")
+        typ_default = "Merger/Acquisition" if item == "2.01" else "Other"
 
-        for m in re.finditer(rf"by and (?:between|among)\s+{ORG}\s*(?:,|\s+and\s+)\s*{ORG}"
-                             rf"(?:\s*(?:,|\s+and\s+)\s*{ORG})?", sec):
-            ctx = sec[max(0, m.start() - 160):m.end() + 40]
+        for m in re.finditer(
+            rf"by and (?:between|among)\s+{ORG}\s*(?:,|\s+and\s+)\s*{ORG}"
+            rf"(?:\s*(?:,|\s+and\s+)\s*{ORG})?",
+            sec,
+        ):
+            ctx = sec[max(0, m.start() - 160) : m.end() + 40]
             typ = agreement_type(ctx)
             if typ == "Other":
                 typ = typ_default
@@ -407,12 +702,14 @@ def extract(text: str, self_name: str = "") -> list[dict]:
                 if g:
                     add(g, typ, "by-and-between", ctx)
 
-        for m in re.finditer(rf"entered into\s+(?:a|an|the)?\s*([^.;]{{0,120}}?)\bwith\s+{ORG}", sec, re.I):
-            ctx = sec[max(0, m.start() - 60):m.end() + 60]
+        for m in re.finditer(
+            rf"entered into\s+(?:a|an|the)?\s*([^.;]{{0,120}}?)\bwith\s+{ORG}", sec, re.I
+        ):
+            ctx = sec[max(0, m.start() - 60) : m.end() + 60]
             add(m.group(2), agreement_type(m.group(1) or ctx), "entered-into-with", ctx)
 
         for m in re.finditer(rf"\b([A-Z][\w\- ]{{0,40}}?Agreement)\s+with\s+{ORG}", sec):
-            ctx = sec[max(0, m.start() - 60):m.end() + 60]
+            ctx = sec[max(0, m.start() - 60) : m.end() + 60]
             add(m.group(2), agreement_type(m.group(1)), "agreement-with", ctx)
 
         out_ner = _extract_ner(sec, self_keys, typ_default)
@@ -427,10 +724,10 @@ def extract(text: str, self_name: str = "") -> list[dict]:
 
 def _merge_fragments(rows: list[dict]) -> list[dict]:
     """Collapse "Sanofi" into "Sanofi-Aventis US LLC". Keep the longest."""
+
     def core(n):
         k = re.sub(r"[^A-Za-z0-9 ]", " ", n.upper())
-        return " ".join(w for w in k.split()
-                        if w.lower() not in SUFFIX_ONLY and len(w) > 1)
+        return " ".join(w for w in k.split() if w.lower() not in SUFFIX_ONLY and len(w) > 1)
 
     best: dict[str, dict] = {}
     for r in sorted(rows, key=lambda r: -len(r["Counterparty"])):
@@ -439,8 +736,13 @@ def _merge_fragments(rows: list[dict]) -> list[dict]:
             continue
         hit = None
         for k in best:
-            if (c == k or c.startswith(k + " ") or k.startswith(c + " ")
-                    or c.endswith(" " + k) or k.endswith(" " + c)):
+            if (
+                c == k
+                or c.startswith(k + " ")
+                or k.startswith(c + " ")
+                or c.endswith(" " + k)
+                or k.endswith(" " + c)
+            ):
                 hit = k
                 break
         if hit is None:

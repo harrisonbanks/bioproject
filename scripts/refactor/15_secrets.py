@@ -26,7 +26,9 @@ bronze cache and raises if it is absent rather than downloading
 (orangebook._protection_end_by_appno), and score.py / pairs.py do not
 import store. Verified by grep of the post-step-1 tree on 2026-08-29.
 """
+
 from __future__ import annotations
+
 import re
 import sys
 from pathlib import Path
@@ -39,10 +41,10 @@ APP = ROOT / "app"
 PKG = APP / "biointel"
 
 OLD_CRED_BLOCK = re.compile(
-    r'# --- credentials -+\n'
-    r'# SEC requires a descriptive User-Agent[^\n]*\n'
+    r"# --- credentials -+\n"
+    r"# SEC requires a descriptive User-Agent[^\n]*\n"
     r'USER_AGENT = "[^"]*"\n\n'
-    r'# Alpha Vantage free tier[^\n]*\n'
+    r"# Alpha Vantage free tier[^\n]*\n"
     r'ALPHA_VANTAGE_KEY = "[^"]*"\n'
 )
 NEW_CRED_BLOCK = '''# --- settings from the environment ----------------------------------------
@@ -82,18 +84,26 @@ BIOINTEL_ALPHA_VANTAGE_KEY=YOUR_KEY_HERE
 """
 
 USE_SITES = [
-    (PKG / "store.py",
-     'hdrs = {"User-Agent": config.USER_AGENT}',
-     'hdrs = {"User-Agent": config.require("BIOINTEL_USER_AGENT")}'),
-    (PKG / "sources" / "orangebook.py",
-     'headers={"User-Agent": config.USER_AGENT}',
-     'headers={"User-Agent": config.require("BIOINTEL_USER_AGENT")}'),
-    (PKG / "sources" / "alphavantage.py",
-     '"apikey": config.ALPHA_VANTAGE_KEY,',
-     '"apikey": config.require("BIOINTEL_ALPHA_VANTAGE_KEY"),'),
-    (APP / "check_ocf.py",
-     'headers={"User-Agent": config.USER_AGENT}',
-     'headers={"User-Agent": config.require("BIOINTEL_USER_AGENT")}'),
+    (
+        PKG / "store.py",
+        'hdrs = {"User-Agent": config.USER_AGENT}',
+        'hdrs = {"User-Agent": config.require("BIOINTEL_USER_AGENT")}',
+    ),
+    (
+        PKG / "sources" / "orangebook.py",
+        'headers={"User-Agent": config.USER_AGENT}',
+        'headers={"User-Agent": config.require("BIOINTEL_USER_AGENT")}',
+    ),
+    (
+        PKG / "sources" / "alphavantage.py",
+        '"apikey": config.ALPHA_VANTAGE_KEY,',
+        '"apikey": config.require("BIOINTEL_ALPHA_VANTAGE_KEY"),',
+    ),
+    (
+        APP / "check_ocf.py",
+        'headers={"User-Agent": config.USER_AGENT}',
+        'headers={"User-Agent": config.require("BIOINTEL_USER_AGENT")}',
+    ),
 ]
 
 
@@ -110,8 +120,11 @@ def main() -> None:
     src = read(cfg)
     assert OLD_CRED_BLOCK.search(src), "config.py credentials block not in expected form"
     src = OLD_CRED_BLOCK.sub(NEW_CRED_BLOCK, src, count=1)
-    src = src.replace('"""Configuration. Edit USER_AGENT and ALPHA_VANTAGE_KEY before first run."""\nfrom pathlib import Path\n',
-                      '"""Configuration: paths, endpoints, behaviour; credentials from the environment."""\nimport os\nfrom pathlib import Path\n', 1)
+    src = src.replace(
+        '"""Configuration. Edit USER_AGENT and ALPHA_VANTAGE_KEY before first run."""\nfrom pathlib import Path\n',
+        '"""Configuration: paths, endpoints, behaviour; credentials from the environment."""\nimport os\nfrom pathlib import Path\n',
+        1,
+    )
     assert "import os" in src, "config.py docstring/import header not in expected form"
     write(cfg, src)
     print("  config.py: credentials removed; .env loader + require() added")
@@ -131,25 +144,40 @@ def main() -> None:
 
     # no credential-shaped literal or the old contact address remains anywhere tracked
     bad = []
-    for p in list(ROOT.rglob("*.py")) + list(ROOT.rglob("*.md")) + [ROOT / ".env.example", ROOT / ".vscode" / "settings.json"]:
+    for p in (
+        list(ROOT.rglob("*.py"))
+        + list(ROOT.rglob("*.md"))
+        + [ROOT / ".env.example", ROOT / ".vscode" / "settings.json"]
+    ):
         rel = p.relative_to(ROOT).parts
-        if any(x.startswith(".") for x in rel[:-1]) or "data" in rel or "refactor" in rel or not p.exists():
+        if (
+            any(x.startswith(".") for x in rel[:-1])
+            or "data" in rel
+            or "refactor" in rel
+            or not p.exists()
+        ):
             continue  # skip .git/.venv/.vscode dirs, data, and scripts/refactor (the scanner itself)
         t = read(p)
         if re.search(r'ALPHA_VANTAGE_KEY\s*=\s*"[A-Z0-9]{8,}"', t) or "@gmail.com" in t:
             bad.append(str(p.relative_to(ROOT)))
     assert not bad, f"credential-shaped content still present in: {bad}"
     for nm in ("config.USER_AGENT", "config.ALPHA_VANTAGE_KEY"):
-        hits = [str(p.relative_to(ROOT)) for p in ROOT.rglob("*.py")
-                if not any(x.startswith(".") for x in p.relative_to(ROOT).parts[:-1])
-                and "refactor" not in p.parts and nm in read(p)]
+        hits = [
+            str(p.relative_to(ROOT))
+            for p in ROOT.rglob("*.py")
+            if not any(x.startswith(".") for x in p.relative_to(ROOT).parts[:-1])
+            and "refactor" not in p.parts
+            and nm in read(p)
+        ]
         assert not hits, f"stale reference to {nm} in {hits}"
     print("  tree scan: no credential literals, no stale references")
 
     # fail-fast behaves: require() on an unset name raises naming it
     import importlib.util
+
     spec = importlib.util.spec_from_file_location("biointel.config", cfg)
-    m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
     try:
         m.require("BIOINTEL_TEST_UNSET_NAME")
     except RuntimeError as e:
@@ -159,7 +187,7 @@ def main() -> None:
     print("  require() fails fast naming the variable")
 
     R.check()
-    print("Next: git add -A ; git commit -m \"Refactor step 1b: credentials from environment\"")
+    print('Next: git add -A ; git commit -m "Refactor step 1b: credentials from environment"')
     print("Then create <repo-root>\\.env from .env.example with your own values (never committed).")
 
 
