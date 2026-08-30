@@ -2,7 +2,7 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 0.86. Supersedes v0.85. PART 0 regenerated 2026-08-30 from the live
+Version 0.87. Supersedes v0.86. PART 0 regenerated 2026-08-30 from the live
 tree at branch jason/refactor; PARTS 1–7 and the changelog are unchanged
 from v0.81 except where noted. Design decisions of 2026-08-30 are in
 docs/20260830_v2_Design_Principles.md (binding) and
@@ -102,7 +102,7 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 3. Review the Ontology and Matching Design v1; then roadmap steps A (schema + validate) and D (model framework).
 3a. Review docs/20260830_v1_FDA_Catalyst_Product_Design.md (Model 2 requirements) with docs/20260830_v2_FDA_Catalyst_Research.md; then roadmap F1.
 3b. Review docs/20260830_v1_Horizon_Scanning_Design.md (Model 4 requirements).
-3c. Implementation plan and gate ledger: docs/20260830_v1_Implementation_Plan.md; target state: docs/20260830_v1_System_Diagram_TARGET_STATE.*. Gameplan agreed 2026-08-30: Phase 0 foundations (schema, central reporting, framework) → Phase 1 calendar system → Phase 2 attributes/universe/manual layer → Phase 3 Model 2 product.
+3c. Implementation plan and gate ledger: docs/20260830_v2_Implementation_Plan.md; target state: docs/20260830_v1_System_Diagram_TARGET_STATE.*. Gameplan agreed 2026-08-30: Phase 0 foundations (schema, central reporting, framework) → Phase 1 calendar system → Phase 2 attributes/universe/manual layer → Phase 3 Model 2 product.
 4. Decide which screen drives `predict` (P7).
 5. Note: 0.5 above still records MASS-exact as QUARANTINED (v0.81 text); the chat-5 record and the shipped code (`score.predict` calls `pairs.exact_state`) treat the corrected MASS-exact (HR@5 0.310 after midpoint tie-ranking) as adopted. Harrison to confirm and update 0.5.
 
@@ -1370,6 +1370,7 @@ collaborations work, deal counterparties do not.
 
 ## Changelog
 
+| 0.87 | 2026-08-30 | Implementation Plan v2: ontology/product/scanning roadmaps cross-referenced to gates; deferred gates M1-G/H/I added. |
 | 0.86 | 2026-08-30 | Implementation plan with gate ledger and standing procedure; target-state system diagram (PNG/SVG/Mermaid); handoff v7. |
 | 0.85 | 2026-08-30 | Model 4 Horizon Scanning requirements written; implementation gameplan (Phases 0–3) recorded. |
 | 0.84 | 2026-08-30 | Model 2 requirements written (FDA Catalyst Product Design v1); ontology v3 (global universe, stubs, price-action attributes, calendar sources of record, manual notes, benchmarks, Model 4 Horizon Scanning); design principles v2 (P13–P15); research note v2. |
