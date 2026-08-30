@@ -1,14 +1,16 @@
-docs/20260829_v2_Session_Handoff.md
+docs/20260830_v3_Session_Handoff.md
 
-# Session handoff v2 — bioproject refactor, 2026-08-29 (end of scripted refactor)
+# Session handoff v3 — bioproject, 2026-08-30 (refactor complete; design phase opened)
 
-Supersedes docs/20260829_v1_Session_Handoff.md. Structure per J. Banks's
+Supersedes docs/20260829_v2_Session_Handoff.md. Structure per J. Banks's
 2026-08-29 instruction (attachments, session-start sequence with lineage by
 hash, verified state, standing rules, open queue). Every state claim below
 was evidenced by a paste in the 2026-08-29 session.
 
 ## 1. Required attachments for the next session
 
+0. docs/20260830_v1_Design_Principles.md — P1–P12, binding; read first.
+0a. docs/20260830_v1_Ontology_and_Matching_Design.md — the design under review.
 1. docs/20260823_OPERATINGMANUAL_NEW.md — process of record.
 2. docs/20260829_v2_MACHINE_RUNBOOK.md — Jason's machine conventions (updated for the src layout).
 3. This file.
@@ -18,8 +20,11 @@ was evidenced by a paste in the 2026-08-29 session.
 ## 2. Session-start sequence
 
 ```
-git -C "C:\Users\JB\Documents\dev\bioindustry" log --oneline -10
+git -C "C:\Users\JB\Documents\dev\bioindustry" log --oneline -13
 # expected, newest first:
+#   <hash>  Docs: design principles, ontology and matching design, handoff v3
+#   9db4cea Docs: standalone system diagram (PNG, SVG)
+#   c2cea4d Docs: session handoff v2, machine runbook v2, system diagram
 #   da29a85 Refactor step 5: endpoints in config.py; package logging; ruff LF
 #   5c16ec8 Refactor step 4: ruff lint fixes and formatting; Ruff as editor formatter
 #   55bc9c1 Refactor step 2: src layout, pyproject, scripts/docs/data directories
@@ -46,7 +51,8 @@ No code change is issued until all three outputs are pasted and match.
 3.5 Lint (5c16ec8, da29a85): ruff configured in `pyproject.toml` (`select E,F,W,I`; `ignore E501,E741`; `line-ending = "lf"`), 45 files formatted, VS Code set to Ruff formatter with format-on-save. Nine findings deliberately left visible: 5×E402 in `scripts/debug_fit.py` (checkpoint pattern), 2×E731 (`improve.py`, `cli.py` lambdas), 2×F841 (`score.py` `toks`, `study.py` `prev_adj`).
 3.6 Regression: at every gate `predict` and `pairs-full-exact` reproduced the step-0 hashes on Jason's regenerated snapshot (1,379 members; 1,357 targets ranked; 22 acquirer-side; pairs median rank 80/862, hit@10 0.27). No model output changed at any step.
 3.7 Data: regenerated on Jason's machine 2026-08-29; `text-ingest` skipped by decision; `cparty-all` not run (spacy absent). The data tables are model-agnostic and were not altered.
-3.8 Branch pushed: origin/jason/refactor = da29a85. origin/main = b52de01 (unchanged; no pull request opened yet).
+3.8 Branch pushed: origin/jason/refactor at the docs commit above (9db4cea before it). origin/main = b52de01 (unchanged; no pull request opened yet).
+3.9 Decisions of 2026-08-30 (recorded as principles P1–P8): tables stay model-agnostic, no split; separation enforced at model input lists; entities neutral; objectives a dimension; manual layer general; model framework with one yardstick; existing models keep purposes; general-case-first requirements. Table split proposal withdrawn; Architecture Instructions superseded (P9).
 
 ## 4. Standing rules (agreed 2026-08-29)
 
@@ -60,13 +66,16 @@ No code change is issued until all three outputs are pasted and match.
 4.8 Data tables are model-agnostic; separation between the M&A model and the FDA/price model is enforced at each model's input list, never by splitting tables. The hand scorecard in `score.py` may read market cap and event CAR; the paper must describe its inputs accurately.
 4.9 Output-drop caveat: pasted terminal output has repeatedly omitted lines (five instances, cause unknown, PSReadLine disabled); substance is verified by status/hash commands, never by the presence of a printed line.
 
+4.10 Design principles P1–P12 are binding and override generic rules in any other document.
+
 ## 5. Open queue (priority order)
 
 1. **Key rotation (security).** Alpha Vantage key `HMSY…2P02` and Harrison's email are in git history (b52de01–49572ec) and the repository is public. Harrison: obtain a new key, set repository to private (Settings → General → Change visibility). Jason's `.env` currently uses the existing key; switch when rotated.
 2. **Merge decision.** Branch jason/refactor is ready for a pull request into main (https://github.com/harrisonbanks/bioproject/pull/new/jason/refactor). Harrison's machine after merge: `git pull`, recreate `.venv`, `pip install -e ".[dev]"`, create `.env` from `.env.example`, move `app\data` to `data\` (or re-clone and copy data into `data\`). His commands change from `python cli.py X` to `python -m biointel X`.
-3. **Scorecard vs fitted model (design decision, Jason + Harrison).** `predict` ranks by the hand scorecard (`score.target_score`, weights set by judgement); the validated gen-2 model (`improve.py`, 2.2× chance on held-out deals) exists alongside. Decide whether `predict` should rank by the fitted model with the scorecard as explanation, or state the scorecard as the product.
-4. **PROJECT_STATUS.md PART 0 is stale** (says v0.68 layout: `app\`, 26 modules, 47 commands, `cli.py` 509 lines). Regenerate from the live tree: `src/biointel` module list, 55 commands, new run form. Not scripted yet.
-5. **Two unused variables** (`score.py:toks`, `study.py:prev_adj`) and two lambda assignments are human-review items; not auto-fixed.
-6. **spacy** declared as optional group `ner`; install with `pip install -e ".[ner]"` and download the model before `cparty-all`.
-7. **MACHINE_RUNBOOK question 4.1** (re-enable PSReadLine to test the output drop) remains open.
-8. Handoff hygiene: `docs/20260829_v1_MACHINE_RUNBOOK.md`, `docs/20260829_v1_Session_Handoff.md`, and this file exist in the assistant's outputs only; Jason decides whether to commit them under `docs/`.
+3. **Review the Ontology and Matching Design (v1)** and its §8 open questions; approve or amend before roadmap step A starts.
+4. **Scorecard vs fitted model (design decision, Jason + Harrison; P7).** `predict` ranks by the hand scorecard (`score.target_score`, weights set by judgement); the validated gen-2 model (`improve.py`, 2.2× chance on held-out deals) exists alongside. Decide whether `predict` should rank by the fitted model with the scorecard as explanation, or state the scorecard as the product.
+5. **PROJECT_STATUS.md PART 0 is stale** (says v0.68 layout: `app\`, 26 modules, 47 commands, `cli.py` 509 lines). Regenerate from the live tree: `src/biointel` module list, 55 commands, new run form. Not scripted yet.
+6. **Two unused variables** (`score.py:toks`, `study.py:prev_adj`) and two lambda assignments are human-review items; not auto-fixed.
+7. **spacy** declared as optional group `ner`; install with `pip install -e ".[ner]"` and download the model before `cparty-all`.
+8. **MACHINE_RUNBOOK question 4.1** (re-enable PSReadLine to test the output drop) remains open.
+9. Roadmap steps A–I of the design document, gated and regression-checked like the refactor; first candidates: A (schema + validate) and D (model framework), which are independent.

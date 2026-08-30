@@ -1,57 +1,75 @@
+docs/PROJECT_STATUS.md
+
 # Bioindustry Intelligence Platform — Project Status
 
-Version 0.81. Supersedes v0.80.
+Version 0.82. Supersedes v0.81. PART 0 regenerated 2026-08-30 from the live
+tree at branch jason/refactor; PARTS 1–7 and the changelog are unchanged
+from v0.81 except where noted. Design decisions of 2026-08-30 are in
+docs/20260830_v1_Design_Principles.md (binding) and
+docs/20260830_v1_Ontology_and_Matching_Design.md.
 
 
 # PART 0 — COLD START (read this first in any new session)
 
-**Continuation guarantee scope:** with this file plus the repository at
-the path below, a new session has everything needed to continue: the
-codebase map, every command, every data schema, all final numbers, the
-protocol ledger, the standing behavioral rules, and the ranked next
-options. The full conversation transcript (if mounted under
-/mnt/transcripts) holds verbatim code history but is NOT required.
+**Continuation guarantee scope:** with this file, the design principles,
+the session handoff, and the repository, a new session has everything
+needed to continue: codebase map, every command, data schemas, final
+numbers, protocol ledger, standing rules, and the open queue.
 
 ## 0.1 Environment & locations
-- Operator machine (authoritative data + runs): `C:\Users\bocchirock\Documents\dev\bioindustry\app\` — Windows, Python 3.13.
-- Assistant container working copy (code editing + cached dev-scale data for testing): `/home/claude/bioindustry_src/bioindustry/app/`.
-- Dependencies beyond stdlib: numpy, scikit-learn (`pip install numpy scikit-learn`). Optional env: `$env:LOKY_MAX_CPU_COUNT=4` silences a joblib warning.
-- Storage: bronze (raw fetches, every one cached with URL+timestamp manifest) → silver (clean tables) → gold (model/analysis outputs). `freeze` snapshots to data/frozen/.
+- Repository: https://github.com/harrisonbanks/bioproject (public as of 2026-08-30 — to be set private; key rotation pending). Branch `jason/refactor` holds the refactor; `main` is at the pre-refactor commit b52de01.
+- Operator machines: Harrison `C:\Users\bocchirock\Documents\dev\bioindustry\` (pre-refactor layout until merge); Jason `C:\Users\JB\Documents\dev\bioindustry\` (refactored layout, data regenerated 2026-08-29: 1,379 members). Windows, Python 3.13, venv at `<root>\.venv`.
+- Layout (src layout, step 2): `src/biointel/` package · `scripts/` diagnostics and `scripts/refactor/` · `docs/` · `tests/unit/` · `data/` (git-ignored: bronze → silver → gold, `frozen/`) · `pyproject.toml` · `requirements.lock` · `.env` (git-ignored; template `.env.example`).
+- Install: `python -m venv .venv` → `.venv\Scripts\python.exe -m pip install -e ".[dev]"` (adds pytest, ruff, mypy); optional `".[ner]"` for spacy. No uv (P9).
+- Credentials: `BIOINTEL_USER_AGENT`, `BIOINTEL_ALPHA_VANTAGE_KEY` in `.env`; read via `config.require()` at the HTTP call sites; nothing in code.
+- Run form: `& "<root>\.venv\Scripts\python.exe" -m biointel <command>`.
 
-## 0.2 Deployment workflow (unchanged all project)
-Assistant edits code in the container, validates through the REAL code path (never import-only), packages changed files as `YYYYMMDD_vN_biointel_updates.zip` to outputs, PRESENTS the zip in-message (twice forgotten historically — check every turn), operator extracts into `app\` with overwrite and runs single copy-pasteable command blocks, pastes output back. Data files are NEVER shipped in zips (operator's silver/gold are authoritative).
+## 0.2 Deployment workflow (2026-08-29 onward)
+Assistant delivers single files with the deploy path on line 1 (no zips unless asked); operator downloads to `C:\Users\JB\Downloads\`; assistant returns one block of absolute-path commands, each annotated with its expected result; operator pastes output; commit and push per gate. Every code gate ends with the regression check: `predict` and `pairs-full-exact` outputs must hash to `docs/regression_baseline.txt`. Data files are never shipped; each operator's data is authoritative on that machine. Conventions: docs/20260829_v2_MACHINE_RUNBOOK.md.
 
-## 0.3 Codebase map (verified against the tree this version)
-| Module | Lines | Role / key functions |
+## 0.3 Codebase map (generated from the tree, 2026-08-30)
+| Module (src/biointel/) | Lines | Role |
 |---|---|---|
-| cli.py | 509 | dispatch for 47 commands (full list in 0.4) |
-| biointel/config.py | 47 | paths/constants |
-| biointel/store.py | 82 | fetch_json bronze cache (all HTTP goes through here) |
-| biointel/sources/sec.py | 40 | ticker map, submissions |
-| biointel/sources/financials.py | 363 | XBRL CompanyFacts, IFRS+US-GAAP, TTM logic |
-| biointel/sources/trials.py | 174 | CT.gov v2 |
-| biointel/sources/fda.py | 153 | Drugs@FDA approvals/CRLs + name_variants (descriptor-abbreviation fix) |
-| biointel/sources/deals.py | 182 | 8-K index + exhibit typing (filename-based) |
-| biointel/sources/counterparty.py | 462 | deal-doc fetch/strip/NER counterparty extraction |
-| biointel/sources/prices.py | 83 | Yahoo chart bars (KNOWN survivorship hole — see leak finding) |
-| biointel/universe.py | 231 | rule-defined membership (probe-gated EDGAR browse; window 2001+; Form-25 delisting proof) |
-| biointel/pipeline.py | 852 | registry, per-layer getters, `ingest`, `text_ingest` (10-K Item-1, TOC-trap parser), retired crsp_import |
-| biointel/labels.py | 1021 | prober (merger_trail), harvest_universe, verify_fill (acquirer auto-extraction), qa (agreement dates+EventClass), qa_corroborate (acquirer-trail, submissions pagination), qa_wiki, merged_events |
-| biointel/features.py | 336 | as-of firm-quarter features + label join |
-| biointel/fit.py | 544 | logistic (numpy path; 0xC0000409 fix), robust suite incl. leak diagnostics, censoring |
-| biointel/improve.py | 640 | engineer (deltas, wave, TA, activist, catalysts, _maxSimToAcq, _textScore), purged walk-forward develop/tune, holdout (2 accesses SPENT), text scorer |
-| biointel/pairs.py | 503 | pair models: portfolio docs, MASS-inspired metric (ADOPTED), supervised ranker, latent-SVD (rejected), field-protocol eval |
-| biointel/score.py | 211 | legacy checklist predict/backtest (paper baseline) |
-| biointel/study.py | 220 | FDA event study (CAR vs XBI etc.) |
-| network.py / match.py | 235/64 | partner classification / canon() |
+| __init__.py | 51 | re-exports of pipeline entry points |
+| __main__.py | 8 | entry point: python -m biointel |
+| baselines.py | 648 | rejected engines: cosine, supervised, MASS-inspired/latent-SVD/hybrid, substrates (frozen) |
+| config.py | 79 | paths, all HTTP endpoints, windows; .env loader; require() |
+| features.py | 402 | as-of firm-quarter feature panel + label join (model-agnostic, P1) |
+| fit.py | 602 | gen-1 logistic screen, robust suite, leak diagnostics (frozen baseline, P7) |
+| improve.py | 744 | engineered features, gen-2 fitted screen (BASE_FUND), develop/tune/holdout (spent) |
+| interfaces/__init__.py | 0 | package marker |
+| interfaces/cli.py | 707 | dispatch for 55 commands (0.4); configures logging |
+| labels.py | 1215 | merger trails, harvest, verify_fill, qa, qa_corroborate, qa_wiki, merged events, label panel |
+| match.py | 114 | canon() entity resolution |
+| network.py | 361 | partner classification, relationships |
+| pairs.py | 445 | MASS-exact buyer–target pairing engine (adopted), build_pair_feature |
+| pipeline.py | 1076 | registry, per-layer getters, ingest, text_ingest (10-K Item 1) |
+| score.py | 295 | hand scorecard predict/backtest (paper baseline; drives predict today, P7 open) |
+| sources/__init__.py | 0 | package marker |
+| sources/alphavantage.py | 34 | OVERVIEW endpoint (add command only) |
+| sources/chembl.py | 274 | ChEMBL molecular targets (substrate, rejected) |
+| sources/counterparty.py | 759 | deal-doc fetch/strip/NER (needs spacy, optional group ner) |
+| sources/deals.py | 198 | 8-K index + exhibit typing |
+| sources/fda.py | 176 | Drugs@FDA approvals/CRLs, name variants |
+| sources/financials.py | 382 | XBRL CompanyFacts, IFRS+US-GAAP, TTM |
+| sources/orangebook.py | 189 | Orange Book download/parse, LOE urgency |
+| sources/patents.py | 212 | BigQuery patents export import (adopted route) |
+| sources/prices.py | 91 | Yahoo chart bars (survivorship hole documented) |
+| sources/sec.py | 47 | ticker map, submissions |
+| sources/trials.py | 193 | ClinicalTrials.gov v2 |
+| store.py | 92 | fetch_json/fetch_text bronze cache, manifests, rate limit |
+| study.py | 263 | Model 2: FDA event study (CAR vs XBI) |
+| universe.py | 265 | rule-defined membership (EDGAR browse, 2001+ window, Form-25 delisting) |
 
-## 0.4 CLI commands (all live)
+Removed in the refactor (commit 26133aa): fossil tree `biointel/biointel1/`, Excel workbook, duplicate scripts, `crsp_import`, `ner_status`, `_pair_by_date`, the dead USPTO bulk patent route, CLI branches `patents-probe`/`patents-ingest`. Scripts (`scripts/`): check_exhibits, check_names, check_ocf, check_one, cleanup_feed_junk, debug_fit, summary, text_diag, migrate_from_excel, suggest_aliases; `scripts/refactor/00…50` and `_regress.py`.
+
+## 0.4 CLI commands (55, all live; `python -m biointel` prints the list)
 Universe/ingest: universe-probe, universe, ingest N, text-ingest N.
 Layers: fin(-all), trials(-all), events(-all), deals(-all), cparty(-all), partners, relationships, study(-all).
 Labels/QA: harvest, verify-fill, qa, qa-corroborate, qa-wiki, labels.
-Modeling: features, fit [LEAD], robust, develop [tune|textsweep], holdout MODEL SPEC, pairs, pairs-fit, pairs-protocol, predict, backtest.
-New data commands (v0.73): patents-sql, patents-import (BigQuery route -- ADOPTED), patents-probe/patents-ingest (dead ODP/S3 routes, retained), orangebook-probe (UNLOCKED).
-Ops: freeze, snapshot, coverage, list, add, backfill, calendar, window, tags, sponsors, deals-of, partners-of, improve.
+Modeling: features, fit [LEAD], robust, develop [tune|textsweep], holdout (SPENT), pairs, pairs-fit, pairs-protocol, pairs-substrate [MODE], pairs-exact, pairs-full-exact, predict, backtest, improve.
+Data: patents-sql, patents-import, orangebook-probe, chembl-probe, chembl-ingest.
+Ops: freeze, snapshot, coverage, list, add, backfill, calendar, window, tags, sponsors, deals-of, partners-of.
 
 ## 0.5 Final numbers (all measurement CLOSED unless reopened deliberately)
 - Pairing: MASS-exact adoption SUSPENDED pending corrected re-run. Defect self-caught after the 0.318 result: the exact formula degenerates for the global-max-diagonal firm; the guard returned all-zero scores and the rank computation credited all-tied rows as rank 1 -- possible unearned hits for MASS-exact only. Fix: midpoint tie-ranking applied identically to both metrics; degeneracy test added (a degenerate acquirer now scores mid-pool, verified 0.0 HR@5 on a constructed case). The 0.318 number is QUARANTINED until the re-run; incumbent MASS-inspired 0.222/0.284 remains the engine of record. predict() reverted-in-effect: exact fit stays wired but is not the engine of record until re-adoption.
@@ -61,14 +79,9 @@ Ops: freeze, snapshot, coverage, list, add, backfill, calendar, window, tags, sp
 - Substrate verdicts (pre-registered, both nulls): patents run (42 common events) trials 0.237 vs patents 0.055 vs fused 0.220 -- patents REJECTED. Targets run (67 common events; ChEMBL mechanisms, 779 firms, 18,950 links) trials 0.206 vs targets 0.120 vs fused 0.205 -- targets REJECTED, but carry real standalone signal (5x chance) that trials subsume (fused wash). Paper finding: substrate hierarchy diseases > mechanisms > patents on paired protocol; trials remain the shipped engine. Note: trials baseline differs across runs because each paired comparison has its own common event set -- within-run comparisons only.
 - Ceiling: ~2.1–2.2× for the screen, established across 11 attempts; label set 573 events (447 target-role), 155+ machine-corroborated; universe 1,194 members (2001+ window built but note: current universe.csv on operator machine was built with the 2013 rule at 1,194 — the 2001 rebuild sequence was issued (v0.56) and executed through develop (91,146-quarter panel, 1,508 positives exist), so silver/gold reflect the EXPANDED universe).
 
-## 0.6 Standing behavioral rules (operator-enforced, violations were called out)
-1. Verify deliverables, not proxies: run the failing code path; grep str_replace results; confirm zips are PRESENTED.
-2. Single copy-pasteable command blocks, sequential, no narration between.
-3. Probe-first for any new endpoint (browse-edgar lesson; Alpha Vantage/Stooq dead ends recorded in PART 6).
-4. Never assign the operator repetitive manual work unless automation is impossible (qa-wiki/corroborate exist because of this).
-5. Report numbers as-is; no tuning after seeing results; holdout ledger above is binding.
-6. No unsolicited scope narrowing; no claiming research not performed; PROJECT_STATUS updated every progress turn.
-7. Plain-English explanations on request (operator alternates between expert and plain registers).
+
+## 0.6 Standing behavioral rules
+See docs/20260830_v1_Design_Principles.md P1–P12 (binding) and the operating manual. In brief: verify deliverables through the real code path; single annotated command blocks, one per turn, absolute paths; probe-first for new endpoints; report numbers as-is, holdout ledger binding; PROJECT_STATUS updated every progress turn; tables model-agnostic; separation at model input lists; requirements stated general-case first.
 
 ## 0.7 Decision taken (v0.69) — final improvement cycle, then close
 ADOPTED: patent-substrate pairing upgrade + Orange Book acquirer LOE-urgency feature, probe-gated; then assembly -> freeze -> draft. PRE-REGISTERED ADOPTION RULE: pairs-protocol re-run on three substrates (patents / trials / fused) under the identical field protocol (200 negatives, 20 repeats, same events); a substrate ships only if HR@5 beats 0.222 outside +/-0.010 repeat noise, else MASS-inspired-on-trials stands and the null is reported. No target-screen holdout is touched (0.5 ledger intact). 13F/Form 4/news/options recorded as future work.
@@ -79,7 +92,16 @@ ADOPTED: patent-substrate pairing upgrade + Orange Book acquirer LOE-urgency fea
 3. 24-month-horizon screen (label change + develop).
 4. LightGCN (torch dependency) — last resort for the diversifying-deal blind spot; latent-SVD already failed there.
 5. OR: close measurement and execute assembly → GEN A-List head-to-head → freeze → paper draft per 20260825_v1_Value_Proposition_and_Deliverable_Spec.md.
-Build: Python package at `bioindustry/app/`
+
+## 0.8 Refactor record (2026-08-29, branch jason/refactor)
+Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code and duplicates removed (−2,750 lines) · f0ceeb0 credentials to .env · 49572ec coverage fix, portable VS Code path · 55bc9c1 src layout, pyproject, scripts/docs/data directories · 5c16ec8 ruff · da29a85 endpoints in config.py, package logging · c2cea4d/9db4cea docs and system diagram. Every gate reproduced the step-0 hashes; no model output changed. Verified on Jason's regenerated snapshot: 1,357 targets ranked, 22 acquirer-side, pairs median rank 80/862, hit@10 0.27; event study approvals +0.29/+0.31, rejections −6.98/−21.61.
+
+## 0.9 Open queue (2026-08-30; detail in docs/20260830_v3_Session_Handoff.md §5)
+1. Rotate Alpha Vantage key; set repository private (Harrison).
+2. Pull request jason/refactor → main; Harrison's post-merge steps in the handoff.
+3. Review the Ontology and Matching Design v1; then roadmap steps A (schema + validate) and D (model framework).
+4. Decide which screen drives `predict` (P7).
+5. Note: 0.5 above still records MASS-exact as QUARANTINED (v0.81 text); the chat-5 record and the shipped code (`score.predict` calls `pairs.exact_state`) treat the corrected MASS-exact (HR@5 0.310 after midpoint tie-ranking) as adopted. Harrison to confirm and update 0.5.
 
 ---
 
@@ -1344,6 +1366,8 @@ collaborations work, deal counterparties do not.
 ---
 
 ## Changelog
+
+| 0.82 | 2026-08-30 | PART 0 regenerated for the refactored tree (src layout, 55 commands, .env credentials, pyproject); refactor record 0.8 and open queue 0.9 added; design principles and ontology/matching design documents referenced. Ledger 0.5 and decision 0.7 carried verbatim; MASS-exact status discrepancy flagged in 0.9. |
 
 | Version | Date | Change |
 |---------|------|--------|
