@@ -14,7 +14,7 @@ was evidenced by a paste in the 2026-08-29 session.
 0b. docs/20260830_v2_FDA_Catalyst_Research.md — Model 2 research synthesis.
 0c. docs/20260830_v1_FDA_Catalyst_Product_Design.md — Model 2 requirements (R1–R8, roadmap F1–F9), under review.
 0d. docs/20260830_v1_Horizon_Scanning_Design.md — Model 4 requirements (H1–H9), under review.
-0e. docs/20260830_v1_Implementation_Plan.md — gate ledger and procedure; the next session starts from its first PLANNED gate after checking the status column.
+0e. docs/20260830_v2_Implementation_Plan.md — gate ledger and procedure; the next session starts from its first PLANNED gate after checking the status column.
 0f. docs/20260830_v1_System_Diagram_TARGET_STATE.md/.png/.svg — target architecture; current state remains 20260829_v1_System_Diagram.*.
 1. docs/20260823_OPERATINGMANUAL_NEW.md — process of record.
 2. docs/20260829_v2_MACHINE_RUNBOOK.md — Jason's machine conventions (updated for the src layout).
