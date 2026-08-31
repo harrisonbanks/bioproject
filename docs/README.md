@@ -6,8 +6,8 @@ Nightly-refreshable M&A intelligence for ~1,400 listed drug companies from
 free public data: an M&A target screen and buyer–target pairing (Model 1)
 and an FDA-catalyst price-action model (Model 2; research: `docs/20260830_v2_FDA_Catalyst_Research.md`, requirements: `docs/20260830_v1_FDA_Catalyst_Product_Design.md`); Model 4 Horizon Scanning (entity discovery): `docs/20260830_v1_Horizon_Scanning_Design.md`. Design: see
 `docs/20260831_v4_Ontology_and_Matching_Design.md` (v4: deal dossiers on a research library); rules:
-`docs/20260830_v4_Design_Principles.md`; state: `docs/PROJECT_STATUS.md`;
-diagrams: current state `docs/20260831_v2_System_Diagram.md` (Mermaid; v1 .png is the pre-Phase-0 record), target state `docs/20260831_v2_System_Diagram_TARGET_STATE.md` (Mermaid, after Ontology v4; the v1 .png/.svg poster is the pre-v4 picture), research process `docs/20260831_v1_Research_Process_Diagram.md`; plan and gate ledger: `docs/20260831_v9_Implementation_Plan.md`.
+`docs/20260831_v5_Design_Principles.md` (P1–P19); state: `docs/PROJECT_STATUS.md`;
+diagrams: current state `docs/20260831_v2_System_Diagram.md` (Mermaid; v1 .png is the pre-Phase-0 record), target state `docs/20260831_v2_System_Diagram_TARGET_STATE.md` (Mermaid, after Ontology v4; the v1 .png/.svg poster is the pre-v4 picture), research process `docs/20260831_v1_Research_Process_Diagram.md`; plan and gate ledger: `docs/20260831_v10_Implementation_Plan.md`.
 
 ## Install (Windows, Python 3.13, venv + pip)
 

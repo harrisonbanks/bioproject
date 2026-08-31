@@ -1,6 +1,6 @@
-docs/20260830_v4_Design_Principles.md
+docs/20260831_v5_Design_Principles.md
 
-# Design principles — Bioindustry Intelligence Platform (v4, 2026-08-30)
+# Design principles — Bioindustry Intelligence Platform (v5, 2026-08-31; supersedes v4 of 2026-08-30 by appending P19)
 
 Binding for every session. Loaded at session start with the handoff. Each
 principle records the decision, its date, and the reason it was taken.
@@ -152,3 +152,16 @@ stored values as text with the declared types, allowed values and keys
 enforced as database constraints; typed reads (`typed=True`) are for new code
 and for modules as they converge. Legacy code (P7) never converges.
 
+## P19. Evidence (2026-08-31)
+Every fact in a deal dossier, every stated priority, equity stake, asset
+attribute and every event class introduced at Ontology v4 carries the
+`doc_id` of a document in the research library and the span it was read
+from; a fact without a document does not enter the store. Library documents
+are stored once under their SHA-256 in `data/bronze/library/` and are never
+edited (P16 applies). Dossiers are regenerated from the library, never
+hand-edited; corrections go through the manual layer with provenance (P5).
+Patterns derived from dossiers are tested only on deals dated after the
+deals they were derived from (P10). Reason: the Tempus record (Ontology v4
+§2.5) showed that a deal is a dossier of dated facts whose value depends on
+being re-readable at source; the retracted 6.2× result showed what an
+untraceable number costs.
