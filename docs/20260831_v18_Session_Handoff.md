@@ -1,8 +1,8 @@
-docs/20260831_v17_Session_Handoff.md
+docs/20260831_v18_Session_Handoff.md
 
-# Session handoff v17 — bioproject, 2026-08-31 (Phase 0 complete; snapshot of record decided; dossier track designed and sequenced; next: gate L1 scope message)
+# Session handoff v18 — bioproject, 2026-08-31 (Phase 0 complete; snapshot of record decided; dossier track designed and sequenced; next: gate L1 scope message)
 
-Supersedes docs/20260831_v16_Session_Handoff.md. Structure per J. Banks's
+Supersedes docs/20260831_v17_Session_Handoff.md. Gate L1 DONE 2026-08-31 (DONE 2026-08-31 (pytest 76; ruff clean on gate files; index 733 refs/733 caps idempotent, 733 CIK links after v002 meta-name fix; URL add, file add, no-fetch, retire-capture 1, dedupe 0; validate 26/0/8/5; manifest 735, verify 0; thirteen fingerprint MATCH, PROBLEMS 0; ledger 35 runs; runbook docs/20260831_v1_GATEL1_INSTALL.md)); next gate 1.4. MACHINE_RUNBOOK v3 (library layout 1.19). Structure per J. Banks's
 2026-08-29 instruction (attachments, session-start sequence with lineage by
 hash, verified state, standing rules, open queue). Every state claim below
 was evidenced by a paste in the 2026-08-29, 2026-08-30 or 2026-08-31 session.
@@ -14,7 +14,7 @@ was evidenced by a paste in the 2026-08-29, 2026-08-30 or 2026-08-31 session.
 0b. docs/20260830_v2_FDA_Catalyst_Research.md — Model 2 research synthesis.
 0c. docs/20260830_v1_FDA_Catalyst_Product_Design.md — Model 2 requirements (R1–R8, roadmap F1–F9), under review.
 0d. docs/20260830_v1_Horizon_Scanning_Design.md — Model 4 requirements (H1–H9), under review.
-0e. docs/20260831_v11_Implementation_Plan.md — gate ledger and procedure; Phase 0 complete (0.1–0.4 DONE); dossier track rows L1–L4 and 2.9′ (PLANNED); order of record §3: L1 → 1.4 → L2 → 1.5 → L3 → L4, with 1.6, 1.7 and 2.9′ placed as they fall due; next gate L1; §4 snapshot of record (decided 2026-08-31); §5 thirteen-file baseline; §6 legacy register; §7 model naming.
+0e. docs/20260831_v12_Implementation_Plan.md — gate ledger and procedure; Phase 0 complete (0.1–0.4 DONE); dossier track rows L1–L4 and 2.9′ (PLANNED); order of record §3: L1 → 1.4 → L2 → 1.5 → L3 → L4, with 1.6, 1.7 and 2.9′ placed as they fall due; next gate L1; §4 snapshot of record (decided 2026-08-31); §5 thirteen-file baseline; §6 legacy register; §7 model naming.
 0j. docs/20260831_v1_GATE04_INSTALL.md — gate 0.4 runbook and exit evidence (§8a).
 0i. docs/20260830_v1_GATE03_INSTALL.md — gate 0.3 runbook and exit evidence (§8a).
 0h. docs/20260830_v1_GATE02_INSTALL.md — gate 0.2 runbook, exit evidence (§8a) and the Windows temp-file lesson.

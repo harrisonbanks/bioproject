@@ -1,4 +1,4 @@
-# src/biointel/schema.py
+# C:\Users\JB\Documents\dev\bioindustry\src\biointel\schema.py
 # src/biointel/schema.py
 """Schema as code: the written ontology (Ontology and Matching Design v3 §3.5).
 
@@ -359,6 +359,36 @@ RUN_ARTEFACT_COLS = ("run_id", "path", "sha256")
 RUN_STATUSES = ("ok", "failed", "empty")
 RUN_SOURCES = ("run", "historical-file", "project-status")
 RUN_TYPES = ("", "predict", "fit", "evaluation")  # blank: recorded before gate 0.4
+
+# Research library / file room (Ontology v5 §3.9; gate L1) -----------------
+REF_TYPES = (
+    "sec_filing", "press_release", "news_article", "research_paper",
+    "transcript", "investor_letter", "analyst_note", "regulatory_notice",
+    "web_page", "video", "dataset", "book", "other",
+)
+CAPTURE_KINDS = (
+    "fetched_html", "fetched_pdf", "fetched_text", "printed_pdf",
+    "uploaded_file", "media_file", "captions", "wayback",
+)
+LINK_ROLES = (
+    "subject", "acquirer", "target", "third_party", "comparable",
+    "commentary", "author_affiliation",
+)
+REFERENCE_COLS = (
+    "ref_id", "ref_type", "url", "doi", "pmid", "sec_accession", "isbn",
+    "title", "authors", "publisher", "published_at", "accessed_at",
+    "language", "access", "source_system", "source_key", "added_by",
+    "note", "status", "merged_into",
+)
+CAPTURE_COLS = (
+    "capture_id", "ref_id", "kind", "path", "bytes", "ext", "mime",
+    "captured_at", "capture_method", "archive_url", "archive_ts",
+    "status", "status_reason",
+)
+REFERENCE_LINK_COLS = (
+    "ref_id", "key_type", "entity_key", "role", "added_at", "added_by",
+)
+
 # Planned tables (Ontology §3.4, §3.6, §3.7); built at gates 1.4, 2.9, 2.10.
 EVENT_TABLE_COLS = (
     "event_id", "entity_key", "asset", "indication", "event_class", "scheduled_date",
@@ -786,6 +816,32 @@ TABLES: tuple[Table, ...] = (
         "gold/run_metrics.csv", RUN_METRIC_COLS, "results.record", key=("run_id", "group", "name")
     ),
     Table("gold/run_artefacts.csv", RUN_ARTEFACT_COLS, "results.record", key=("run_id", "path")),
+    Table(
+        "silver/references.csv",
+        REFERENCE_COLS,
+        "library",
+        key=("ref_id",),
+        enums={
+            "ref_type": REF_TYPES,
+            "access": ("", "open", "paywalled", "private"),
+            "status": ("active", "retired"),
+        },
+    ),
+    Table(
+        "silver/captures.csv",
+        CAPTURE_COLS,
+        "library",
+        key=("capture_id", "ref_id"),
+        types={"bytes": "int"},
+        enums={"kind": CAPTURE_KINDS, "status": ("active", "retired")},
+    ),
+    Table(
+        "silver/reference_links.csv",
+        REFERENCE_LINK_COLS,
+        "library",
+        key=("ref_id", "key_type", "entity_key", "role"),
+        enums={"key_type": ("IID", "CIK"), "role": LINK_ROLES},
+    ),
     # ---- planned (declared by design; no writer yet) ----------------
     Table("silver/events_table.csv", EVENT_TABLE_COLS, "gate 1.4 (F1)", planned=True),
     Table("silver/manual_entities.csv", MANUAL_ENTITY_COLS, "gate 2.10 (B)", planned=True),

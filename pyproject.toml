@@ -18,6 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+zotero = ["pyzotero>=1.5.25"]
 ner = ["spacy>=3.7"]
 dev = ["ruff>=0.5", "mypy>=1.10", "pytest>=8"]
 

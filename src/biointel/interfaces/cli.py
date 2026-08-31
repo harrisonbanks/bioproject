@@ -1,4 +1,4 @@
-# src/biointel/interfaces/cli.py
+# C:\Users\JB\Documents\dev\bioindustry\src\biointel\interfaces\cli.py
 """Command line for the biointel pipeline.
 
 python -m biointel add REGN [MORE ...]        add companies
@@ -58,6 +58,7 @@ python -m biointel report runs MODEL          every run of one model over time
 python -m biointel ledger-seed                one-time: legacy report rows into the ledger
 python -m biointel models                     the registry: models, implementations, evaluations, declared inputs
 python -m biointel run MODEL [--impl N] [--eval N] [--as-of D]  run a registered model under input enforcement (P2)
+python -m biointel library SUB ...            research library / file room (gate L1): add, import, import-zotero, index, find, show, open, list, view, site, manifest, merge, verify, dedupe, retire-capture
 """
 
 import csv
@@ -755,6 +756,11 @@ def main(argv):
         for v in sponsor_landscape()[:60]:
             print(f"  {v.get('studiesCount', 0):>7,}  {v.get('value', '')}")
         print("\n  NOTE: head of the distribution only. Small sponsors are absent.")
+
+    elif cmd == "library":
+        from biointel import library as _library
+
+        return _library.cli(argv[2:])
 
     elif cmd == "validate":
         from biointel.schema import format_report, validate_db

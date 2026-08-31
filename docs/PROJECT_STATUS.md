@@ -2,7 +2,8 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 0.98. Supersedes v0.97. File-room design approved (Ontology v5 §3.9;
+Version 0.99. Supersedes v0.98. Gate L1 DONE (research library live; 0.8a).
+v0.98: File-room design approved (Ontology v5 §3.9;
 plan v11 row L1); AI-over-store noted for future development.
 v0.97: P19 Evidence added (Design Principles v5). Sequencing decided (0.7, 0.9): L1 → 1.4 → L2 → 1.5 → L3 → L4, with 1.6, 1.7 and 2.9′ placed as they fall due; next gate L1.
 v0.96: Diagrams: target state v2 (after Ontology v4) and research-process diagram added.
@@ -125,13 +126,13 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 - DOC gate DONE 2026-08-31: this PART 0 regenerated; current-state diagram v2 (docs/20260831_v2_System_Diagram.md); target-state diagram v2 after Ontology v4 (docs/20260831_v2_System_Diagram_TARGET_STATE.md) and research-process diagram (docs/20260831_v1_Research_Process_Diagram.md), both Mermaid, 2026-08-31.
 - Regression baseline: thirteen fingerprints (docs/regression_baseline.txt, ffbbf20), reproduced at every gate since.
 
-## 0.9 Open queue (2026-08-31; detail in docs/20260831_v17_Session_Handoff.md §5)
+## 0.9 Open queue (2026-08-31; detail in docs/20260831_v18_Session_Handoff.md §5)
 1. Snapshot of record decided (0.5); remaining action: after the merge, hand `data\snapshots\20260831\` to Harrison on USB; he places `biointel.duckdb` at `<his root>\data\biointel.duckdb`, verifies the SHA-256 in 0.5 and runs `validate`.
 2. `predict` composition (M1-P): `target-screen/fitted` has no fit/predict path; `scorecard` drives `predict`; decide fitted-ranks/scorecard-explains or keep.
 3. Rotate the Alpha Vantage key; set the repository private (Harrison).
 4. Pull request jason/refactor → main; Harrison's post-merge steps (install, migrate, ledger-seed) in the handoff.
 5. Harrison to confirm the corrected MASS-exact figure (0.310) on his snapshot and retire the v0.81 "SUSPENDED" text in PART 5+.
-6. Next gate: L1 research library; order of record L1 → 1.4 → L2 → 1.5 → L3 → L4, with 1.6, 1.7 and 2.9′ placed as they fall due (decided 2026-08-31; Implementation Plan v10 §3).
+6. Next gate: 1.4 event table (L1 DONE 2026-08-31; order of record continues); order of record L1 → 1.4 → L2 → 1.5 → L3 → L4, with 1.6, 1.7 and 2.9′ placed as they fall due (decided 2026-08-31; Implementation Plan v10 §3).
 7. Universe check before 2.9′: are Tempus AI and Personalis among the 1,379 members (one query; Ontology v4 §8 Q9).
 8. `predict` composition (item 2) is subordinate to the dossier track: `aspect-match` results (gate L4) inform it; the buyer-agnostic checklist-versus-fitted test remains available as a cheap evaluation.
 
@@ -1399,6 +1400,7 @@ collaborations work, deal counterparties do not.
 
 ## Changelog
 
+| 0.99 | 2026-08-31 | Gate L1 DONE: research library / file room live — schema references/captures/reference_links; library.py + collectors (manual, folder, pipeline, zotero); 733 filings indexed with CIK links; commands add/import/import-zotero/index/find/show/open/list/view/site/manifest/merge/verify/dedupe/retire-capture; DONE 2026-08-31 (pytest 76; ruff clean on gate files; index 733 refs/733 caps idempotent, 733 CIK links after v002 meta-name fix; URL add, file add, no-fetch, retire-capture 1, dedupe 0; validate 26/0/8/5; manifest 735, verify 0; thirteen fingerprint MATCH, PROBLEMS 0; ledger 35 runs; runbook docs/20260831_v1_GATEL1_INSTALL.md) |
 | 0.98 | 2026-08-31 | File-room design approved and written: Ontology v5 (§3.9 rewritten; §8 Q8 marked answered; §7 rows AI-over-store, Zotero-as-reader, video_dl); Implementation Plan v11 (L1 row rewritten; §4 deferred items). Handoff v17, README. No code or data change. |
 | 0.97 | 2026-08-31 | P19 Evidence appended (Design Principles v5). Decision: sequencing of the dossier track against Phase 1 — L1 → 1.4 → L2 → 1.5 → L3 → L4, with 1.6, 1.7 and 2.9′ placed as they fall due; next gate L1. Implementation Plan v10 §3, handoff v16, README. No code or data change. |
 | 0.96 | 2026-08-31 | Diagrams: `20260831_v2_System_Diagram_TARGET_STATE.md` (library, dossier tables, new attributes and event classes, deal analyser, aspect-match, forward test; supersedes the v1 .md, v1 .png/.svg kept as the pre-v4 poster) and `20260831_v1_Research_Process_Diagram.md` (analyse company → ontology → matchmaking → historical analysis, with the Tempus–Personalis timeline). Handoff v15, README. No code or data change. |

@@ -1,4 +1,4 @@
-docs/20260829_v2_MACHINE_RUNBOOK.md
+docs/20260831_v3_MACHINE_RUNBOOK.md
 
 # MACHINE_RUNBOOK v2 — Jason's machine (bioindustry / bioproject)
 
@@ -26,6 +26,7 @@ line by line to this session's transcript (chat "7_Project assessment",
 | 1.10 | Data location | `C:\Users\JB\Documents\dev\bioindustry\data\` (bronze/silver/gold), git-ignored, regenerated on this machine 2026-08-29 from the public APIs, moved from `app\data` at step 2 | paste: "1357 targets ranked ... -> C:\Users\JB\Documents\dev\bioindustry\data\gold\ma_predictions.csv" |
 | 1.11 | Data snapshot facts | 1,379 universe members; 468 M&A events (447 target-role); 1,508 positives; 91,014 firm-quarters; 1,165 FDA events in event study; 1,357 targets ranked, 22 acquirer-side; pairs re-rank 124 events, median rank 80/862, hit@10 0.27 | pastes of `universe`, `labels`, `study-all`, `features`, `predict`, `pairs-full-exact` |
 | 1.12 | Layers skipped on this machine | `text-ingest` (skipped by decision: text feature adds nothing, chat 4 v0.55); `cparty-all` (spacy absent → relationships merged 0 deal rows) | J. Banks: "Given that it is completely unuseful can it be skipped" / paste: "0 deal rows merged" |
+| 1.19 | Research library (gate L1) | store `data\bronze\library\<aa>\<sha256>.<ext>`; manifest `data\bronze\library\manifest-sha256.txt`; tables references/captures/reference_links; commands `library ...`; meta files are `<name>.meta.json` (no data extension) | paste of 2026-08-31: index 733, verify 0 |
 | 1.13 | Regression baseline | `docs\regression_baseline.txt`: `ma_predictions.csv 04061e33…530d`, `pair_full_exact_report.txt 960307e2…e81b` | paste of `Get-Content docs\regression_baseline.txt` |
 | 1.14 | Line endings | `.gitattributes` = `* text=auto eol=lf`; no tracked file stored CRLF | paste: `ls-files --eol | Select-String "i/crlf"` → empty |
 | 1.16 | Package commands | `& "C:\Users\JB\Documents\dev\bioindustry\.venv\Scripts\python.exe" -m biointel <cmd>`; help prints 49 lines, 55 commands dispatched | step-2 script output paste |
