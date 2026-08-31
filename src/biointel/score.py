@@ -45,7 +45,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-from biointel import config, store
+from biointel import config, results, store
 
 PRED_COLS = [
     "Rank",
@@ -258,13 +258,36 @@ def predict(quarter: str | None = None) -> dict:
 
     store.write_table("ma_predictions", out, PRED_COLS)
     path = store.export_csv("ma_predictions", config.EXPORTS / "ma_predictions.csv")
+    run = results.start(
+        "predict",
+        "predict" + (f" {quarter}" if quarter else ""),
+        ["model_panel", "trials", "relationships"],
+        {"quarter": q, "ranker": "scorecard"},
+    )
+    run.metric("_", "n_ranked", len(out))
+    run.metric("_", "n_acquirer_side", len(acquirers))
+    run.metric("_", "quarter", q)
+    run.metric("_", "top1_ticker", out[0]["Ticker"] if out else "")
+    run.metric("_", "top1_score", out[0]["TargetScore"] if out else "")
+    run.artefact(path)
+    run_id = results.finish(run)
     return {
         "status": "ok",
         "quarter": q,
         "rows": out,
+        "run_id": run_id,
         "message": f"{len(out)} targets ranked at {q} -> {path} "
         f"({len(acquirers)} acquirer-side companies)",
     }
+
+
+def render_predict(rec: dict) -> str:
+    """Summary line of a predict run from its record (predict writes no report file)."""
+    m = results.Metrics(rec)
+    return (
+        f"{m.i('_', 'n_ranked')} targets ranked at {m.s('_', 'quarter')} -> "
+        f"{config.EXPORTS / 'ma_predictions.csv'} ({m.i('_', 'n_acquirer_side')} acquirer-side companies)"
+    )
 
 
 def backtest() -> list[str]:

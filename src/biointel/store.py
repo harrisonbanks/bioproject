@@ -316,6 +316,43 @@ def write_table(name: str, rows: list[dict], columns: list[str] | tuple[str, ...
     return n
 
 
+def append_rows(name: str, rows: list[dict], columns: list[str] | tuple[str, ...], con=None) -> int:
+    """Append rows to a table (ledger tables only, P17). Creates the table
+    with the same declaration and constraints if absent; otherwise the
+    stored header must equal `columns`. Constraints (including key
+    uniqueness against existing rows) are enforced by the database."""
+    con = con or connect()
+    header = list(columns)
+    if not has_table(name, con):
+        return write_table(name, rows, header, con=con)
+    stored = table_columns(name, con)
+    if stored != header:
+        raise ValueError(f"{name}: stored header {stored} differs from {header}")
+    if not rows:
+        return 0
+    import numpy as _np
+
+    start = con.execute(f"SELECT COALESCE(MAX(_rowid), 0) FROM {_q(name)}").fetchone()[0]
+    n = len(rows)
+    data = {"_rowid": _np.arange(start + 1, start + n + 1, dtype=_np.int64)}
+    for c in header:
+        data[c] = _np.array([_cell(r.get(c)) for r in rows], dtype=object)
+    sel = ", ".join(["_rowid"] + [f"CAST({_q(c)} AS VARCHAR)" for c in header])
+    view = "_biointel_bulk"
+    con.execute("BEGIN")
+    try:
+        con.register(view, data)
+        try:
+            con.execute(f"INSERT INTO {_q(name)} SELECT {sel} FROM {view}")
+        finally:
+            con.unregister(view)
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+    return n
+
+
 def drop_table(name: str, con=None) -> None:
     con = con or connect()
     con.execute(f"DROP TABLE IF EXISTS {_q(name)}")

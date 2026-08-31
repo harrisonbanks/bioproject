@@ -27,7 +27,7 @@ import re
 from collections import defaultdict
 from datetime import date
 
-from biointel import store
+from biointel import results, store
 
 log = logging.getLogger(__name__)
 
@@ -314,20 +314,38 @@ def pairs_exact(negatives: int = 200, repeats: int = 20, seed: int = 7) -> dict:
                 scores[m][0].append(h5 / n)
                 scores[m][1].append(h10 / n)
 
-    lines = [
-        "MASS-EXACT vs INCUMBENT (paired: %d events, %d negatives, "
-        "%d repeats, shared samples)" % (len(ev), negatives, repeats)
-    ]
+    run = results.start(
+        "pairs-exact",
+        "pairs-exact",
+        ["trials", "feature_panel", "companies", "ma_events"],
+        {"negatives": negatives, "repeats": repeats, "seed": seed},
+    )
+    run.metric("_", "n_events", len(ev))
     for m in ("MASS-inspired", "MASS-exact"):
         h5s, h10s = scores[m]
+        run.metric(m, "hr5_mean", statistics.mean(h5s))
+        run.metric(m, "hr5_sd", statistics.pstdev(h5s))
+        run.metric(m, "hr10_mean", statistics.mean(h10s))
+    msg, run_id = results.record_and_export(run, "pair_exact_report.txt")
+    log.info(msg)
+    log.info(f"run {run_id} recorded")
+    return {"status": "ok", "message": msg, "run_id": run_id}
+
+
+def render_exact(rec: dict) -> str:
+    """Report text of pairs-exact from its record (byte-identical to the file)."""
+    m = results.Metrics(rec)
+    lines = [
+        "MASS-EXACT vs INCUMBENT (paired: %d events, %d negatives, "
+        "%d repeats, shared samples)"
+        % (m.i("_", "n_events"), int(m.p("negatives")), int(m.p("repeats")))
+    ]
+    for name in ("MASS-inspired", "MASS-exact"):
         lines.append(
             "%-14s HR@5 %.3f (+/-%.3f)   HR@10 %.3f"
-            % (m, statistics.mean(h5s), statistics.pstdev(h5s), statistics.mean(h10s))
+            % (name, m.f(name, "hr5_mean"), m.f(name, "hr5_sd"), m.f(name, "hr10_mean"))
         )
-    msg = "\n".join(lines)
-    log.info(msg)
-    store.write_export("pair_exact_report.txt", msg)
-    return {"status": "ok", "message": msg}
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------
@@ -404,18 +422,34 @@ def pairs_full_exact() -> dict:
     if not ranks:
         return {"status": "empty", "message": "No rankable events."}
     r = sorted(ranks)
-    msg = (
+    run = results.start(
+        "pairs-full-exact",
+        "pairs-full-exact",
+        ["trials", "feature_panel", "companies", "ma_events"],
+    )
+    run.metric("_", "n_events", len(r))
+    run.metric("_", "median_rank", r[len(r) // 2])
+    run.metric("_", "median_pool", sorted(pool_sizes)[len(r) // 2])
+    run.metric("_", "hit10", sum(1 for x in r if x <= 10) / len(r))
+    run.metric("_", "hit25", sum(1 for x in r if x <= 25) / len(r))
+    msg, run_id = results.record_and_export(run, "pair_full_exact_report.txt")
+    log.info(msg)
+    log.info(f"run {run_id} recorded")
+    return {"status": "ok", "message": msg, "run_id": run_id}
+
+
+def render_full_exact(rec: dict) -> str:
+    """Report text of pairs-full-exact from its record (byte-identical to the file)."""
+    m = results.Metrics(rec)
+    return (
         "FULL-UNIVERSE RE-RANK (MASS-exact engine): %d events; "
         "median true-target rank %d / median pool %d; hit@10 %.2f; "
         "hit@25 %.2f"
         % (
-            len(r),
-            r[len(r) // 2],
-            sorted(pool_sizes)[len(r) // 2],
-            sum(1 for x in r if x <= 10) / len(r),
-            sum(1 for x in r if x <= 25) / len(r),
+            m.i("_", "n_events"),
+            m.i("_", "median_rank"),
+            m.i("_", "median_pool"),
+            m.f("_", "hit10"),
+            m.f("_", "hit25"),
         )
     )
-    log.info(msg)
-    store.write_export("pair_full_exact_report.txt", msg)
-    return {"status": "ok", "message": msg}

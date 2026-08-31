@@ -29,7 +29,7 @@ import logging
 from collections import defaultdict
 from datetime import date, timedelta
 
-from biointel import config, store
+from biointel import config, results, store
 from biointel.fit import FEATURES, _auc_pr, _auc_roc, _events_for_robust, _n
 
 log = logging.getLogger(__name__)
@@ -372,10 +372,18 @@ def develop() -> dict:
         specs.append(("fund+eng+text", BASE_FUND + ENGINEERED + ["_textScore"]))
         cov = sum(1 for i in row_doc if i >= 0) / len(row_doc)
         log.info(f"  text coverage: {cov:.1%} of firm-quarters have a usable 10-K document")
-    lines = [
-        "PURGED WALK-FORWARD DEVELOPMENT (holdout 2023+ untouched)",
-        f"origins {ORIGINS[0][:4]}..{ORIGINS[-1][:4]}, purge {PURGE_Q}q, pooled out-of-fold AUC-PR",
-    ]
+    run = results.start(
+        "develop",
+        "develop",
+        _DEV_INPUTS,
+        {
+            "origins_first": ORIGINS[0],
+            "origins_last": ORIGINS[-1],
+            "purge_q": PURGE_Q,
+            "dev_end": DEV_END,
+            "specs": ";".join(n for n, _ in specs),
+        },
+    )
     models = _models()
     for mname, mk in models + [("ensemble", None)]:
         for sname, feats in specs:
@@ -401,15 +409,12 @@ def develop() -> dict:
                     pool_s += [sum(r[i] for r in ranks) / len(ranks) for i in range(len(yte))]
                     pool_y += yte
                 if pool_y and sum(pool_y):
-                    br = sum(pool_y) / len(pool_y)
-                    ap = _auc_pr(pool_s, pool_y)
-                    lines.append(
-                        f"{mname:<10}{sname:<18}n={len(pool_y):<7}"
-                        f"pos={sum(pool_y):<5}AUC-PR {ap:.3f}  "
-                        f"lift {ap / br:.1f}x  "
-                        f"ROC {_auc_roc(pool_s, pool_y):.3f}"
-                    )
-                    log.info(lines[-1])
+                    g = f"{mname}|{sname}"
+                    run.metric(g, "n", len(pool_y))
+                    run.metric(g, "pos", sum(pool_y))
+                    run.metric(g, "aucpr", _auc_pr(pool_s, pool_y))
+                    run.metric(g, "roc", _auc_roc(pool_s, pool_y))
+                    log.info(_dev_row(mname, sname, results.Metrics(run.record()), g))
                 continue
             pool_s, pool_y = [], []
             for o in ORIGINS:
@@ -426,20 +431,55 @@ def develop() -> dict:
                 p = m.predict_proba(Xte)[:, 1]
                 pool_s += list(map(float, p))
                 pool_y += yte
+            g = f"{mname}|{sname}"
             if not pool_y or not sum(pool_y):
-                lines.append(f"{mname:<10}{sname:<18}INSUFFICIENT")
+                run.metric(g, "insufficient", 1)
                 continue
-            br = sum(pool_y) / len(pool_y)
-            ap = _auc_pr(pool_s, pool_y)
-            lines.append(
-                f"{mname:<10}{sname:<18}n={len(pool_y):<7}"
-                f"pos={sum(pool_y):<5}AUC-PR {ap:.3f}  "
-                f"lift {ap / br:.1f}x  ROC {_auc_roc(pool_s, pool_y):.3f}"
-            )
-            log.info(lines[-1])
-    report = "\n".join(lines)
-    store.write_export("development_report.txt", report)
-    return {"status": "ok", "message": report}
+            run.metric(g, "n", len(pool_y))
+            run.metric(g, "pos", sum(pool_y))
+            run.metric(g, "aucpr", _auc_pr(pool_s, pool_y))
+            run.metric(g, "roc", _auc_roc(pool_s, pool_y))
+            log.info(_dev_row(mname, sname, results.Metrics(run.record()), g))
+    report, run_id = results.record_and_export(run, "development_report.txt")
+    log.info(f"run {run_id} recorded")
+    return {"status": "ok", "message": report, "run_id": run_id}
+
+
+_DEV_INPUTS = [
+    "feature_panel",
+    "ma_events",
+    "ma_events_universe",
+    "companies",
+    "trials",
+    "pair_feature",
+    "activist_13d",
+]
+
+
+def _dev_row(mname: str, sname: str, m, g: str) -> str:
+    if m.has(g, "insufficient"):
+        return f"{mname:<10}{sname:<18}INSUFFICIENT"
+    n, pos, ap = m.i(g, "n"), m.i(g, "pos"), m.f(g, "aucpr")
+    br = pos / n
+    return (
+        f"{mname:<10}{sname:<18}n={n:<7}"
+        f"pos={pos:<5}AUC-PR {ap:.3f}  "
+        f"lift {ap / br:.1f}x  ROC {m.f(g, 'roc'):.3f}"
+    )
+
+
+def render_develop(rec: dict) -> str:
+    """Report text of develop from its record (byte-identical to the file)."""
+    m = results.Metrics(rec)
+    lines = [
+        "PURGED WALK-FORWARD DEVELOPMENT (holdout 2023+ untouched)",
+        f"origins {m.p('origins_first')[:4]}..{m.p('origins_last')[:4]}, "
+        f"purge {int(m.p('purge_q'))}q, pooled out-of-fold AUC-PR",
+    ]
+    for g in m.groups():
+        mname, sname = g.split("|", 1)
+        lines.append(_dev_row(mname, sname, m, g))
+    return "\n".join(lines)
 
 
 def text_sweep() -> dict:
@@ -454,7 +494,8 @@ def text_sweep() -> dict:
     if D is None:
         return {"status": "empty", "message": "No text corpus."}
     feats = BASE_FUND + ENGINEERED + ["_textScore"]
-    lines = ["TEXT SHRINKAGE SWEEP (hist-gbm fund+eng+text, dev pooled OOF)"]
+    run = results.start("textsweep", "develop textsweep", _DEV_INPUTS, {"purge_q": PURGE_Q})
+    best_ap = None
     for alpha in (1e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2):
         ts = _text_scores_oof(rows, events, None, D, row_doc, alpha=alpha)
         for r, t in zip(rows, ts):
@@ -481,12 +522,36 @@ def text_sweep() -> dict:
             pool_y += yte
         if not sum(pool_y):
             continue
-        br = sum(pool_y) / len(pool_y)
         ap = _auc_pr(pool_s, pool_y)
-        lines.append(f"  alpha={alpha:<8} AUC-PR {ap:.4f}  lift {ap / br:.2f}x")
-        log.info(lines[-1])
-    store.write_export("text_sweep_report.txt", "\n".join(lines))
-    return {"status": "ok", "message": "\n".join(lines)}
+        g = repr(float(alpha))
+        run.metric(g, "alpha", float(alpha))
+        run.metric(g, "n", len(pool_y))
+        run.metric(g, "pos", sum(pool_y))
+        run.metric(g, "aucpr", ap)
+        best_ap = ap if best_ap is None or ap > best_ap else best_ap
+        log.info(_sweep_row(results.Metrics(run.record()), g))
+    if best_ap is not None:
+        run.metric("_", "best_aucpr", best_ap)
+    report, run_id = results.record_and_export(run, "text_sweep_report.txt")
+    log.info(f"run {run_id} recorded")
+    return {"status": "ok", "message": report, "run_id": run_id}
+
+
+def _sweep_row(m, g: str) -> str:
+    alpha, n, pos, ap = m.f(g, "alpha"), m.i(g, "n"), m.i(g, "pos"), m.f(g, "aucpr")
+    br = pos / n
+    return f"  alpha={alpha:<8} AUC-PR {ap:.4f}  lift {ap / br:.2f}x"
+
+
+def render_text_sweep(rec: dict) -> str:
+    """Report text of develop textsweep from its record (byte-identical to the file)."""
+    m = results.Metrics(rec)
+    lines = ["TEXT SHRINKAGE SWEEP (hist-gbm fund+eng+text, dev pooled OOF)"]
+    for g in m.groups():
+        if g == "_":
+            continue
+        lines.append(_sweep_row(m, g))
+    return "\n".join(lines)
 
 
 def tune() -> dict:
@@ -502,7 +567,20 @@ def tune() -> dict:
     feats = BASE_FUND + ENGINEERED
     grid = [(d, lr, leaf) for d in (2, 3, 4) for lr in (0.03, 0.06, 0.1) for leaf in (25, 40, 60)]
     best = None
-    lines = ["GBM TUNING (fund+engineered, purged walk-forward, dev only)"]
+    run = results.start(
+        "tune",
+        "develop tune",
+        _DEV_INPUTS,
+        {
+            "purge_q": PURGE_Q,
+            "grid_depth": "2;3;4",
+            "grid_lr": "0.03;0.06;0.1",
+            "grid_leaf": "25;40;60",
+            "max_iter": 300,
+            "l2_regularization": 1.0,
+            "random_state": 7,
+        },
+    )
     for d, lr, leaf in grid:
         pool_s, pool_y = [], []
         for o in ORIGINS:
@@ -527,13 +605,18 @@ def tune() -> dict:
         if not sum(pool_y):
             continue
         ap = _auc_pr(pool_s, pool_y)
-        br = sum(pool_y) / len(pool_y)
-        lines.append(f"  depth={d} lr={lr:<5} leaf={leaf:<3} AUC-PR {ap:.4f}  lift {ap / br:.2f}x")
-        log.info(lines[-1])
+        g = f"{d}|{lr!r}|{leaf}"
+        run.metric(g, "depth", d)
+        run.metric(g, "lr", float(lr))
+        run.metric(g, "leaf", leaf)
+        run.metric(g, "n", len(pool_y))
+        run.metric(g, "pos", sum(pool_y))
+        run.metric(g, "aucpr", ap)
+        log.info(_tune_row(results.Metrics(run.record()), g))
         if best is None or ap > best[0]:
             best = (ap, {"max_depth": d, "learning_rate": lr, "min_samples_leaf": leaf})
     if best:
-        store.write_export(
+        p = store.write_export(
             "best_config.json",
             json.dumps(
                 {
@@ -545,12 +628,46 @@ def tune() -> dict:
                 indent=1,
             ),
         )
-        lines.append(
-            f"BEST -> {best[1]} (dev AUC-PR {best[0]:.4f}), persisted to gold/best_config.json"
-        )
-        log.info(lines[-1])
-    store.write_export("tuning_report.txt", "\n".join(lines))
-    return {"status": "ok", "message": "\n".join(lines)}
+        run.artefact(p)
+        run.metric("best", "depth", best[1]["max_depth"])
+        run.metric("best", "lr", float(best[1]["learning_rate"]))
+        run.metric("best", "leaf", best[1]["min_samples_leaf"])
+        run.metric("best", "aucpr", best[0])
+        log.info(_tune_best(results.Metrics(run.record())))
+    report, run_id = results.record_and_export(run, "tuning_report.txt")
+    log.info(f"run {run_id} recorded")
+    return {"status": "ok", "message": report, "run_id": run_id}
+
+
+def _tune_row(m, g: str) -> str:
+    d, lr, leaf = m.i(g, "depth"), m.f(g, "lr"), m.i(g, "leaf")
+    n, pos, ap = m.i(g, "n"), m.i(g, "pos"), m.f(g, "aucpr")
+    br = pos / n
+    return f"  depth={d} lr={lr:<5} leaf={leaf:<3} AUC-PR {ap:.4f}  lift {ap / br:.2f}x"
+
+
+def _tune_best(m) -> str:
+    cfg = {
+        "max_depth": m.i("best", "depth"),
+        "learning_rate": m.f("best", "lr"),
+        "min_samples_leaf": m.i("best", "leaf"),
+    }
+    return (
+        f"BEST -> {cfg} (dev AUC-PR {m.f('best', 'aucpr'):.4f}), persisted to gold/best_config.json"
+    )
+
+
+def render_tune(rec: dict) -> str:
+    """Report text of develop tune from its record (byte-identical to the file)."""
+    m = results.Metrics(rec)
+    lines = ["GBM TUNING (fund+engineered, purged walk-forward, dev only)"]
+    for g in m.groups():
+        if g == "best":
+            continue
+        lines.append(_tune_row(m, g))
+    if m.has("best", "aucpr"):
+        lines.append(_tune_best(m))
+    return "\n".join(lines)
 
 
 def holdout(model_name: str, spec_name: str) -> dict:

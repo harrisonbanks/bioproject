@@ -22,7 +22,7 @@ import csv as _csv
 import logging
 import math
 
-from biointel import config, store
+from biointel import config, results, store
 
 log = logging.getLogger(__name__)
 
@@ -434,12 +434,14 @@ def robust() -> dict:
         ("fundamentals", ev_all, SPLIT, fundamentals),
         ("fundamentals-strict", ev_strict, SPLIT, fundamentals),
     ]
-    lines = [
-        f"ROBUSTNESS SUITE  (events: {len(ev_all)} all, "
-        f"{len(ev_strict)} machine-corroborated strict)",
-        f"{'scenario':<15}{'train(+)':<14}{'test(+)':<13}"
-        f"{'AUC-PR':<9}{'lift':<7}{'ROC':<7}{'P@10':<6}mature-q",
-    ]
+    run = results.start(
+        "robust",
+        "robust",
+        ["feature_panel", "ma_events", "ma_events_universe", "companies"],
+        {"split": SPLIT},
+    )
+    run.metric("_header", "n_events_all", len(ev_all))
+    run.metric("_header", "n_events_strict", len(ev_strict))
     # leakage diagnostic: does price MISSINGNESS correlate with the label?
     tgt = {}
     for iid, d in ev_all:
@@ -458,37 +460,90 @@ def robust() -> dict:
         yy = 1 if (a and q < a <= (_dd.fromisoformat(q) + _tt(days=365)).isoformat()) else 0
         has = 1 if (r.get("PriceQ") or "").strip() else 0
         (pos_cov if yy else neg_cov)[has] += 1
-    pc = pos_cov[1] / max(sum(pos_cov), 1)
-    nc = neg_cov[1] / max(sum(neg_cov), 1)
-    diag = (
-        f"price coverage: positives {pc:.1%} ({sum(pos_cov)}) vs "
-        f"negatives {nc:.1%} ({sum(neg_cov)}) -- "
-        + ("MISSINGNESS-LEAK LIKELY" if abs(pc - nc) > 0.15 else "no material coverage gap")
-    )
-    lines.insert(1, diag)
-    log.info(diag)
+    run.metric("_header", "pos_cov_n", sum(pos_cov))
+    run.metric("_header", "pos_cov_with_price", pos_cov[1])
+    run.metric("_header", "neg_cov_n", sum(neg_cov))
+    run.metric("_header", "neg_cov_with_price", neg_cov[1])
+    log.info(_robust_diag(pos_cov[1], sum(pos_cov), neg_cov[1], sum(neg_cov)))
 
     for name, ev, split, feats in scen:
         r = _evaluate(feat, ev, split, feats, require_price=(name == "covered-only"))
+        run.metric(name, "n_tr", r["n_tr"])
+        run.metric(name, "p_tr", r["p_tr"])
+        run.metric(name, "n_te", r["n_te"])
+        run.metric(name, "p_te", r["p_te"])
+        run.metric(name, "insufficient", 1 if r["insufficient"] else 0)
         if r["insufficient"]:
-            lines.append(
-                f"{name:<15}{r['n_tr']}({r['p_tr']})  {r['n_te']}({r['p_te']})   INSUFFICIENT"
-            )
-            log.info(lines[-1])
+            log.info(_robust_row(name, r))
             continue
-        lines.append(
-            f"{name:<15}{r['n_tr']}({r['p_tr']})".ljust(29)
-            + f"{r['n_te']}({r['p_te']})".ljust(13)
-            + f"{r['aucpr']:.3f}".ljust(9)
-            + f"{r['lift']:.1f}x".ljust(7)
-            + f"{r['roc']:.3f}".ljust(7)
-            + f"{r['p10']:.2f}".ljust(6)
-            + r["lastq"]
-        )
-        log.info(lines[-1])
-    report = "\n".join(lines)
-    store.write_export("robustness_report.txt", report)
-    return {"status": "ok", "message": report}
+        run.metric(name, "aucpr", r["aucpr"])
+        run.metric(name, "lift", r["lift"])
+        run.metric(name, "roc", r["roc"])
+        run.metric(name, "p10", r["p10"])
+        run.metric(name, "lastq", r["lastq"])
+        log.info(_robust_row(name, r))
+    report, run_id = results.record_and_export(run, "robustness_report.txt")
+    log.info(f"run {run_id} recorded")
+    return {"status": "ok", "message": report, "run_id": run_id}
+
+
+def _robust_diag(pos_with: int, pos_n: int, neg_with: int, neg_n: int) -> str:
+    pc = pos_with / max(pos_n, 1)
+    nc = neg_with / max(neg_n, 1)
+    return f"price coverage: positives {pc:.1%} ({pos_n}) vs negatives {nc:.1%} ({neg_n}) -- " + (
+        "MISSINGNESS-LEAK LIKELY" if abs(pc - nc) > 0.15 else "no material coverage gap"
+    )
+
+
+def _robust_row(name: str, r: dict) -> str:
+    if r["insufficient"]:
+        return f"{name:<15}{r['n_tr']}({r['p_tr']})  {r['n_te']}({r['p_te']})   INSUFFICIENT"
+    return (
+        f"{name:<15}{r['n_tr']}({r['p_tr']})".ljust(29)
+        + f"{r['n_te']}({r['p_te']})".ljust(13)
+        + f"{r['aucpr']:.3f}".ljust(9)
+        + f"{r['lift']:.1f}x".ljust(7)
+        + f"{r['roc']:.3f}".ljust(7)
+        + f"{r['p10']:.2f}".ljust(6)
+        + r["lastq"]
+    )
+
+
+def render_robust(rec: dict) -> str:
+    """Report text of robust from its record (byte-identical to the file)."""
+    m = results.Metrics(rec)
+    lines = [
+        f"ROBUSTNESS SUITE  (events: {m.i('_header', 'n_events_all')} all, "
+        f"{m.i('_header', 'n_events_strict')} machine-corroborated strict)",
+        _robust_diag(
+            m.i("_header", "pos_cov_with_price"),
+            m.i("_header", "pos_cov_n"),
+            m.i("_header", "neg_cov_with_price"),
+            m.i("_header", "neg_cov_n"),
+        ),
+        f"{'scenario':<15}{'train(+)':<14}{'test(+)':<13}"
+        f"{'AUC-PR':<9}{'lift':<7}{'ROC':<7}{'P@10':<6}mature-q",
+    ]
+    for name in m.groups():
+        if name == "_header":
+            continue
+        r = {
+            "n_tr": m.i(name, "n_tr"),
+            "p_tr": m.i(name, "p_tr"),
+            "n_te": m.i(name, "n_te"),
+            "p_te": m.i(name, "p_te"),
+            "insufficient": m.i(name, "insufficient") == 1,
+        }
+        if not r["insufficient"]:
+            r.update(
+                aucpr=m.f(name, "aucpr"),
+                lift=m.f(name, "lift"),
+                roc=m.f(name, "roc"),
+                p10=m.f(name, "p10"),
+                lastq=m.s(name, "lastq"),
+            )
+        lines.append(_robust_row(name, r))
+    return "\n".join(lines)
 
 
 TRAIN_END = "2019-12-31"
@@ -550,11 +605,16 @@ def improve() -> dict:
             "status": "insufficient",
             "message": f"train +{sum(ytr)} / val +{sum(yva)}: rebuild features first.",
         }
-    lines = [
-        f"IMPROVE (validation window {TRAIN_END}..{VAL_END}; holdout 2023+ LOCKED)",
-        f"train {len(Xtr)} (+{sum(ytr)})  val {len(Xva)} (+{sum(yva)})  "
-        f"val base rate {sum(yva) / len(yva):.4f}",
-    ]
+    run = results.start(
+        "improve",
+        "improve",
+        ["feature_panel", "ma_events", "ma_events_universe", "companies"],
+        {"train_end": TRAIN_END, "val_end": VAL_END},
+    )
+    run.metric("_header", "n_train", len(Xtr))
+    run.metric("_header", "pos_train", sum(ytr))
+    run.metric("_header", "n_val", len(Xva))
+    run.metric("_header", "pos_val", sum(yva))
 
     Ztr, mu, sd = _standardize(Xtr)
     Zva, _, _ = _standardize(Xva, mu, sd)
@@ -567,11 +627,9 @@ def improve() -> dict:
         )
     except ImportError:
         sva = [_sigmoid(b + sum(wj * xj for wj, xj in zip(w, z))) for z in Zva]
-    br = sum(yva) / len(yva)
     ap = _auc_pr(sva, yva)
-    lines.append(
-        f"logistic-v2     AUC-PR {ap:.3f}  lift {ap / br:.1f}x  ROC {_auc_roc(sva, yva):.3f}"
-    )
+    run.metric("logistic-v2", "aucpr", ap)
+    run.metric("logistic-v2", "roc", _auc_roc(sva, yva))
 
     try:
         import numpy as np
@@ -583,12 +641,36 @@ def improve() -> dict:
         gb.fit(np.asarray(Xtr), np.asarray(ytr))
         sgb = list(map(float, gb.predict_proba(np.asarray(Xva))[:, 1]))
         apg = _auc_pr(sgb, yva)
-        lines.append(
-            f"gradboost-v2    AUC-PR {apg:.3f}  lift {apg / br:.1f}x  ROC {_auc_roc(sgb, yva):.3f}"
-        )
+        run.metric("gradboost-v2", "aucpr", apg)
+        run.metric("gradboost-v2", "roc", _auc_roc(sgb, yva))
     except ImportError:
-        lines.append("gradboost-v2    (pip install scikit-learn to enable)")
+        run.metric("gradboost-v2", "unavailable", 1)
 
-    report = "\n".join(lines)
-    store.write_export("improve_report.txt", report)
-    return {"status": "ok", "message": report}
+    report, run_id = results.record_and_export(run, "improve_report.txt")
+    log.info(f"run {run_id} recorded")
+    return {"status": "ok", "message": report, "run_id": run_id}
+
+
+def render_improve(rec: dict) -> str:
+    """Report text of improve from its record (byte-identical to the file)."""
+    m = results.Metrics(rec)
+    n_va, p_va = m.i("_header", "n_val"), m.i("_header", "pos_val")
+    br = p_va / n_va
+    lines = [
+        f"IMPROVE (validation window {m.p('train_end')}..{m.p('val_end')}; holdout 2023+ LOCKED)",
+        f"train {m.i('_header', 'n_train')} (+{m.i('_header', 'pos_train')})  "
+        f"val {n_va} (+{p_va})  val base rate {br:.4f}",
+    ]
+    ap = m.f("logistic-v2", "aucpr")
+    lines.append(
+        f"logistic-v2     AUC-PR {ap:.3f}  lift {ap / br:.1f}x  ROC {m.f('logistic-v2', 'roc'):.3f}"
+    )
+    if m.has("gradboost-v2", "unavailable"):
+        lines.append("gradboost-v2    (pip install scikit-learn to enable)")
+    else:
+        apg = m.f("gradboost-v2", "aucpr")
+        lines.append(
+            f"gradboost-v2    AUC-PR {apg:.3f}  lift {apg / br:.1f}x  "
+            f"ROC {m.f('gradboost-v2', 'roc'):.3f}"
+        )
+    return "\n".join(lines)

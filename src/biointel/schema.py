@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = "0.2"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.3"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -346,6 +346,18 @@ WINDOW_COLS = (
     "AdjClose", "Volume", "PctFromT0",
 )
 CALENDAR_COLS = ("Date", "Stage", "Drug", "Detail", "Status", "Ref", "Source")
+# Run ledger (P17; gate 0.3). MLflow's structure: one runs row, and
+# key-value rows for params, metrics and artefacts. Append-only tables.
+RUN_COLS = (
+    "run_id", "model", "version", "command", "run_at", "duration_s", "status", "operator",
+    "code_ref", "env_hash", "data_snapshot_hash", "inputs", "objective", "holdout_access",
+    "source", "note",
+)
+RUN_PARAM_COLS = ("run_id", "name", "value")
+RUN_METRIC_COLS = ("run_id", "group", "name", "value")
+RUN_ARTEFACT_COLS = ("run_id", "path", "sha256")
+RUN_STATUSES = ("ok", "failed", "empty")
+RUN_SOURCES = ("run", "historical-file", "project-status")
 # Planned tables (Ontology §3.4, §3.6, §3.7); built at gates 1.4, 2.9, 2.10.
 EVENT_TABLE_COLS = (
     "event_id", "entity_key", "asset", "indication", "event_class", "scheduled_date",
@@ -747,6 +759,26 @@ TABLES: tuple[Table, ...] = (
         "window",
         types={"IID": "int", "RelDay": "int", "Date": "date"},
     ),
+    # ---- ledger (gold; append-only) ----------------------------------
+    Table(
+        "gold/runs.csv",
+        RUN_COLS,
+        "results.record (every model run); ledger-seed (legacy rows)",
+        key=("run_id",),
+        types={
+            "run_at": "datetime",
+            "duration_s": "float",
+            "status": "enum",
+            "source": "enum",
+            "holdout_access": "enum",
+        },
+        enums={"status": RUN_STATUSES, "source": RUN_SOURCES, "holdout_access": ("", "yes")},
+    ),
+    Table("gold/run_params.csv", RUN_PARAM_COLS, "results.record", key=("run_id", "name")),
+    Table(
+        "gold/run_metrics.csv", RUN_METRIC_COLS, "results.record", key=("run_id", "group", "name")
+    ),
+    Table("gold/run_artefacts.csv", RUN_ARTEFACT_COLS, "results.record", key=("run_id", "path")),
     # ---- planned (declared by design; no writer yet) ----------------
     Table("silver/events_table.csv", EVENT_TABLE_COLS, "gate 1.4 (F1)", planned=True),
     Table("silver/manual_entities.csv", MANUAL_ENTITY_COLS, "gate 2.10 (B)", planned=True),

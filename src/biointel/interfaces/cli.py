@@ -52,6 +52,10 @@ python -m biointel sponsors                   top CT.gov lead sponsors
 python -m biointel coverage                   what was fetched, and when
 python -m biointel validate                   check every table in the database against schema.py
 python -m biointel migrate                    one-time: load pre-migration CSVs into the database
+python -m biointel report MODEL [DATE]        regenerate a report from its ledger record (P17)
+python -m biointel report ledger              all runs -> data/exports/ledger.csv
+python -m biointel report runs MODEL          every run of one model over time
+python -m biointel ledger-seed                one-time: legacy report rows into the ledger
 """
 
 import csv
@@ -468,6 +472,7 @@ def main(argv):
                 f"  {r['Rank']:<3} {r['Ticker']:<7} {r['TargetScore']:<6.0f} "
                 f"{r['Acquirer1']:<7} ({r['Fit1']:<5}) {r['KnownOutcome']}"
             )
+        print(f"run {res['run_id']} recorded")
 
     elif cmd == "fit":
         from biointel.fit import fit as _fit
@@ -652,6 +657,62 @@ def main(argv):
         r = migrate()
         print(r["message"])
         if r["status"] != "ok":
+            return 1
+
+    elif cmd == "ledger-seed":
+        from biointel.legacy_ledger import seed
+
+        r = seed()
+        print(r["message"])
+        if r["status"] != "ok":
+            return 1
+
+    elif cmd == "report":
+        from biointel import results
+
+        what = argv[2] if len(argv) > 2 else ""
+        if what == "ledger":
+            rows = results.ledger_rows()
+            for r in rows:
+                print(
+                    f"  {r['run_id']:<34} {r['run_at'][:10]}  {r['status']:<6} "
+                    f"{r['source']:<16} {r['headline']}"
+                )
+            p = results.write_ledger_csv()
+            print(f"{len(rows)} runs -> {p}")
+        elif what == "runs":
+            if len(argv) < 4:
+                print("Usage: report runs MODEL")
+                return 1
+            rows = [r for r in results.ledger_rows() if r["model"] == argv[3]]
+            for r in rows:
+                print(
+                    f"  {r['run_at'][:19]}  {r['run_id']:<34} snapshot {r['data_snapshot_hash'][:12]:<12} "
+                    f"{r['source']:<16} {r['headline']}"
+                )
+            print(f"{len(rows)} runs of {argv[3]}")
+        elif what:
+            run_id = results.find_run(what, argv[3] if len(argv) > 3 else None)
+            if not run_id:
+                print(f"No run of {what} on {argv[3] if len(argv) > 3 else 'today'}.")
+                return 1
+            rec = results.load_run(run_id)
+            text = results.render(what, rec)
+            fname = {
+                "pairs-full-exact": "pair_full_exact_report.txt",
+                "pairs-exact": "pair_exact_report.txt",
+                "robust": "robustness_report.txt",
+                "improve": "improve_report.txt",
+                "develop": "development_report.txt",
+                "tune": "tuning_report.txt",
+                "textsweep": "text_sweep_report.txt",
+            }.get(what)
+            print(text)
+            if fname:
+                p = store.write_export(fname, text)
+                print(f"\nrendered from {run_id} -> {p}")
+        else:
+            print("Usage: report MODEL [DATE] | report ledger | report runs MODEL")
             return 1
 
     elif cmd == "list":
