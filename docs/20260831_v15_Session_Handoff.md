@@ -1,8 +1,8 @@
-docs/20260831_v14_Session_Handoff.md
+docs/20260831_v15_Session_Handoff.md
 
-# Session handoff v14 — bioproject, 2026-08-31 (Phase 0 complete; snapshot of record decided; dossier track designed; next: sequencing decision, then gate 1.4 or L1)
+# Session handoff v15 — bioproject, 2026-08-31 (Phase 0 complete; snapshot of record decided; dossier track designed; next: sequencing decision, then gate 1.4 or L1)
 
-Supersedes docs/20260831_v13_Session_Handoff.md. Structure per J. Banks's
+Supersedes docs/20260831_v14_Session_Handoff.md. Structure per J. Banks's
 2026-08-29 instruction (attachments, session-start sequence with lineage by
 hash, verified state, standing rules, open queue). Every state claim below
 was evidenced by a paste in the 2026-08-29, 2026-08-30 or 2026-08-31 session.
@@ -19,7 +19,7 @@ was evidenced by a paste in the 2026-08-29, 2026-08-30 or 2026-08-31 session.
 0i. docs/20260830_v1_GATE03_INSTALL.md — gate 0.3 runbook and exit evidence (§8a).
 0h. docs/20260830_v1_GATE02_INSTALL.md — gate 0.2 runbook, exit evidence (§8a) and the Windows temp-file lesson.
 0g. docs/20260830_v1_GATE01_INSTALL.md — gate 0.1 runbook (deliverables, exit criteria, deferred items).
-0f. docs/20260830_v1_System_Diagram_TARGET_STATE.md/.png/.svg — target architecture; current state after Phase 0: docs/20260831_v2_System_Diagram.md (v1 kept as the pre-Phase-0 record).
+0f. docs/20260831_v2_System_Diagram_TARGET_STATE.md — target architecture after Ontology v4 (Mermaid; the v1 .png/.svg poster is kept as the pre-v4 picture); docs/20260831_v1_Research_Process_Diagram.md — the research process (analyse → ontology → matchmake → historical analysis); current state after Phase 0: docs/20260831_v2_System_Diagram.md.
 1. docs/20260823_OPERATINGMANUAL_NEW.md — process of record (in the repository since 53cccfa).
 2. docs/20260829_v2_MACHINE_RUNBOOK.md — Jason's machine conventions (updated for the src layout).
 3. This file.
@@ -31,7 +31,8 @@ was evidenced by a paste in the 2026-08-29, 2026-08-30 or 2026-08-31 session.
 ```
 git -C "C:\Users\JB\Documents\dev\bioindustry" log --oneline -20
 # expected, newest first:
-#   <hash>  Design 2026-08-31: deal dossiers on a research library (Ontology v4, plan v9, PROJECT_STATUS 0.95, handoff v14, README)
+#   <hash>  Docs 2026-08-31: target-state diagram v2 and research-process diagram (PROJECT_STATUS 0.96, handoff v15, README)
+#   79524bd Design 2026-08-31: deal dossiers on a research library (Ontology v4, plan v9, PROJECT_STATUS 0.95, handoff v14, README)
 #   d12876c Decision 2026-08-31: data-snapshot policy of record (PROJECT_STATUS 0.94, plan v8, handoff v13, README)
 #   9fd24d2 DOC gate after Phase 0: PROJECT_STATUS 0.93 PART 0 regenerated; System Diagram v2
 #   93c2194 Gate 0.4: model framework (registry, declared inputs, enforcing harness, run_type, models/run); docs 0.92, plan v7, handoff v12

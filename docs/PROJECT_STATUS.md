@@ -2,7 +2,8 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 0.95. Supersedes v0.94. Design decision of 2026-08-31: deal dossiers on
+Version 0.96. Supersedes v0.95. Diagrams: target state v2 (after Ontology v4) and research-process diagram added.
+v0.95: Design decision of 2026-08-31: deal dossiers on
 top of a research library (Ontology v4; Implementation Plan v9 rows L1–L4, 2.9′;
 0.7, 0.9). v0.94 recorded the data-snapshot policy (0.5). PART 0 otherwise as
 regenerated at v0.93 from the tree at 93c2194 and the run ledger; current-state
@@ -115,10 +116,10 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 - Gate 0.2 DONE 2026-08-30 (5dbf595): DuckDB store layer, migrate (19 tables, counts equal), exports/snapshots, CSV folders frozen; in-gate Windows temp-file defect fixed.
 - Gate 0.3 DONE 2026-08-30 (29b8701): run ledger (runs, run_params, run_metrics, run_artefacts), render-from-record for seven reports and predict, ledger-seed (7 legacy rows), report views.
 - Gate 0.4 DONE 2026-08-31 (93c2194): models/ registry (target-screen: scorecard, fitted; acquirer-pairing: mass-exact; fda-event-study: daily-bars; six evaluations), declared inputs enforced at run time, run_type, models/run commands; first real run caught one undeclared legitimate read, fixed by declaration.
-- DOC gate DONE 2026-08-31: this PART 0 regenerated; current-state diagram v2 (docs/20260831_v2_System_Diagram.md).
+- DOC gate DONE 2026-08-31: this PART 0 regenerated; current-state diagram v2 (docs/20260831_v2_System_Diagram.md); target-state diagram v2 after Ontology v4 (docs/20260831_v2_System_Diagram_TARGET_STATE.md) and research-process diagram (docs/20260831_v1_Research_Process_Diagram.md), both Mermaid, 2026-08-31.
 - Regression baseline: thirteen fingerprints (docs/regression_baseline.txt, ffbbf20), reproduced at every gate since.
 
-## 0.9 Open queue (2026-08-31; detail in docs/20260831_v14_Session_Handoff.md §5)
+## 0.9 Open queue (2026-08-31; detail in docs/20260831_v15_Session_Handoff.md §5)
 1. Snapshot of record decided (0.5); remaining action: after the merge, hand `data\snapshots\20260831\` to Harrison on USB; he places `biointel.duckdb` at `<his root>\data\biointel.duckdb`, verifies the SHA-256 in 0.5 and runs `validate`.
 2. `predict` composition (M1-P): `target-screen/fitted` has no fit/predict path; `scorecard` drives `predict`; decide fitted-ranks/scorecard-explains or keep.
 3. Rotate the Alpha Vantage key; set the repository private (Harrison).
@@ -1392,6 +1393,7 @@ collaborations work, deal counterparties do not.
 
 ## Changelog
 
+| 0.96 | 2026-08-31 | Diagrams: `20260831_v2_System_Diagram_TARGET_STATE.md` (library, dossier tables, new attributes and event classes, deal analyser, aspect-match, forward test; supersedes the v1 .md, v1 .png/.svg kept as the pre-v4 poster) and `20260831_v1_Research_Process_Diagram.md` (analyse company → ontology → matchmaking → historical analysis, with the Tempus–Personalis timeline). Handoff v15, README. No code or data change. |
 | 0.95 | 2026-08-31 | Design: deal dossiers on a research library (Ontology v4 §3.9–§3.10, §5.5–§5.7, §7; Implementation Plan v9 rows L1–L4, 2.9′); Tempus AI deal record documented as the worked example; Ontology §8 Q5 marked answered, Q8–Q10 added; sequencing against Phase 1 pending. Handoff v14, README. No code or data change; fingerprints untouched. |
 | 0.94 | 2026-08-31 | Decision: data-snapshot policy option A — Jason's 2026-08-29 data frozen as the snapshot of record (`data\snapshots\20260831\biointel.duckdb`, 95,170,560 bytes, SHA-256 B93A833BE466…, manifest 12,053 fetches, no credential); freeze as it stood; USB hand-over to Harrison after the merge; Harrison's results stay historical-file rows. Implementation Plan v8, handoff v13, README. No code or data change; fingerprints untouched. |
 | 0.93 | 2026-08-31 | DOC gate: PART 0 regenerated in full (layout, workflow, codebase map, 61 commands, numbers of record with two-snapshot provenance from the ledger, rules, historical decisions, gate record, open queue); System Diagram v2 (current state). |
