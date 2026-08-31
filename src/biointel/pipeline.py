@@ -1,4 +1,4 @@
-# src/biointel/pipeline.py
+# C:\Users\JB\Documents\dev\bioindustry\src\biointel\pipeline.py
 """Silver layer: the three Excel workflows, as functions.
 
 add_company(ticker)   <- CompanyLookup query + AddCompany macro
@@ -84,6 +84,10 @@ def read_companies() -> list[dict]:
 
 def read_events() -> list[dict]:
     return _read("events")
+
+
+def read_events_table() -> list[dict]:
+    return _read("events_table")
 
 
 # ---------------------------------------------------------------- add_company
@@ -282,9 +286,110 @@ def get_all_trials() -> dict:
     return {"companies": len(out), "added": sum(r.get("added", 0) for r in out), "detail": out}
 
 
+# ------------------------------------------------------- event table (gate 1.4)
+# Ontology v5 §3.6: one regulatory-event table shared by every model.
+# `events-migrate` copies every `events` row into it once; forward-dated rows
+# (scheduled_date set, event_date blank) arrive from the writers gates 1.5 and
+# 1.6 build. Date semantics (decision 2026-08-31): event_date = the date the
+# action occurred, blank on forward rows; scheduled_date = the goal or
+# expected date, never a realized action date. The `events` table and its
+# readers (study, features, score, orangebook) are untouched at this gate.
+
+_PROV_PREFIX = "table=events"
+
+
+def _events_table_rows(events: list[dict], now_iso: str) -> list[dict]:
+    """Deterministic mapping of `events` rows to `events_table` rows.
+
+    outcome_state: Approval -> approval, Rejection -> crl (the two realized
+    states the openFDA sources carry). outcome_subtype keeps the source
+    Outcome text (New drug / New indication / Later approved / Never
+    approved). The columns events_table does not model (AppNo, SubType,
+    ClassCode, Priority) travel in `provenance` as key=value pairs so the
+    row remains traceable to its `events` row and nothing is lost.
+    """
+    import hashlib as _hashlib
+
+    out = []
+    for e in events:
+        key = f"{e['IID']}|{e.get('Event') or ''}|{e.get('Date') or ''}|{e.get('AppNo') or ''}"
+        prov = ";".join(
+            [
+                _PROV_PREFIX,
+                f"AppNo={e.get('AppNo') or ''}",
+                f"SubType={e.get('SubType') or ''}",
+                f"ClassCode={e.get('ClassCode') or ''}",
+                f"Priority={e.get('Priority') or ''}",
+            ]
+        )
+        out.append(
+            {
+                "event_id": "E" + _hashlib.sha256(key.encode("utf-8")).hexdigest()[:16],
+                "entity_key": str(e["IID"]),
+                "asset": e.get("Drug") or "",
+                "indication": "",
+                "event_class": "regulatory_decision",
+                "event_date": e.get("Date") or "",
+                "scheduled_date": "",
+                "disclosure_datetime": "",
+                "outcome_state": "approval" if e.get("Event") == "Approval" else "crl",
+                "outcome_subtype": e.get("Outcome") or "",
+                "source_url": "",
+                "provenance": prov,
+                "first_seen": now_iso,
+                "last_verified": now_iso,
+            }
+        )
+    return out
+
+
+def _prov_get(provenance: str, key: str) -> str:
+    for part in (provenance or "").split(";"):
+        if part.startswith(key + "="):
+            return part[len(key) + 1 :]
+    return ""
+
+
+def build_events_table() -> dict:
+    """`events-migrate` (gate 1.4): copy every `events` row into
+    events_table. Deterministic event_id (hash of the events key), so a
+    re-run replaces the table with identical rows. Recorded as a ledger
+    run (P17)."""
+    from datetime import datetime, timezone
+
+    from biointel import results
+
+    events = read_events()
+    if not events:
+        return {"status": "empty", "rows": 0, "source": 0, "message": "No events rows to migrate."}
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    run = results.start("events-table", "events-migrate", ["events"], {"source_rows": len(events)})
+    rows = _events_table_rows(events, now_iso)
+    from biointel import schema as _schema
+
+    n = store.write_table("events_table", rows, _schema.EVENT_TABLE_COLS)
+    run.metric("_", "source_rows", len(events))
+    run.metric("_", "rows_written", n)
+    run_id = results.finish(run)
+    return {
+        "status": "ok",
+        "rows": n,
+        "source": len(events),
+        "run_id": run_id,
+        "message": (
+            f"events-migrate: {n} events_table rows written from {len(events)} "
+            f"events rows (run {run_id} recorded)"
+        ),
+    }
+
+
 def pipeline_calendar(iid: int) -> list[dict]:
-    """Every candidate for one company, trials and FDA actions merged,
-    in date order. This is the drug pipeline calendar."""
+    """Every candidate for one company, in date order: trials, past FDA
+    actions and forward calendar rows. Since gate 1.4 this is a view over
+    trials + events_table; forward rows (Source 'FDA forward') are empty
+    until gates 1.5/1.6 populate them. If events_table has not been
+    migrated yet, FDA rows fall back to the `events` table and the caller
+    can tell from Source 'FDA (events)'."""
     rows = []
     for t in read_trials():
         if str(t["IID"]) != str(iid):
@@ -300,20 +405,46 @@ def pipeline_calendar(iid: int) -> list[dict]:
                 "Source": "CT.gov",
             }
         )
-    for e in read_events():
-        if str(e["IID"]) != str(iid):
-            continue
-        rows.append(
-            {
-                "Date": e.get("Date") or "",
-                "Stage": "FDA " + str(e.get("Event") or ""),
-                "Drug": e.get("Drug") or "",
-                "Detail": e.get("Outcome") or "",
-                "Status": e.get("SubType") or "",
-                "Ref": e.get("AppNo") or "",
-                "Source": "FDA",
-            }
-        )
+    et = read_events_table()
+    if et:
+        for e in et:
+            if str(e["entity_key"]) != str(iid):
+                continue
+            forward = not e.get("event_date") and bool(e.get("scheduled_date"))
+            state = e.get("outcome_state") or ""
+            stage = "FDA " + (
+                "Approval"
+                if state == "approval"
+                else "Rejection"
+                if state == "crl"
+                else state or e.get("event_class") or ""
+            )
+            rows.append(
+                {
+                    "Date": (e.get("scheduled_date") if forward else e.get("event_date")) or "",
+                    "Stage": stage if not forward else "FDA scheduled",
+                    "Drug": e.get("asset") or "",
+                    "Detail": e.get("outcome_subtype") or e.get("event_class") or "",
+                    "Status": _prov_get(e.get("provenance", ""), "SubType"),
+                    "Ref": _prov_get(e.get("provenance", ""), "AppNo"),
+                    "Source": "FDA forward" if forward else "FDA",
+                }
+            )
+    else:
+        for e in read_events():
+            if str(e["IID"]) != str(iid):
+                continue
+            rows.append(
+                {
+                    "Date": e.get("Date") or "",
+                    "Stage": "FDA " + str(e.get("Event") or ""),
+                    "Drug": e.get("Drug") or "",
+                    "Detail": e.get("Outcome") or "",
+                    "Status": e.get("SubType") or "",
+                    "Ref": e.get("AppNo") or "",
+                    "Source": "FDA (events)",
+                }
+            )
     rows.sort(key=lambda r: r["Date"], reverse=True)
     return rows
 

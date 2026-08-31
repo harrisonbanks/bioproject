@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = "0.4"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.5"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -144,6 +144,18 @@ EVENT_CLASSES = {
     ),
     "delay_timing": ("pdufa_extension", "review_delay", "government_shutdown"),
     "financing_overlay": ("atm_shelf", "offering"),
+    # v4 event classes (Ontology v5 §3.6), declared at gate 1.4 by decision
+    # 2026-08-31 so the event table's vocabulary is complete from birth.
+    # No outcome states are defined yet and no writer exists at 1.4: the
+    # deal/stake classes gain writers at gate L2, reimbursement and non-FDA
+    # clearances at their own gates, as the Implementation Plan states.
+    "reimbursement_decision": (),
+    "regulatory_clearance_non_fda": (),
+    "acquisition_announced": (),
+    "acquisition_closed": (),
+    "acquisition_terminated": (),
+    "stake_purchase": (),
+    "takeover_interest_reported": (),
 }
 CRL_DEFICIENCY_TYPES = ("manufacturing_cmc", "efficacy", "safety", "other")
 DESIGNATIONS = ("fast_track", "breakthrough", "rmat", "orphan", "priority_review", "accelerated")
@@ -389,12 +401,16 @@ REFERENCE_LINK_COLS = (
     "ref_id", "key_type", "entity_key", "role", "added_at", "added_by",
 )
 
-# Planned tables (Ontology §3.4, §3.6, §3.7); built at gates 1.4, 2.9, 2.10.
+# Event table (Ontology §3.6; live since gate 1.4). Date semantics, decided
+# 2026-08-31 at the 1.4 scope: `event_date` is the date the action occurred
+# (blank on forward rows); `scheduled_date` is the goal or expected date and
+# is never used for realized action dates.
 EVENT_TABLE_COLS = (
-    "event_id", "entity_key", "asset", "indication", "event_class", "scheduled_date",
-    "disclosure_datetime", "outcome_state", "outcome_subtype", "source_url", "provenance",
-    "first_seen", "last_verified",
+    "event_id", "entity_key", "asset", "indication", "event_class", "event_date",
+    "scheduled_date", "disclosure_datetime", "outcome_state", "outcome_subtype",
+    "source_url", "provenance", "first_seen", "last_verified",
 )
+# Planned tables (Ontology §3.4, §3.7); built at gates 2.9, 2.10.
 MANUAL_ENTITY_COLS = (
     "entity_key", "name", "aliases", "type", "listed", "has_prices", "cik", "ticker", "hq",
     "source", "entered_by", "entered_on", "note",
@@ -842,8 +858,22 @@ TABLES: tuple[Table, ...] = (
         key=("ref_id", "key_type", "entity_key", "role"),
         enums={"key_type": ("IID", "CIK"), "role": LINK_ROLES},
     ),
+    Table(
+        "silver/events_table.csv",
+        EVENT_TABLE_COLS,
+        "events-migrate (gate 1.4); forward-row writers arrive at gates 1.5/1.6",
+        key=("event_id",),
+        types={
+            "event_date": "date",
+            "scheduled_date": "date",
+            "disclosure_datetime": "datetime",
+            "first_seen": "datetime",
+            "last_verified": "datetime",
+            "event_class": "enum",
+        },
+        enums={"event_class": tuple(EVENT_CLASSES)},
+    ),
     # ---- planned (declared by design; no writer yet) ----------------
-    Table("silver/events_table.csv", EVENT_TABLE_COLS, "gate 1.4 (F1)", planned=True),
     Table("silver/manual_entities.csv", MANUAL_ENTITY_COLS, "gate 2.10 (B)", planned=True),
     Table("silver/manual_attributes.csv", MANUAL_ATTRIBUTE_COLS, "gate 2.10 (B)", planned=True),
     Table("silver/manual_notes.csv", MANUAL_NOTE_COLS, "gate 2.10 (B)", planned=True),

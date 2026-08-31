@@ -6,7 +6,8 @@ python -m biointel events IID                 FDA approvals + rejections
 python -m biointel events-all                 every company
 python -m biointel trials IID                 clinical trials
 python -m biointel trials-all                 every company
-python -m biointel calendar IID               pipeline calendar, trials + FDA
+python -m biointel calendar IID               pipeline calendar: trials + FDA + forward rows (view over events_table)
+python -m biointel events-migrate             1.4: one-time copy of `events` into `events_table` (Ontology §3.6)
 python -m biointel backfill                   fill CIK for migrated rows
 python -m biointel fin IID                    SEC financials, one company
 python -m biointel fin-all                    every company
@@ -132,6 +133,8 @@ def main(argv):
             w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
             w.writeheader()
             w.writerows(rows)
+        n_fwd = sum(1 for r in rows if r["Source"] == "FDA forward")
+        via_events = any(r["Source"] == "FDA (events)" for r in rows)
         print(f"{len(rows)} rows -> {out}\n")
         for r in rows[:40]:
             print(
@@ -140,6 +143,18 @@ def main(argv):
             )
         if len(rows) > 40:
             print(f"  ... {len(rows) - 40} more in the CSV")
+        if via_events:
+            print("\n  FDA rows served from `events` (events_table absent).")
+            print("  Run once:  python -m biointel events-migrate")
+        else:
+            print(f"\n  forward FDA calendar rows: {n_fwd} (writers arrive at gates 1.5/1.6)")
+
+    elif cmd == "events-migrate":
+        from biointel.pipeline import build_events_table
+
+        r = build_events_table()
+        print(r["message"])
+        return 0 if r["status"] == "ok" else 1
 
     elif cmd == "backfill":
         print(backfill_identity()["message"])
