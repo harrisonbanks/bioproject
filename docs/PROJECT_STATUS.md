@@ -2,7 +2,15 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 1.00. Supersedes v0.99. Gate 1.4 DONE (event table + forward FDA
+Version 1.01. Supersedes v1.00. Decision 2026-08-31 (0.7, 0.9): L2 loads its
+seed dossier (Tempus–Personalis) through a committed hand-curated seed on the
+verified-overlay pattern — every field carrying a `doc_id` resolving to an
+active library capture plus its span (P19) — and gate 2.10 (manual layer) is
+pulled forward to immediately after L2, so the order of record is
+L1 → 1.4 → L2 → 2.10 → 1.5 → L3 → L4 (1.6, 1.7, 2.9′ as they fall due);
+first corrections arrive at L3, so the correction machinery exists exactly
+when needed. Implementation Plan v14.
+v1.00. Supersedes v0.99. Gate 1.4 DONE (event table + forward FDA
 calendar view live; 0.8a): `events_table` per Ontology v5 §3.6 with the
 approved date semantics (`event_date` = realized action date; `scheduled_date`
 = goal/expected date only) and the complete event-class vocabulary incl. the
@@ -118,7 +126,7 @@ docs/20260831_v5_Design_Principles.md P1–P19 (binding) and the operating manua
 - 2026-08-30/31 decisions: P7 legacy rule; P16 two stores; P17 ledger in MLflow structure; P18 one store layer and SQL convergence; models named by question, M1/M2 labels retired (Implementation Plan v8 §7).
 - 2026-08-31 (file room, approved): the research library is references / captures / reference_links in DuckDB over a content-addressed store (`data\bronze\library\<aa>\<sha256>`); collectors are a module family (manual, folder, pipeline, zotero, later video_dl and search), none required; Zotero optional, offline, no account, sync off, as human capture tool; duplicates: hash PK, identifier ladder, `dedupe` with human-confirmed merge, retire-never-delete; reconciliation by USB + manifest + merge + verify; navigation: CLI, generated `library site`, folder views, SQL for agents; AI integration noted for future development (MCP over the store after L3; media transcription; per-person Zotero AI outside the system). Ontology v5 §3.9; plan v11 L1.
 - 2026-08-31 (principle): P19 Evidence — every dossier fact, stated priority, equity stake, asset attribute and v4 event row carries a `doc_id` and span; library documents never edited; dossiers regenerated, corrected via the manual layer; patterns tested only on later deals (Design Principles v5).
-- 2026-08-31 (sequencing): dossier track and Phase 1 alternate — L1 → 1.4 → L2 → 1.5 → L3 → L4, with 1.6, 1.7 and 2.9′ placed as they fall due; L1 first because it touches no fingerprint and both tracks need it; 1.4 before L2 (event table); 1.5 before L3 (EDGAR full-text adapter built once). Ontology v4 §8 Q8 answered; Implementation Plan v10 §3.
+- 2026-08-31 (sequencing, amended): order of record L1 → 1.4 → L2 → 2.10 → 1.5 → L3 → L4, with 1.6, 1.7 and 2.9′ placed as they fall due — 2.10 pulled forward on the day's second decision (L2 seeds via the verified-overlay pattern; the manual layer lands before L3's review queue produces corrections). Original reasoning stands: L1 first (no fingerprint, both tracks need it); 1.4 before L2 (event table); 1.5 before L3 (EDGAR adapter built once). Ontology v4 §8 Q8; Implementation Plan v10 §3, amended v14 §3.
 - 2026-08-31 (design): the unit of record for an acquisition becomes a deal dossier — dated relationship timeline, terms, stated rationale verbatim, aspects with evidence, comparables — every field citing a document in a permanent research library (`data\bronze\library\<sha256>`, indexed by `documents`/`document_links`, added to by code and by hand); new entity attributes (equity stakes, stated priorities, assets), typed relationships and event classes; an `aspect-match` implementation under `acquirer-pairing` tested forward (propose for every buyer at each year-end, count hits and false alarms); universe to widen to diagnostics, tools and data with private stubs (2.9′). Derived from the Tempus AI record (Ambry, Deep 6, Paige, Personalis; Ontology v4 §2.5). Ontology v4; Implementation Plan v9 rows L1–L4, 2.9′. Sequencing against Phase 1 pending (Ontology v4 §8 Q8).
 - 2026-08-31: data-snapshot policy option A (0.5): Jason's 2026-08-29 data frozen as the snapshot of record; freeze as it stood (no `cparty-all` first); USB transfer to Harrison, not git (public repository, binary history growth, LFS quota); Ontology §8 Q5 thereby answered: the repository does not carry data.
 
@@ -140,7 +148,7 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 3. Rotate the Alpha Vantage key; set the repository private (Harrison).
 4. Pull request jason/refactor → main; Harrison's post-merge steps (install, migrate, ledger-seed) in the handoff.
 5. Harrison to confirm the corrected MASS-exact figure (0.310) on his snapshot and retire the v0.81 "SUSPENDED" text in PART 5+.
-6. Next gate: L2 dossier schema (1.4 DONE 2026-08-31; order of record L1 → 1.4 → L2 → 1.5 → L3 → L4, with 1.6, 1.7 and 2.9′ placed as they fall due). Open decision to resolve at the L2 scope: L2's exit depends on gate 2.10 (manual layer), which is unbuilt — pull 2.10 forward or restate L2's exit without the manual-layer load path.
+6. Next gate: L2 dossier schema (order of record L1 → 1.4 → L2 → 2.10 → 1.5 → L3 → L4, decided 2026-08-31). The L2/2.10 dependency is resolved: L2 seeds through the verified-overlay pattern; 2.10 runs immediately after L2. Precondition inside the L2 gate: the Tempus–Personalis source documents (Ontology v5 §9 list) captured into the research library, since every seed field must cite a resolving doc_id (P19).
 7. Universe check before 2.9′: are Tempus AI and Personalis among the 1,379 members (one query; Ontology v4 §8 Q9).
 8. `predict` composition (item 2) is subordinate to the dossier track: `aspect-match` results (gate L4) inform it; the buyer-agnostic checklist-versus-fitted test remains available as a cheap evaluation.
 
@@ -1408,6 +1416,7 @@ collaborations work, deal counterparties do not.
 
 ## Changelog
 
+| 1.01 | 2026-08-31 | Decision: L2 seeds the Tempus–Personalis dossier through a committed hand-curated seed (verified-overlay pattern, P19 doc_id+span per field); gate 2.10 pulled forward to immediately after L2 (order of record L1 → 1.4 → L2 → 2.10 → 1.5 → L3 → L4) so the manual layer exists before L3's review queue produces the first corrections. Implementation Plan v14; no code or data change. |
 | 1.00 | 2026-08-31 | Gate 1.4 DONE: event table + forward FDA calendar view — EVENT_TABLE_COLS gains `event_date` (approved amendment; scheduled_date reserved for goal dates); seven v4 event classes declared (vocabulary complete from birth); `events-migrate` copied 4,282/4,282 `events` rows with deterministic ids and a ledger run; `calendar IID` a view over trials + events_table, forward rows 0 until 1.5/1.6; pytest 85; ruff clean on gate files; validate 27/0/8/4 (39 declared); thirteen fingerprints MATCH, PROBLEMS 0; runbook docs/20260831_v1_GATE14_INSTALL.md. |
 | 0.99 | 2026-08-31 | Gate L1 DONE: research library / file room live — schema references/captures/reference_links; library.py + collectors (manual, folder, pipeline, zotero); 733 filings indexed with CIK links; commands add/import/import-zotero/index/find/show/open/list/view/site/manifest/merge/verify/dedupe/retire-capture; DONE 2026-08-31 (pytest 76; ruff clean on gate files; index 733 refs/733 caps idempotent, 733 CIK links after v002 meta-name fix; URL add, file add, no-fetch, retire-capture 1, dedupe 0; validate 26/0/8/5; manifest 735, verify 0; thirteen fingerprint MATCH, PROBLEMS 0; ledger 35 runs; runbook docs/20260831_v1_GATEL1_INSTALL.md) |
 | 0.98 | 2026-08-31 | File-room design approved and written: Ontology v5 (§3.9 rewritten; §8 Q8 marked answered; §7 rows AI-over-store, Zotero-as-reader, video_dl); Implementation Plan v11 (L1 row rewritten; §4 deferred items). Handoff v17, README. No code or data change. |
