@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = "0.3"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.4"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -351,13 +351,14 @@ CALENDAR_COLS = ("Date", "Stage", "Drug", "Detail", "Status", "Ref", "Source")
 RUN_COLS = (
     "run_id", "model", "version", "command", "run_at", "duration_s", "status", "operator",
     "code_ref", "env_hash", "data_snapshot_hash", "inputs", "objective", "holdout_access",
-    "source", "note",
+    "source", "note", "run_type",
 )
 RUN_PARAM_COLS = ("run_id", "name", "value")
 RUN_METRIC_COLS = ("run_id", "group", "name", "value")
 RUN_ARTEFACT_COLS = ("run_id", "path", "sha256")
 RUN_STATUSES = ("ok", "failed", "empty")
 RUN_SOURCES = ("run", "historical-file", "project-status")
+RUN_TYPES = ("", "predict", "fit", "evaluation")  # blank: recorded before gate 0.4
 # Planned tables (Ontology §3.4, §3.6, §3.7); built at gates 1.4, 2.9, 2.10.
 EVENT_TABLE_COLS = (
     "event_id", "entity_key", "asset", "indication", "event_class", "scheduled_date",
@@ -771,8 +772,14 @@ TABLES: tuple[Table, ...] = (
             "status": "enum",
             "source": "enum",
             "holdout_access": "enum",
+            "run_type": "enum",
         },
-        enums={"status": RUN_STATUSES, "source": RUN_SOURCES, "holdout_access": ("", "yes")},
+        enums={
+            "status": RUN_STATUSES,
+            "source": RUN_SOURCES,
+            "holdout_access": ("", "yes"),
+            "run_type": RUN_TYPES,
+        },
     ),
     Table("gold/run_params.csv", RUN_PARAM_COLS, "results.record", key=("run_id", "name")),
     Table(

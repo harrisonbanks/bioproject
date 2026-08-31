@@ -421,6 +421,7 @@ def seed() -> dict:
             run_at=run_at,
             code=LEGACY_CODE_REF,
             con=con,
+            run_type_value=results.LEGACY_RUN_TYPES.get(e["model"], "evaluation"),
         )
         lines.append(f"  seeded  {run_id:<32} {e['source']:<16} {len(e['metrics'])} metrics")
     lines.append(f"ledger-seed: {len(LEGACY_RUNS)} legacy rows inserted.")

@@ -56,6 +56,8 @@ python -m biointel report MODEL [DATE]        regenerate a report from its ledge
 python -m biointel report ledger              all runs -> data/exports/ledger.csv
 python -m biointel report runs MODEL          every run of one model over time
 python -m biointel ledger-seed                one-time: legacy report rows into the ledger
+python -m biointel models                     the registry: models, implementations, evaluations, declared inputs
+python -m biointel run MODEL [--impl N] [--eval N] [--as-of D]  run a registered model under input enforcement (P2)
 """
 
 import csv
@@ -395,17 +397,17 @@ def main(argv):
             return 1
 
     elif cmd == "pairs-full-exact":
-        from biointel.pairs import pairs_full_exact
+        from biointel.models.harness import run_command
 
-        r = pairs_full_exact()
+        r = run_command("pairs-full-exact")
         if r["status"] != "ok":
             print(r["message"])
             return 1
 
     elif cmd == "pairs-exact":
-        from biointel.pairs import pairs_exact
+        from biointel.models.harness import run_command
 
-        r = pairs_exact()
+        r = run_command("pairs-exact")
         if r["status"] != "ok":
             print(r["message"])
             return 1
@@ -460,9 +462,9 @@ def main(argv):
             return 1
 
     elif cmd == "predict":
-        from biointel.score import predict
+        from biointel.models.harness import run_command
 
-        res = predict(argv[2] if len(argv) > 2 else None)
+        res = run_command("predict", argv[2] if len(argv) > 2 else None)
         print(res["message"])
         if res["status"] != "ok":
             return 1
@@ -507,18 +509,18 @@ def main(argv):
             return 1
 
     elif cmd == "robust":
-        from biointel.fit import robust as _robust
+        from biointel.models.harness import run_command
 
-        r = _robust()
+        r = run_command("robust")
         if r["status"] != "ok":
             print(r["message"])
             return 1
         print(f"\nreport -> {config.EXPORTS / 'robustness_report.txt'}")
 
     elif cmd == "improve":
-        from biointel.fit import improve as _improve
+        from biointel.models.harness import run_command
 
-        r = _improve()
+        r = run_command("improve")
         print(r["message"])
         if r["status"] != "ok":
             return 1
@@ -557,18 +559,15 @@ def main(argv):
             return 1
 
     elif cmd == "develop":
-        from biointel.improve import develop as _dev
+        from biointel.models.harness import run_command
 
-        if len(argv) > 2 and argv[2] == "tune":
-            from biointel.improve import tune as _t
-
-            r = _t()
-        elif len(argv) > 2 and argv[2] == "textsweep":
-            from biointel.improve import text_sweep as _ts
-
-            r = _ts()
+        sub = argv[2] if len(argv) > 2 else ""
+        if sub == "tune":
+            r = run_command("develop tune")
+        elif sub == "textsweep":
+            r = run_command("develop textsweep")
         else:
-            r = _dev()
+            r = run_command("develop")
         if r["status"] != "ok":
             print(r["message"])
             return 1
@@ -615,19 +614,15 @@ def main(argv):
             print(f"  {k:<12} {v}")
 
     elif cmd == "study-all":
-        from biointel.study import STUDY_COLS, run_study, summarize
+        from biointel.models.harness import run_command
 
-        rows = run_study(read_events(), read_companies())
-        if not rows:
-            print("No computable events. Check price connectivity.")
+        res = run_command("study-all")
+        if res["status"] != "ok":
+            print(res["message"])
             return 1
-        out = "event_study"
-        store.write_table(out, rows, STUDY_COLS)
-        summ = summarize(rows)
-        out2 = "event_study_summary"
-        store.write_table(out2, summ, list(summ[0].keys()))
-        print(f"{len(rows)} events -> {out}")
-        print(f"{len(summ)} outcome classes -> {out2}")
+        rows, summ = res["rows"], res["summary"]
+        print(f"{len(rows)} events -> event_study")
+        print(f"{len(summ)} outcome classes -> event_study_summary")
         for r in summ:
             print(
                 f"  {r['OutcomeClass']:<32} N={r['N']:<5} "
@@ -658,6 +653,41 @@ def main(argv):
         print(r["message"])
         if r["status"] != "ok":
             return 1
+
+    elif cmd == "models":
+        from biointel.models.harness import describe
+
+        for line in describe():
+            print(line)
+
+    elif cmd == "run":
+        from biointel.models import registry
+        from biointel.models.harness import run_entry
+
+        if len(argv) < 3:
+            print("Usage: run MODEL [--impl NAME] [--eval NAME] [--as-of DATE]")
+            return 1
+        model = argv[2]
+        opts = {"--impl": None, "--eval": None, "--as-of": None}
+        args = argv[3:]
+        i = 0
+        while i < len(args):
+            if args[i] in opts and i + 1 < len(args):
+                opts[args[i]] = args[i + 1]
+                i += 2
+            else:
+                print(f"Unknown argument {args[i]!r}")
+                return 1
+        try:
+            entry = registry.get(model, opts["--impl"], opts["--eval"])
+        except KeyError as exc:
+            print(exc)
+            return 1
+        r = run_entry(entry, opts["--as-of"])
+        print(r.get("message", ""))
+        if r["status"] != "ok":
+            return 1
+        print(f"{entry.label} [{entry.run_type}] run {r.get('run_id', '')} recorded")
 
     elif cmd == "ledger-seed":
         from biointel.legacy_ledger import seed

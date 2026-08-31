@@ -7,7 +7,7 @@ free public data: an M&A target screen and buyer–target pairing (Model 1)
 and an FDA-catalyst price-action model (Model 2; research: `docs/20260830_v2_FDA_Catalyst_Research.md`, requirements: `docs/20260830_v1_FDA_Catalyst_Product_Design.md`); Model 4 Horizon Scanning (entity discovery): `docs/20260830_v1_Horizon_Scanning_Design.md`. Design: see
 `docs/20260830_v3_Ontology_and_Matching_Design.md`; rules:
 `docs/20260830_v4_Design_Principles.md`; state: `docs/PROJECT_STATUS.md`;
-diagrams: current state `docs/20260829_v1_System_Diagram.png`, target state `docs/20260830_v1_System_Diagram_TARGET_STATE.png`; plan and gate ledger: `docs/20260830_v6_Implementation_Plan.md`.
+diagrams: current state `docs/20260829_v1_System_Diagram.png`, target state `docs/20260830_v1_System_Diagram_TARGET_STATE.png`; plan and gate ledger: `docs/20260831_v7_Implementation_Plan.md`.
 
 ## Install (Windows, Python 3.13, venv + pip)
 
@@ -28,7 +28,8 @@ descriptive agent with a contact email) and `BIOINTEL_ALPHA_VANTAGE_KEY`
 
 ```
 src/biointel/           package; run as  python -m biointel <command>
-  interfaces/cli.py     59 commands (python -m biointel prints the list)
+  interfaces/cli.py     61 commands (python -m biointel prints the list)
+  models/               registry (models by question, declared inputs), harness (P2 enforcement), adapters
   results.py            run ledger + render from record (report MODEL, report ledger)
   legacy_ledger.py      legacy report rows with quoted source lines (ledger-seed)
   store.py              bronze fetch cache + DuckDB store layer (single point of table access)

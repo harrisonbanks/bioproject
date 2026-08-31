@@ -126,6 +126,46 @@ def _fmt(v) -> str:
     return str(v)
 
 
+# ---------------------------------------------------------------- run type (gate 0.4)
+_RUN_TYPE: str = ""
+
+
+class run_type:
+    """Context manager the harness uses to stamp the runs it triggers."""
+
+    def __init__(self, value: str):
+        self.value = value
+
+    def __enter__(self):
+        global _RUN_TYPE
+        self._prev = _RUN_TYPE
+        _RUN_TYPE = self.value
+        return self
+
+    def __exit__(self, *exc):
+        global _RUN_TYPE
+        _RUN_TYPE = self._prev
+        return False
+
+
+LEGACY_RUN_TYPES = {"fit": "fit", "holdout": "evaluation"}  # other legacy models: evaluation
+
+
+def ensure_ledger_schema(con=None) -> None:
+    """Add columns introduced after the ledger was first written. Gate 0.4:
+    `run_type` on runs (existing rows: legacy rows by model, others blank)."""
+    con = con or store.connect()
+    if not store.has_table("runs", con):
+        return
+    cols = store.table_columns("runs", con)
+    if "run_type" not in cols:
+        con.execute("ALTER TABLE runs ADD COLUMN run_type VARCHAR DEFAULT ''")
+        con.execute(
+            "UPDATE runs SET run_type = CASE WHEN model = 'fit' THEN 'fit' "
+            "WHEN source <> 'run' THEN 'evaluation' ELSE '' END"
+        )
+
+
 # ---------------------------------------------------------------- record
 class Run:
     """An in-progress run: collects params, metrics and artefacts, then `finish`."""
@@ -167,9 +207,11 @@ def finish(
     run_at: datetime | None = None,
     code: str | None = None,
     con=None,
+    run_type_value: str | None = None,
 ) -> str:
     """Write the run's rows to the four ledger tables; returns the run_id."""
     con = con or store.connect()
+    ensure_ledger_schema(con)
     started = run_at or run.started
     run_id = _new_run_id(run.model, started, con)
     row = {
@@ -189,6 +231,7 @@ def finish(
         "holdout_access": "yes" if run.model == "holdout" else "",
         "source": source,
         "note": note,
+        "run_type": run_type_value if run_type_value is not None else _RUN_TYPE,
     }
     store.append_rows("runs", [row], schema.RUN_COLS, con=con)
     store.append_rows(

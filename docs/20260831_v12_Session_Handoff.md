@@ -1,8 +1,8 @@
-docs/20260830_v11_Session_Handoff.md
+docs/20260831_v12_Session_Handoff.md
 
-# Session handoff v11 — bioproject, 2026-08-30 (gates 0.1, 0.2, 0.3 done; next gate 0.4 model framework)
+# Session handoff v12 — bioproject, 2026-08-31 (Phase 0 complete: gates 0.1–0.4 done; next Phase 1)
 
-Supersedes docs/20260830_v10_Session_Handoff.md. Structure per J. Banks's
+Supersedes docs/20260830_v11_Session_Handoff.md. Structure per J. Banks's
 2026-08-29 instruction (attachments, session-start sequence with lineage by
 hash, verified state, standing rules, open queue). Every state claim below
 was evidenced by a paste in the 2026-08-29 or 2026-08-30 session.
@@ -14,7 +14,8 @@ was evidenced by a paste in the 2026-08-29 or 2026-08-30 session.
 0b. docs/20260830_v2_FDA_Catalyst_Research.md — Model 2 research synthesis.
 0c. docs/20260830_v1_FDA_Catalyst_Product_Design.md — Model 2 requirements (R1–R8, roadmap F1–F9), under review.
 0d. docs/20260830_v1_Horizon_Scanning_Design.md — Model 4 requirements (H1–H9), under review.
-0e. docs/20260830_v6_Implementation_Plan.md — gate ledger and procedure; 0.1, 0.2, 0.3 DONE; next 0.4 model framework, then Phase 1 (1.4 event table); §5 thirteen-file baseline; §6 legacy register.
+0e. docs/20260831_v7_Implementation_Plan.md — gate ledger and procedure; Phase 0 complete (0.1–0.4 DONE); next Phase 1 (1.4 event table); §5 thirteen-file baseline; §6 legacy register; §7 model naming.
+0j. docs/20260831_v1_GATE04_INSTALL.md — gate 0.4 runbook and exit evidence (§8a).
 0i. docs/20260830_v1_GATE03_INSTALL.md — gate 0.3 runbook and exit evidence (§8a).
 0h. docs/20260830_v1_GATE02_INSTALL.md — gate 0.2 runbook, exit evidence (§8a) and the Windows temp-file lesson.
 0g. docs/20260830_v1_GATE01_INSTALL.md — gate 0.1 runbook (deliverables, exit criteria, deferred items).
@@ -30,7 +31,8 @@ was evidenced by a paste in the 2026-08-29 or 2026-08-30 session.
 ```
 git -C "C:\Users\JB\Documents\dev\bioindustry" log --oneline -20
 # expected, newest first:
-#   <hash>  Gate 0.3: run ledger + render from record (results.py, legacy_ledger.py, report/ledger-seed); docs 0.91, plan v6, handoff v11
+#   <hash>  Gate 0.4: model framework (registry, declared inputs, enforcing harness, run_type, models/run); docs 0.92, plan v7, handoff v12
+#   29b8701 Gate 0.3: run ledger + render from record (results.py, legacy_ledger.py, report/ledger-seed); docs 0.91, plan v6, handoff v11
 #   5dbf595 Gate 0.2: storage migration to DuckDB (store layer, migrate, exports, snapshots, frozen CSV folders); P18; docs 0.90, plan v5, handoff v10
 #   ffbbf20 Regression baseline extended to thirteen files ...
 #   dc7465c Docs: decisions 2026-08-30 (legacy rule, DuckDB storage, ledger structure, Phase 0 reorder); principles v3, plan v4, PROJECT_STATUS 0.89, handoff v9
@@ -93,6 +95,8 @@ No code change is issued until all three outputs are pasted and match.
 4.12 Every git command in a block carries --no-pager: a paged `git log` swallowed a whole pasted block as keystrokes on 2026-08-30.
 4.13 Anything that writes or deletes temporary files needs a Windows paste before it counts; the Linux dry-run did not show the WinError 32 file-handle failure.
 4.15 Run ledger since gate 0.3: every model run appends to `runs`/`run_params`/`run_metrics`/`run_artefacts` in the database; `report <model> [date]` regenerates a report from its record; `report ledger` writes data\exports\ledger.csv, the source for PROJECT_STATUS 0.5 and paper exhibits (P6); legacy rows carry source historical-file/project-status and commit 880da16.
+4.17 Model framework since gate 0.4: models are named by question (target-screen, acquirer-pairing, fda-event-study); every model run goes through models/harness under store.enforce with the registry's declared inputs; an InputViolation stops the run and records nothing; when a real-data branch reads a legitimate undeclared column the fix is the declaration in models/registry.py, never disabling the check; "M1/M2" labels are retired from new material.
+4.18 Requirements before code: restate general case, instances, derived requirements; derive declarations from code and traces, not memory; re-read the binding principle text (P1–P18) before asserting a rule (2026-08-31: a rule was misquoted from memory and had to be withdrawn).
 4.16 PowerShell in blocks: `Select-Object -First N` and `-Last N` are separate calls; never combine them in one argument (2026-08-30 block error skipped `predict`).
 4.14 Data layout since gate 0.2: data\bronze\ (raw files), data\biointel.duckdb (all tables), data\exports\ (disposable reports and CSVs; regenerated for every regression check), data\snapshots\ (freeze copies), data\silver_frozen_20260830\ and data\gold_frozen_20260830\ (legacy read-only; never written).
 
@@ -103,7 +107,7 @@ No code change is issued until all three outputs are pasted and match.
 3. **Review the Ontology and Matching Design (v1)** and its §8 open questions; approve or amend before roadmap step A starts.
 3a. **Review the FDA Catalyst Product Design v1** (requirements) and ontology v3 §§3.1a, 3.2a, 3.6–3.8; approve or amend; then roadmap F1 (event table) which shares its schema with ontology step A.
 3b. **Review the Horizon Scanning Design v1** (Model 4).
-3c. **Gameplan (ledger in Implementation Plan v6; 0.1, 0.2, 0.3 DONE; next gate 0.4 model framework: model registry with declared inputs (P2), `run <model> <date>` through the ledger, then Phase 1)**: Phase 0 schema-as-code → central reporting layer → model framework; Phase 1 calendar system (event table, EFTS probe/parser, official feeds, daily maintenance job); Phase 2 price-action attributes, ADR/stub universe, benchmarks, manual layer; Phase 3 Model 2 models, ranking, rules, daily product. Model 4 build and Model 1 objective matchers after Phase 3 is measured.
+3c. **Gameplan (ledger in Implementation Plan v7; Phase 0 complete; next: decide the data-snapshot policy (Ontology §8 Q5) and the `predict` implementation (0.9), then Phase 1 gate 1.4 event table)**: Phase 0 schema-as-code → central reporting layer → model framework; Phase 1 calendar system (event table, EFTS probe/parser, official feeds, daily maintenance job); Phase 2 price-action attributes, ADR/stub universe, benchmarks, manual layer; Phase 3 Model 2 models, ranking, rules, daily product. Model 4 build and Model 1 objective matchers after Phase 3 is measured.
 4. **Scorecard vs fitted model (design decision, Jason + Harrison; P7).** `predict` ranks by the hand scorecard (`score.target_score`, weights set by judgement); the validated gen-2 model (`improve.py`, 2.2× chance on held-out deals) exists alongside. Decide whether `predict` should rank by the fitted model with the scorecard as explanation, or state the scorecard as the product.
 5. **PROJECT_STATUS.md PART 0 is stale** (says v0.68 layout: `app\`, 26 modules, 47 commands, `cli.py` 509 lines). Regenerate from the live tree: `src/biointel` module list, 55 commands, new run form. Not scripted yet.
 6. **Two unused variables** (`score.py:toks`, `study.py:prev_adj`) and two lambda assignments are human-review items; not auto-fixed.

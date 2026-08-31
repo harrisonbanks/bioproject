@@ -225,19 +225,142 @@ def table_columns(name: str, con=None) -> list[str]:
     return [r[0] for r in rows if r[0] != "_rowid"]
 
 
+# ---------------------------------------------------------------- input enforcement (P2)
+# While a registered model runs, the harness declares the tables and columns
+# it may read (models/registry.py). Any read outside the declaration raises
+# InputViolation naming the model, the table and the column. Outside a run
+# nothing is enforced. Column access is enforced through _GuardedRow so the
+# error names the exact column the code touched.
+
+
+class InputViolation(RuntimeError):
+    """A model read a table or column it did not declare (P2)."""
+
+
+_ENFORCE: tuple[str, dict[str, tuple[str, ...] | None]] | None = None
+_TRACE: dict[str, set[str]] | None = None
+
+
+class _GuardedRow(dict):
+    """Row whose stored columns are guarded: reading a column of the table
+    that is not declared raises. Keys the model code adds to the row itself
+    (engineered features such as '_wave') are not table columns and are free."""
+
+    __slots__ = ("_allowed", "_header", "_table", "_label")
+
+    def __init__(self, data: dict, allowed: frozenset, header: frozenset, table: str, label: str):
+        super().__init__(data)
+        self._allowed, self._header, self._table, self._label = allowed, header, table, label
+
+    def _check(self, key):
+        if key in self._header and key not in self._allowed:
+            raise InputViolation(
+                f"{self._label} read undeclared column {key!r} of table {self._table!r}"
+            )
+
+    def __getitem__(self, key):
+        self._check(key)
+        return super().__getitem__(key)
+
+    def get(self, key, default=None):
+        self._check(key)
+        return super().get(key, default)
+
+    def __contains__(self, key):
+        self._check(key)
+        return super().__contains__(key)
+
+
+class _TracedRow(dict):
+    __slots__ = ("_seen",)
+
+    def __init__(self, data: dict, seen: set):
+        super().__init__(data)
+        self._seen = seen
+
+    def __getitem__(self, key):
+        self._seen.add(key)
+        return super().__getitem__(key)
+
+    def get(self, key, default=None):
+        self._seen.add(key)
+        return super().get(key, default)
+
+
+class enforce:
+    """Context manager: `with store.enforce(label, inputs): ...` where inputs
+    maps table -> tuple of allowed columns, or None for every column."""
+
+    def __init__(self, label: str, inputs: dict[str, tuple[str, ...] | None]):
+        self.label, self.inputs = label, inputs
+
+    def __enter__(self):
+        global _ENFORCE
+        if _ENFORCE is not None:
+            raise RuntimeError(f"enforcement already active for {_ENFORCE[0]}")
+        _ENFORCE = (self.label, self.inputs)
+        return self
+
+    def __exit__(self, *exc):
+        global _ENFORCE
+        _ENFORCE = None
+        return False
+
+
+class trace:
+    """Context manager: records every (table, column) read; used to derive
+    and audit declarations. `store.trace().seen` after the block."""
+
+    def __init__(self):
+        self.seen: dict[str, set[str]] = {}
+
+    def __enter__(self):
+        global _TRACE
+        _TRACE = self.seen
+        return self
+
+    def __exit__(self, *exc):
+        global _TRACE
+        _TRACE = None
+        return False
+
+
+def _guard_rows(name: str, header: list[str], out: list[dict]) -> list[dict]:
+    if _ENFORCE is not None:
+        label, inputs = _ENFORCE
+        if name not in inputs:
+            raise InputViolation(f"{label} read undeclared table {name!r}")
+        cols = inputs[name]
+        if cols is not None:
+            allowed = frozenset(cols)
+            hdr = frozenset(header)
+            return [_GuardedRow(r, allowed, hdr, name, label) for r in out]
+    if _TRACE is not None:
+        seen = _TRACE.setdefault(name, set())
+        seen.add("__table__")
+        return [_TracedRow(r, seen) for r in out]
+    return out
+
+
 def read_table(name: str, typed: bool = False, con=None) -> list[dict]:
     """All rows of a table as dicts keyed by the written header, in written
     order. Missing table -> []. typed=True casts int/float/date columns per
-    schema.py (blank -> None); default returns text exactly as written."""
+    schema.py (blank -> None); default returns text exactly as written.
+    Under an active enforce() the table must be declared and column access
+    is guarded (P2)."""
     con = con or connect()
     if not has_table(name, con):
+        if _ENFORCE is not None and name not in _ENFORCE[1]:
+            raise InputViolation(f"{_ENFORCE[0]} read undeclared table {name!r}")
+        if _TRACE is not None:
+            _TRACE.setdefault(name, set()).add("__table__")
         return []
     header = table_columns(name, con)
     if not header:
         return []
     sel = ", ".join(_q(c) for c in header)
     rows = con.execute(f"SELECT {sel} FROM {_q(name)} ORDER BY _rowid").fetchall()
-    out = [dict(zip(header, r)) for r in rows]
+    out = _guard_rows(name, header, [dict(zip(header, r)) for r in rows])
     if typed:
         t = _TABLES.get(name)
         if t is not None:

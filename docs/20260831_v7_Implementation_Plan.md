@@ -1,8 +1,8 @@
-docs/20260830_v6_Implementation_Plan.md
+docs/20260831_v7_Implementation_Plan.md
 
 # Implementation plan and gate ledger
 
-Bioindustry Intelligence Platform · v6 · 2026-08-30 (v6: gate 0.3 DONE; v5: gate 0.2 DONE; v4: Phase 0 reordered — storage migration to DuckDB as 0.2, reporting layer 0.3, model framework 0.4; legacy rule; thirteen-file regression baseline; v3: gate 0.1 DONE; v2: ontology roadmap steps mapped; gates M1-G/H/I added) · Status: agreed in
+Bioindustry Intelligence Platform · v7 · 2026-08-31 (v7: gate 0.4 DONE, Phase 0 complete; v6: gate 0.3 DONE; v5: gate 0.2 DONE; v4: Phase 0 reordered — storage migration to DuckDB as 0.2, reporting layer 0.3, model framework 0.4; legacy rule; thirteen-file regression baseline; v3: gate 0.1 DONE; v2: ontology roadmap steps mapped; gates M1-G/H/I added) · Status: agreed in
 principle 2026-08-30 ("all makes sense"); formal go per gate.
 Target state: docs/20260830_v1_System_Diagram_TARGET_STATE.*.
 Requirements: Ontology v3, FDA Catalyst Product Design v1, Horizon Scanning
@@ -37,7 +37,7 @@ Status: PLANNED · READY (entry criteria met) · IN PROGRESS · DONE (hash) · D
 | 0.1 | `schema.py` (entity types, attributes, event classes, allowed values, table map) + `validate` command; `config.py` de-duplicated with guard test (added to scope 2026-08-30) | — | tree at latest docs commit, clean | `validate` reports every silver/gold table conformant or lists violations; 2+ unit tests; regression unchanged | DONE 2026-08-30 (validate 17 conformant / 1 violations / 9 absent / 5 planned; pytest 37; regression 04061e33…530d, 960307e2…e81b; runbook docs/20260830_v1_GATE01_INSTALL.md) |
 | 0.2 | Storage migration (P16, P18): `schema.py` creates all silver/gold/ledger tables in `data\biointel.duckdb` with typed columns, keys and allowed values as database constraints; every live read/write site re-pointed from CSV to DuckDB; `migrate` command loads the existing CSVs once; `freeze` snapshots the database file; `validate` checks the database; `ma_predictions.csv` and all report text written to `data\exports\`; legacy code untouched on CSV | 0.1 | thirteen-file regression baseline recorded with current code (§5); decisions committed | `migrate` row counts equal the CSV counts; all live commands run against DuckDB; all thirteen fingerprints match; `validate` all conformant; pytest passes | DONE 2026-08-30 (migrate 19 tables, counts equal; validate 19/0/8/5; pytest 46; thirteen fingerprints True; runbook docs/20260830_v1_GATE02_INSTALL.md) |
 | 0.3 | Reporting layer (P17): ledger tables `runs`, `run_params`, `run_metrics`, `run_artefacts` in DuckDB (MLflow structure); `results.py` record/render; every live report writer re-pointed; `report <model> <date>`; legacy reports entered as `historical-file` rows with fingerprint and commit 880da16 | 0.2 | 0.2 DONE | seven live reports byte-identical to baseline; one `runs` row per live re-run and per legacy file; fingerprints match | DONE 2026-08-30 (ledger-seed 7 rows; 7 runs recorded; thirteen fingerprints True before and after render-from-record; ledger 14 runs; validate 23/0/8/5; pytest 58; runbook docs/20260830_v1_GATE03_INSTALL.md) |
-| 0.4 | Model framework: interface, registry, harness; five existing models wrapped | 0.2, 0.3 | 0.2, 0.3 DONE | `python -m biointel models` lists the live models with declared inputs; harness reproduces ledger metrics for pairs-exact and gen-2 screen; regression unchanged | PLANNED |
+| 0.4 | Model framework: interface, registry, harness; five existing models wrapped | 0.2, 0.3 | 0.2, 0.3 DONE | `python -m biointel models` lists the live models with declared inputs; harness reproduces ledger metrics for pairs-exact and gen-2 screen; regression unchanged | DONE 2026-08-31 (models: 3 models / 5 impl / 6 eval; enforcement live on every routed command; thirteen fingerprints True; ledger 24 runs; pytest 65; runbook docs/20260831_v1_GATE04_INSTALL.md) |
 | 1.4 (F1) | Event table schema + migration of `events.csv`; `calendar IID` as view | 0.2 | — | row count preserved; `study-all` and `predict` hashes unchanged; view prints trials + FDA + (empty) forward rows | PLANNED |
 | 1.5 (F2) | EFTS probe; 8-K exhibit query set; date/asset parser; review queue | 1.4 | probe passes (documented endpoint behaviour, User-Agent, partitioning) | on a 90-day sample: ≥ N parsed forward events with source URLs; parse precision measured on a hand-checked sample; unparsed hits queued | PLANNED |
 | 1.6 (F3) | FDA AdCom calendar pull; CT.gov primary-completion field; FDA CRL letters; EDGAR acceptance timestamps | 1.4 | probes pass | fields populated for the universe; counts reported; regression unchanged | PLANNED |
@@ -73,7 +73,7 @@ Storage migration (0.2) and central reporting (0.3) have no design-roadmap row; 
 
 ## 3. Order of execution
 
-Phase 0 (0.1 → 0.2 → 0.3 → 0.4) → Phase 1 (1.4 → 1.5 ∥ 1.6 → 1.7) → Phase 2
+Phase 0 (0.1 → 0.2 → 0.3 → 0.4, all DONE 2026-08-31) → Phase 1 (1.4 → 1.5 ∥ 1.6 → 1.7) → Phase 2
 (2.8 ∥ 2.9 ∥ 2.10) → Phase 3 (3.11 → 3.12 → 3.13) → deferred items.
 1.5/1.6 and the Phase 2 gates are independent of each other and may be
 interleaved; nothing in Phase 3 starts before 1.7, 2.8 and 0.4 are DONE.
@@ -110,4 +110,15 @@ the data-snapshot policy (Ontology §8 Q5) must be decided before paper numbers 
 `pairs-substrate`), `improve.holdout` (both holdout accesses spent, P10), `fit.fit`
 (gen-1 screen). Kept and marked `LEGACY`, not re-pointed to DuckDB or the reporting
 layer, not re-run, removed at a cleanup gate named when Phase 3 is measured.
+
+## 7. Model naming (decision 2026-08-31)
+
+Models are named by the question they answer: `target-screen` (which
+companies will be acquired in the next 12 months; implementations
+`scorecard`, `fitted`), `acquirer-pairing` (for a given target, which buyer;
+implementation `mass-exact`), `fda-event-study` (how a stock moves around an
+FDA decision; implementation `daily-bars`). Evaluations are runs of a model,
+not models. The labels "M1"/"M2" are retired from new code and documents and
+remain only in the historical record. Model 4 joins later as
+`entity-discovery`.
 
