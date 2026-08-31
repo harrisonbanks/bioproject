@@ -1,11 +1,11 @@
-docs/20260831_v8_Implementation_Plan.md
+docs/20260831_v9_Implementation_Plan.md
 
 # Implementation plan and gate ledger
 
-Bioindustry Intelligence Platform · v8 · 2026-08-31 (v8: data-snapshot policy decided, §4 and §5; v7: gate 0.4 DONE, Phase 0 complete; v6: gate 0.3 DONE; v5: gate 0.2 DONE; v4: Phase 0 reordered — storage migration to DuckDB as 0.2, reporting layer 0.3, model framework 0.4; legacy rule; thirteen-file regression baseline; v3: gate 0.1 DONE; v2: ontology roadmap steps mapped; gates M1-G/H/I added) · Status: agreed in
+Bioindustry Intelligence Platform · v9 · 2026-08-31 (v9: dossier track L1–L4 and 2.9′ added per Ontology v4 §3.9–§3.10, §5.5–§5.7, §7; sequencing relative to Phase 1 pending, §3; v8: data-snapshot policy decided, §4 and §5; v7: gate 0.4 DONE, Phase 0 complete; v6: gate 0.3 DONE; v5: gate 0.2 DONE; v4: Phase 0 reordered — storage migration to DuckDB as 0.2, reporting layer 0.3, model framework 0.4; legacy rule; thirteen-file regression baseline; v3: gate 0.1 DONE; v2: ontology roadmap steps mapped; gates M1-G/H/I added) · Status: agreed in
 principle 2026-08-30 ("all makes sense"); formal go per gate.
 Target state: docs/20260830_v1_System_Diagram_TARGET_STATE.*.
-Requirements: Ontology v3, FDA Catalyst Product Design v1, Horizon Scanning
+Requirements: Ontology v4, FDA Catalyst Product Design v1, Horizon Scanning
 Design v1. Rules: Design Principles v4 (P1–P18). Process: operating manual +
 MACHINE_RUNBOOK v2.
 
@@ -54,6 +54,11 @@ Status: PLANNED · READY (entry criteria met) · IN PROGRESS · DONE (hash) · D
 | M1-H | Financial matcher (O7) and fund entities — ontology step H | 0.4, 2.9, 2.10 | after Phase 3 | metrics on financial-buyer deals | DEFERRED |
 | M1-I | Product-text similarity (O4, O8) from 10-K text — ontology step I | 0.4 | after Phase 3 | metrics on platform/horizontal deals | DEFERRED |
 | M4-S1..S7 | Horizon Scanning per its design §8 | 0.2, 0.3, 2.9, 2.10 | after Phase 3 (S1 may start earlier) | extraction precision ≥ 0.9 on organisations before auto-stubs | DEFERRED |
+| L1 | Research library (Ontology v4 §3.9): `documents` and `document_links` tables in `schema.py`; `data\bronze\library\<sha256>.<ext>`; `library add <url-or-file> --entity --deal --type`; existing bronze documents hashed and indexed; `validate` covers the new tables | 0.2 | scope go | a filing, a press release and a manually added PDF each indexed once with hash, type and links; re-adding the same file is a no-op; `validate` conformant; fingerprints unchanged | PLANNED |
+| L2 | Dossier schema (Ontology v4 §3.10: `deal_terms`, `deal_timeline`, `deal_rationale`, `deal_aspects`, `deal_comparables`) and entity attributes (`equity_stakes`, `stated_priorities`, `assets`; typed edges; v4 event classes) declared in `schema.py`; `ma_events` gains `deal_id` | L1, 2.10 | L1 DONE; manual layer available for corrections | tables created empty and conformant; one hand-entered dossier (Tempus–Personalis) loads through the manual layer with every field carrying `doc_id`; fingerprints unchanged | PLANNED |
+| L3 | EDGAR full-text search adapter (shared with gate 1.5) and deal analyser v1 (Ontology v4 §5.7) over the 447 existing target-role events; review queue; aspect vocabulary as code | L2 | EFTS probe passes | dossiers for ≥ 90% of the 447 events with terms and at least one rationale statement each; precision of stated-reason and aspect extraction measured on a hand-checked sample of ≥ 60 dossiers and recorded in the ledger; fingerprints unchanged (dossiers are new tables) | PLANNED |
+| L4 | `aspect-match` implementation under `acquirer-pairing` (Ontology v4 §5.5) and the forward hit/false-alarm test (§5.6); pass mark written in the scope message | L3, 0.4 | L3 precision accepted | hits and false alarms per buyer-year against chance in a ledger record; `predict` unchanged until a separate composition decision | PLANNED |
+| 2.9′ | Universe widened to diagnostics, tools and data companies (SIC set to be decided; Tempus and Personalis are the test cases); private targets as stub entities; new regression baseline recorded with a ledger note | L2 | check on the operator machine whether Tempus and Personalis are among the 1,379 members | new member count reported; all live commands run; thirteen fingerprints re-baselined with a ledger note (§1 step 5) | PLANNED |
 | DOC | Current-state diagram and PROJECT_STATUS PART 0 regenerated after each phase | each phase | — | diagram and module map match the tree | recurring |
 
 ## 2a. Cross-reference: design roadmaps → gates
@@ -69,6 +74,8 @@ Status: PLANNED · READY (entry criteria met) · IN PROGRESS · DONE (hash) · D
 | G modality/sector | M1-G | | F7 M2.4–M2.6 | 3.12 | | S7 usefulness evaluation | M4-S7 |
 | H financial matcher | M1-H | | F8 ranking, rules, report | 3.13 | | | |
 | I product-text similarity | M1-I | | F9 benchmarks | 2.9 | | | |
+| L1–L4 research library, dossier, analyser, aspect matcher (Ontology v4 §7) | L1–L4 | | | | | | |
+| 2.9′ universe widening and stubs (Ontology v4 §7) | 2.9′ | | | | | | |
 Storage migration (0.2) and central reporting (0.3) have no design-roadmap row; it was added in the gameplan and is referenced by the Product Design R6 and Horizon Scanning H6.
 
 ## 3. Order of execution
@@ -77,6 +84,10 @@ Phase 0 (0.1 → 0.2 → 0.3 → 0.4, all DONE 2026-08-31) → Phase 1 (1.4 → 
 (2.8 ∥ 2.9 ∥ 2.10) → Phase 3 (3.11 → 3.12 → 3.13) → deferred items.
 1.5/1.6 and the Phase 2 gates are independent of each other and may be
 interleaved; nothing in Phase 3 starts before 1.7, 2.8 and 0.4 are DONE.
+Dossier track (v9): L1 → L2 → L3 → L4, with 2.9′ after L2; its place
+relative to Phase 1 (ahead, alongside, or after) is Ontology v4 §8 Q8,
+decision pending; the EDGAR full-text adapter is built once, in whichever
+of L3 or 1.5 comes first, and reused by the other.
 
 ## 4. Standing items outside the gates
 
@@ -86,6 +97,7 @@ interleaved; nothing in Phase 3 starts before 1.7, 2.8 and 0.4 are DONE.
 - Pull request `jason/refactor` → `main` at a point both agree
   (recommended: after Phase 0, so Harrison's machine gets the layout,
   framework and reporting before the calendar work starts).
+- Universe check before 2.9′ is scoped: whether Tempus AI and Personalis are among the 1,379 members (one query on the operator machine); if not, 2.9′ precedes L3 for the lead example (Ontology v4 §8 Q9).
 - Data snapshot policy (Ontology §8 Q5): DECIDED 2026-08-31, option A. The snapshot of record from Phase 1 onward is Jason's 2026-08-29 data, frozen as it stood on 2026-08-31: `data\snapshots\20260831\biointel.duckdb`, 95,170,560 bytes, SHA-256 `B93A833BE46667AD402C71776C41D5E34EF1AC2126A73138D24C74D3928C0E65`; `manifest.json` 12,053 fetches, no credential. It reaches Harrison on a USB drive after the merge, never through git; identity by SHA-256 and by equal `data_snapshot_hash` in `report runs`. Harrison's 2026-08-25/26 results stay `historical-file` ledger rows labelled with the earlier snapshot; the paper states that in one sentence. No `ingest`, `labels`, `features`, `study-all`, `text-ingest` or `cparty-all` runs outside a named gate that records a new baseline with a ledger note (§1 step 5).
 
 ## 5. Regression baseline (decision 2026-08-30)

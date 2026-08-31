@@ -1,8 +1,8 @@
-docs/20260831_v13_Session_Handoff.md
+docs/20260831_v14_Session_Handoff.md
 
-# Session handoff v13 — bioproject, 2026-08-31 (Phase 0 complete; snapshot of record decided; next: `predict` decision, then gate 1.4)
+# Session handoff v14 — bioproject, 2026-08-31 (Phase 0 complete; snapshot of record decided; dossier track designed; next: sequencing decision, then gate 1.4 or L1)
 
-Supersedes docs/20260831_v12_Session_Handoff.md. Structure per J. Banks's
+Supersedes docs/20260831_v13_Session_Handoff.md. Structure per J. Banks's
 2026-08-29 instruction (attachments, session-start sequence with lineage by
 hash, verified state, standing rules, open queue). Every state claim below
 was evidenced by a paste in the 2026-08-29, 2026-08-30 or 2026-08-31 session.
@@ -10,11 +10,11 @@ was evidenced by a paste in the 2026-08-29, 2026-08-30 or 2026-08-31 session.
 ## 1. Required attachments for the next session
 
 0. docs/20260830_v4_Design_Principles.md — P1–P18, binding; read first (P7 amended: legacy rule; P16 storage; P17 ledger; P18 store layer and SQL convergence).
-0a. docs/20260830_v3_Ontology_and_Matching_Design.md — ontology for all models (v3: global universe and stubs, price-action attributes, calendar sources of record, manual notes, benchmarks, Model 4).
+0a. docs/20260831_v4_Ontology_and_Matching_Design.md — ontology for all models (v4: research library §3.9, deal dossier §3.10, equity stakes / stated priorities / assets §3.2, typed edges §3.3, v4 event classes §3.6, aspect matcher and forward test §5.5–§5.6, deal analyser §5.7, roadmap L1–L4 and 2.9′ §7, Tempus record §2.5, §8 Q5 answered and Q8–Q10 open; v3 content retained).
 0b. docs/20260830_v2_FDA_Catalyst_Research.md — Model 2 research synthesis.
 0c. docs/20260830_v1_FDA_Catalyst_Product_Design.md — Model 2 requirements (R1–R8, roadmap F1–F9), under review.
 0d. docs/20260830_v1_Horizon_Scanning_Design.md — Model 4 requirements (H1–H9), under review.
-0e. docs/20260831_v8_Implementation_Plan.md — gate ledger and procedure; Phase 0 complete (0.1–0.4 DONE); §4 snapshot of record (decided 2026-08-31); next Phase 1 (1.4 event table); §5 thirteen-file baseline; §6 legacy register; §7 model naming.
+0e. docs/20260831_v9_Implementation_Plan.md — gate ledger and procedure; Phase 0 complete (0.1–0.4 DONE); dossier track rows L1–L4 and 2.9′ (PLANNED; sequencing pending, §3); §4 snapshot of record (decided 2026-08-31); §5 thirteen-file baseline; §6 legacy register; §7 model naming.
 0j. docs/20260831_v1_GATE04_INSTALL.md — gate 0.4 runbook and exit evidence (§8a).
 0i. docs/20260830_v1_GATE03_INSTALL.md — gate 0.3 runbook and exit evidence (§8a).
 0h. docs/20260830_v1_GATE02_INSTALL.md — gate 0.2 runbook, exit evidence (§8a) and the Windows temp-file lesson.
@@ -31,7 +31,8 @@ was evidenced by a paste in the 2026-08-29, 2026-08-30 or 2026-08-31 session.
 ```
 git -C "C:\Users\JB\Documents\dev\bioindustry" log --oneline -20
 # expected, newest first:
-#   <hash>  Decision 2026-08-31: data-snapshot policy of record (PROJECT_STATUS 0.94, plan v8, handoff v13, README)
+#   <hash>  Design 2026-08-31: deal dossiers on a research library (Ontology v4, plan v9, PROJECT_STATUS 0.95, handoff v14, README)
+#   d12876c Decision 2026-08-31: data-snapshot policy of record (PROJECT_STATUS 0.94, plan v8, handoff v13, README)
 #   9fd24d2 DOC gate after Phase 0: PROJECT_STATUS 0.93 PART 0 regenerated; System Diagram v2
 #   93c2194 Gate 0.4: model framework (registry, declared inputs, enforcing harness, run_type, models/run); docs 0.92, plan v7, handoff v12
 #   29b8701 Gate 0.3: run ledger + render from record (results.py, legacy_ledger.py, report/ledger-seed); docs 0.91, plan v6, handoff v11
@@ -81,6 +82,7 @@ No code change is issued until all four outputs are pasted and match.
 3.11 Decisions of 2026-08-30 (afternoon), recorded as P13–P15 and in ontology v3 / product design v1: global universe with ADRs and stubs; daily bars only, no trading; all event classes at once with delays first-class; cross-event ranking with attribution and no assumption about purpose; no options; benchmarks XBI plus user-defined; calendar sources of record = FDA (past) + SEC EDGAR full-text 8-K mining (forward) + FDA AdCom calendar + CT.gov completion dates, aggregators as cross-check only; manual templated notes; Model 4 = Horizon Scanning (entity discovery from papers/news); Model 3 unassigned.
 3.10 Model 2 research note committed (0cc5e25): formal framing (event study; catalyst trading; run-up and post-announcement drift; investor distraction), evidence base, theses T1–T6, event taxonomy, candidate models M2.1–M2.7, rules R1–R8, data gaps (forward calendar is the critical missing asset), evaluation protocol.
 3.12 Gate 0.1 DONE (2026-08-30, evidenced by paste): `src/biointel/schema.py` declares entity types, attribute groups, relationship types, event classes/outcome states and a 32-table map (27 built, 5 planned); `python -m biointel validate` (56th command) checks header, key uniqueness, types and enumerations per table; `config.py` de-duplicated (cause: `50_config_logging.py` wrote its endpoint block before a later guard assertion and was re-run); tests 37 passed; first live `validate`: 17 conformant, 1 with violations (blank `S5_CeasedFiling` on harvest-derived `ma_events.csv` rows; schema corrected to allow blank), 9 absent, 5 planned; regression hashes unchanged. Output-drop hazard (4.9) recurred: four `validate` lines were missing from the paste while the summary counts were complete.
+3.14 Design decision 2026-08-31 (documents only, no code): deal dossiers on a research library — Ontology v4 §3.9 (library: `data\bronze\library\<sha256>`, `documents`, `document_links`, `library add`), §3.10 (dossier: `deal_terms`, `deal_timeline`, `deal_rationale`, `deal_aspects`, `deal_comparables`, every field with `doc_id` and span), §3.2/§3.3/§3.6 (equity stakes, stated priorities, assets, typed edges, new event classes), §5.5–§5.7 (`aspect-match`, forward hit/false-alarm test, deal analyser), §7 (L1–L4, 2.9′); worked example: the Tempus AI record (Ambry, Deep 6, Paige, Personalis) web-sourced 2026-08-31 with sources in Ontology v4 §9. Sequencing against Phase 1 undecided (Ontology v4 §8 Q8). Operator's stated rule for this track: build the ontology and matchmaker first, then test whether historical deals match the hypothetical pairs; the analyser is code, a person checks a sample.
 3.13 Snapshot of record frozen (2026-08-31, evidenced by paste): `freeze` wrote `data\snapshots\20260831\biointel.duckdb` (95,170,560 bytes, SHA-256 B93A833BE46667AD402C71776C41D5E34EF1AC2126A73138D24C74D3928C0E65, identical to the live `data\biointel.duckdb` at freeze time) and `manifest.json` (12,053 fetches; 0 occurrences of `apikey`); no data-changing command ran before the freeze; decision A recorded in PROJECT_STATUS 0.94 §0.5 and Implementation Plan v8 §4.
 3.9 Decisions of 2026-08-30 (recorded as principles P1–P8): tables stay model-agnostic, no split; separation enforced at model input lists; entities neutral; objectives a dimension; manual layer general; model framework with one yardstick; existing models keep purposes; general-case-first requirements. Table split proposal withdrawn; Architecture Instructions superseded (P9).
 
@@ -111,10 +113,10 @@ No code change is issued until all four outputs are pasted and match.
 
 1. **Key rotation (security).** Alpha Vantage key `HMSY…2P02` and Harrison's email are in git history (b52de01–49572ec) and the repository is public. Harrison: obtain a new key, set repository to private (Settings → General → Change visibility). Jason's `.env` currently uses the existing key; switch when rotated.
 2. **Merge decision.** Branch jason/refactor is ready for a pull request into main (https://github.com/harrisonbanks/bioproject/pull/new/jason/refactor). Harrison's machine after merge: `git pull`, recreate `.venv`, `pip install -e ".[dev]"`, create `.env` from `.env.example`, move `app\data` to `data\` (or re-clone and copy data into `data\`). His commands change from `python cli.py X` to `python -m biointel X`.
-3. **Review the Ontology and Matching Design (v1)** and its §8 open questions; approve or amend before roadmap step A starts.
+3. **Review the Ontology and Matching Design v4** §3.9–§3.10, §5.5–§5.7 and §8 Q8–Q10 (sequencing of L1–L4 against Phase 1; universe widening set; transcript sources); the first gate of the track, L1, is scoped only after Q8 is answered.
 3a. **Review the FDA Catalyst Product Design v1** (requirements) and ontology v3 §§3.1a, 3.2a, 3.6–3.8; approve or amend; then roadmap F1 (event table) which shares its schema with ontology step A.
 3b. **Review the Horizon Scanning Design v1** (Model 4).
-3c. **Gameplan (ledger in Implementation Plan v8; Phase 0 complete; snapshot of record decided 2026-08-31; next: decide the `predict` implementation (0.9 item 2), then Phase 1 gate 1.4 event table)**: Phase 0 schema-as-code → central reporting layer → model framework; Phase 1 calendar system (event table, EFTS probe/parser, official feeds, daily maintenance job); Phase 2 price-action attributes, ADR/stub universe, benchmarks, manual layer; Phase 3 Model 2 models, ranking, rules, daily product. Model 4 build and Model 1 objective matchers after Phase 3 is measured.
+3c. **Gameplan (ledger in Implementation Plan v9; Phase 0 complete; snapshot of record decided 2026-08-31; dossier track L1–L4 and 2.9′ designed; next: sequencing decision (Ontology v4 §8 Q8), then gate 1.4 or L1; `predict` composition subordinate to L4)**: Phase 0 schema-as-code → central reporting layer → model framework; Phase 1 calendar system (event table, EFTS probe/parser, official feeds, daily maintenance job); Phase 2 price-action attributes, ADR/stub universe, benchmarks, manual layer; Phase 3 Model 2 models, ranking, rules, daily product. Model 4 build and Model 1 objective matchers after Phase 3 is measured.
 4. **Scorecard vs fitted model (design decision, Jason + Harrison; P7).** `predict` ranks by the hand scorecard (`score.target_score`, weights set by judgement); the validated gen-2 model (`improve.py`, 2.2× chance on held-out deals) exists alongside. Decide whether `predict` should rank by the fitted model with the scorecard as explanation, or state the scorecard as the product.
 5. **Snapshot hand-over to Harrison (after item 2).** Copy `data\snapshots\20260831\` to a USB drive; Harrison places `biointel.duckdb` at `<his root>\data\biointel.duckdb`, verifies the SHA-256 in 3.13, runs `validate` and `ledger-seed`, and his first `report runs` shows the same `data_snapshot_hash` as Jason's rows. (PROJECT_STATUS PART 0 regeneration, formerly this item, was done at the DOC gate, 9fd24d2.)
 6. **Two unused variables** (`score.py:toks`, `study.py:prev_adj`) and two lambda assignments are human-review items; not auto-fixed.

@@ -2,13 +2,15 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 0.94. Supersedes v0.93. Decision of 2026-08-31: data-snapshot policy of
-record (0.5, 0.7, 0.9); PART 0 otherwise as regenerated at v0.93 from the tree at
-93c2194 and the run ledger; current-state diagram v2. PARTS 1–7 and the changelog
+Version 0.95. Supersedes v0.94. Design decision of 2026-08-31: deal dossiers on
+top of a research library (Ontology v4; Implementation Plan v9 rows L1–L4, 2.9′;
+0.7, 0.9). v0.94 recorded the data-snapshot policy (0.5). PART 0 otherwise as
+regenerated at v0.93 from the tree at 93c2194 and the run ledger; current-state
+diagram v2. PARTS 1–7 and the changelog
 are unchanged from v0.81 except where noted. Design
 decisions of 2026-08-30 are in docs/20260830_v4_Design_Principles.md
 (binding) and
-docs/20260830_v3_Ontology_and_Matching_Design.md.
+docs/20260831_v4_Ontology_and_Matching_Design.md.
 
 
 # PART 0 — COLD START (read this first in any new session)
@@ -102,6 +104,7 @@ docs/20260830_v4_Design_Principles.md P1–P18 (binding) and the operating manua
 - v0.69: final improvement cycle (patent substrate + Orange Book LOE urgency, probe-gated) then assembly → freeze → draft; pre-registered adoption rule for substrates (HR@5 must beat 0.222 outside ±0.010) — executed; both substrates rejected (0.5).
 - v0.67 ranked options (exact Sapling formula, EFTS strategic-review scanner, 24-month screen, LightGCN, close measurement) — the exact formula shipped as MASS-exact; EFTS becomes Phase 1 gate 1.5; the rest superseded by the Implementation Plan.
 - 2026-08-30/31 decisions: P7 legacy rule; P16 two stores; P17 ledger in MLflow structure; P18 one store layer and SQL convergence; models named by question, M1/M2 labels retired (Implementation Plan v8 §7).
+- 2026-08-31 (design): the unit of record for an acquisition becomes a deal dossier — dated relationship timeline, terms, stated rationale verbatim, aspects with evidence, comparables — every field citing a document in a permanent research library (`data\bronze\library\<sha256>`, indexed by `documents`/`document_links`, added to by code and by hand); new entity attributes (equity stakes, stated priorities, assets), typed relationships and event classes; an `aspect-match` implementation under `acquirer-pairing` tested forward (propose for every buyer at each year-end, count hits and false alarms); universe to widen to diagnostics, tools and data with private stubs (2.9′). Derived from the Tempus AI record (Ambry, Deep 6, Paige, Personalis; Ontology v4 §2.5). Ontology v4; Implementation Plan v9 rows L1–L4, 2.9′. Sequencing against Phase 1 pending (Ontology v4 §8 Q8).
 - 2026-08-31: data-snapshot policy option A (0.5): Jason's 2026-08-29 data frozen as the snapshot of record; freeze as it stood (no `cparty-all` first); USB transfer to Harrison, not git (public repository, binary history growth, LFS quota); Ontology §8 Q5 thereby answered: the repository does not carry data.
 
 ## 0.8 Refactor record (2026-08-29, branch jason/refactor)
@@ -115,13 +118,15 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 - DOC gate DONE 2026-08-31: this PART 0 regenerated; current-state diagram v2 (docs/20260831_v2_System_Diagram.md).
 - Regression baseline: thirteen fingerprints (docs/regression_baseline.txt, ffbbf20), reproduced at every gate since.
 
-## 0.9 Open queue (2026-08-31; detail in docs/20260831_v13_Session_Handoff.md §5)
+## 0.9 Open queue (2026-08-31; detail in docs/20260831_v14_Session_Handoff.md §5)
 1. Snapshot of record decided (0.5); remaining action: after the merge, hand `data\snapshots\20260831\` to Harrison on USB; he places `biointel.duckdb` at `<his root>\data\biointel.duckdb`, verifies the SHA-256 in 0.5 and runs `validate`.
 2. `predict` composition (M1-P): `target-screen/fitted` has no fit/predict path; `scorecard` drives `predict`; decide fitted-ranks/scorecard-explains or keep.
 3. Rotate the Alpha Vantage key; set the repository private (Harrison).
 4. Pull request jason/refactor → main; Harrison's post-merge steps (install, migrate, ledger-seed) in the handoff.
 5. Harrison to confirm the corrected MASS-exact figure (0.310) on his snapshot and retire the v0.81 "SUSPENDED" text in PART 5+.
-6. Next gate: 1.4 event table (Phase 1, forward FDA calendar), per Implementation Plan v7.
+6. Next gate: 1.4 event table (Phase 1, forward FDA calendar) or L1 research library — sequencing decision pending (Ontology v4 §8 Q8; Implementation Plan v9 §3).
+7. Universe check before 2.9′: are Tempus AI and Personalis among the 1,379 members (one query; Ontology v4 §8 Q9).
+8. `predict` composition (item 2) is subordinate to the dossier track: `aspect-match` results (gate L4) inform it; the buyer-agnostic checklist-versus-fitted test remains available as a cheap evaluation.
 
 ---
 
@@ -1387,6 +1392,7 @@ collaborations work, deal counterparties do not.
 
 ## Changelog
 
+| 0.95 | 2026-08-31 | Design: deal dossiers on a research library (Ontology v4 §3.9–§3.10, §5.5–§5.7, §7; Implementation Plan v9 rows L1–L4, 2.9′); Tempus AI deal record documented as the worked example; Ontology §8 Q5 marked answered, Q8–Q10 added; sequencing against Phase 1 pending. Handoff v14, README. No code or data change; fingerprints untouched. |
 | 0.94 | 2026-08-31 | Decision: data-snapshot policy option A — Jason's 2026-08-29 data frozen as the snapshot of record (`data\snapshots\20260831\biointel.duckdb`, 95,170,560 bytes, SHA-256 B93A833BE466…, manifest 12,053 fetches, no credential); freeze as it stood; USB hand-over to Harrison after the merge; Harrison's results stay historical-file rows. Implementation Plan v8, handoff v13, README. No code or data change; fingerprints untouched. |
 | 0.93 | 2026-08-31 | DOC gate: PART 0 regenerated in full (layout, workflow, codebase map, 61 commands, numbers of record with two-snapshot provenance from the ledger, rules, historical decisions, gate record, open queue); System Diagram v2 (current state). |
 | 0.92 | 2026-08-31 | Gate 0.4 DONE (Phase 0 complete): models/ registry + enforcing harness, run_type, models/run commands (61), 65 tests, fingerprints reproduced; model naming by question, M1/M2 retired. Implementation Plan v7, handoff v12. |

@@ -1,9 +1,14 @@
-docs/20260830_v3_Ontology_and_Matching_Design.md
+docs/20260831_v4_Ontology_and_Matching_Design.md
 
 # Ontology and M&A matching design
 
-Bioindustry Intelligence Platform · design document v3 · 2026-08-30
-Status: proposed, for review by J. Banks and H. Banks. Supersedes v2: adds
+Bioindustry Intelligence Platform · design document v4 · 2026-08-31
+Status: proposed, for review by J. Banks and H. Banks. Supersedes v3
+(2026-08-30). v4 (decision 2026-08-31, "deal dossiers on top of a research
+library"): adds the research library (§3.9), the deal dossier (§3.10), the
+entity attributes and event classes the dossier needs (§3.2, §3.3, §3.6),
+the aspect matcher and the forward hit/false-alarm test (§5.5, §5.6),
+roadmap steps L1–L4 and 2.9′ (§7), and answers §8 Q5. v3 added
 the global universe and stub entities (§3.1a), the price-action attribute
 group (§3.2a), the forward-calendar sources of record (§3.6), the manual
 notes template (§3.4), benchmarks (§3.7), and Model 4 Horizon Scanning
@@ -72,17 +77,53 @@ blood-cancer position and replace a failed internal JAK2 program, amid
 industry patent-cliff restocking. Objective: mechanism-level gap inside an
 existing therapeutic area. Ajax was private — outside the current listed
 universe. Lilly's 2026 sequence (Orna, Kelonia, Ajax) shows one hunter
-pursuing one objective repeatedly with different modalities. Tempus-style
-data acquisitions (illustrative, not verified as completed deals) show an
-objective — complementary data assets — that the current attribute set
-cannot express.
+pursuing one objective repeatedly with different modalities.
+
+Tempus AI's sequence (web-sourced 2026-08-31; sources in §9): Ambry Genetics
+(agreed 2024-11-04, closed 2025-02-03; $375M cash plus 4,843,136 Tempus
+shares; Tempus was an Ambry customer; stated reason: expanded testing for
+inherited cancer risk plus data; Ambry ~$300M 2024 revenue growing >25%),
+Deep 6 AI (March 2025; $17.4M, mostly stock; records of >30M patients),
+Paige (2025-08-22; $81.25M, predominantly stock, plus an assumed Azure
+commitment; ~7M annotated digitised pathology slides and the first
+FDA-cleared AI application in pathology; stated reason: accelerate the
+largest oncology foundation model), and Personalis (agreed 2026-07-20;
+$16.25/share, 6% premium to prior close, 28% to unaffected 30-day VWAP;
+equity value $1.9B, enterprise value $1.5B net of Tempus' 12.5% stake;
+100% stock with a cash option up to 50%; exchange ratio capped at 0.3356;
+target may terminate below $46.00 Tempus; Merck, 13.4% holder, agreed to
+vote in favour; outside date 2027-04-20). The Personalis deal was preceded
+by a dated relationship: a five-year Commercialization and Reference
+Laboratory Agreement (2023-11) with an equity investment; an expansion and
+a further $36M stake purchase via warrants (2024-08); extension to biopharma
+customers (2024-12); a fourth indication, colorectal, added (2025-07);
+Medicare coverage of the target's test in a third indication and clinical
+volume up 258% year on year (2026 Q1); reported takeover interest from
+Merck and two other suitors and a 55% share-price run-up (2026-06/07). The
+stated reason: extend Tempus from diagnosis and treatment selection into
+recurrence monitoring; the buyer had stated in public, two weeks before the
+Paige deal, that it would prioritise deals enhancing its data or
+applications businesses without derailing profitability. Comparables in
+the same category and window: Natera–Foresight (2025-12, up to $450M,
+all stock) and Roche–Saga (2026-04, up to $595M).
+
+What that record teaches the design: a deal is a dossier of dated facts,
+each with its source, not one row; the aspects that recur across the four
+Tempus deals — an escalating commercial relationship, a minority stake
+built in steps, a product that extends the buyer's continuum into an
+adjacent step, a data asset the buyer's AI business can use, mostly-stock
+consideration, recent reimbursement wins and fast volume growth at the
+target, a category the buyer's CEO named in public beforehand, and a
+competing stakeholder — are the starting vocabulary of §3.10; and several of
+them (equity stakes, stated priorities, reimbursement events, consideration
+type, competing holders) are attributes the ontology did not hold before v4.
 
 ## 3. Ontology
 
 ### 3.1 Entity types
 | Type | Instances | Registry today | Gap |
 |---|---|---|---|
-| Company (listed) | 1,379 SIC 2834/2836 filers | `companies.csv`, `universe.csv` (IID) | none |
+| Company (listed) | 1,379 SIC 2834/2836 filers | `companies.csv`, `universe.csv` (IID) | universe rule to widen to diagnostics, tools and data companies (Tempus, Personalis are outside SIC 2834/2836; roadmap 2.9′) |
 | Company (private) | biotechs, tools, diagnostics | appear only as deal counterparties | needs registry rows with `listed=0` |
 | Financial buyer | PE, hedge funds, royalty buyers | absent | new entity rows; attributes largely manual |
 | Asset (drug program) | one per (company, molecule/indication) | implicit in `trials.csv`, `events.csv` | optional explicit table |
@@ -114,6 +155,10 @@ skips stubs accordingly; nothing else changes.
 | Relationships | partners, co-sponsors, counterparties, investors, acquirer | CT.gov, 8-K, Form D, manual | corporate present; investors absent |
 | Strategy / intent | stated objectives, in-play flags, rumours | manual, press releases | absent |
 | Objectives (hunters) | list from §4 with weights | manual, deal history | absent |
+| Equity stakes (v4) | holder, issuer, percent, as-of date, source filing | SEC Schedules 13D/13G, 10-K/10-Q notes, proxies | absent (13D dates read for the activist feature; holder and percent dropped) |
+| Stated priorities (v4) | dated statements of what the entity says it will buy or build, with category | earnings-call transcripts, investor letters, 10-K strategy sections (research library) | absent |
+| Assets / products (v4) | product, category, continuum step (risk → diagnosis → treatment selection → monitoring), modality, indications, regulatory and reimbursement status | CT.gov, openFDA, press releases, manual | implicit in trials/events; explicit table required (§3.1 asset row) |
+| Deal history as acquirer (v4) | dossiers of the entity's past deals (§3.10): consideration habit, category pattern, cadence | deal dossier tables | absent |
 
 ### 3.2a Price-action attribute group (Model 2 inputs; any model may read)
 | Attribute | Definition | Source | Status |
@@ -132,7 +177,9 @@ Every attribute is stored once on the entity (P1) and dated; models read a decla
 
 ### 3.3 Relationship types
 `sponsors`, `co_sponsors`, `licenses_to/from`, `partners_with`,
-`acquired`, `acquired_by`, `invested_in`, `founded`, `supplies` — stored
+`acquired`, `acquired_by`, `invested_in`, `founded`, `supplies`, and (v4)
+`exclusive_commercial_partner`, `distributes_for`, `customer_of`,
+`holds_stake_in` (with percent and as-of date) — stored
 in one edge table (`relationships.csv` extended with `type`, `date`,
 `source`). Relationships are attributes of both endpoints (P3).
 
@@ -185,6 +232,13 @@ accessible; P13):
 The existing `calendar IID` command becomes a per-entity view over this
 table (trials + past FDA actions + forward rows), not a separate builder.
 
+Event classes added in v4, written to the same table so Phase 1 (calendar)
+and the deal dossier (§3.10) share it: `reimbursement_decision` (Medicare
+coverage, MolDX, payer decisions), `regulatory_clearance_non_fda` (UKCA,
+CE-IVD, other jurisdictions), `acquisition_announced`, `acquisition_closed`,
+`acquisition_terminated`, `stake_purchase`, `takeover_interest_reported`.
+Every row carries `doc_id` (§3.9) in `source_url`/`provenance`.
+
 ### 3.7 Benchmarks (decision 2026-08-30)
 Abnormal returns are computed against a configurable benchmark set:
 XBI (SPDR S&P Biotech ETF) by default, plus any user-defined benchmark —
@@ -210,6 +264,59 @@ requirements: a separate Model 4 design document (not yet written).
 `src/biointel/schema.py`: entity types, attribute names, types, allowed
 values, and the table each is read from; a `validate` command checks every
 silver/gold table against it. This is the written ontology.
+
+### 3.9 Research library (v4)
+Purpose: every fact the platform asserts about a company or a deal can be
+traced to a document, and the document can be re-read later; the whole
+extraction can be re-run against the same corpus when the vocabulary
+changes. Storage: `data/bronze/library/<sha256>.<ext>`, one copy per
+document, named by its hash, never edited (P16). Index tables:
+`documents` (`doc_id` = sha256, `url`, `source_type` — sec_8k, sec_425,
+sec_s4, sec_defm14a, sec_13d, sec_13g, sec_10k, sec_10q, press_release,
+transcript, investor_letter, analyst_note, news, regulatory_notice,
+manual_upload — `publisher`, `title`, `published_at`, `retrieved_at`,
+`accession` where SEC, `access` public/paywalled, `added_by` code or
+person, `note`) and `document_links` (`doc_id`, `entity_key` / `deal_id` /
+`event_id`, `role` acquirer / target / third_party / comparable /
+commentary). Two ways in: code (every `fetch_json` document already carries
+URL, status and time; the library adds hash, type and links) and a manual
+`library add <url-or-file> --entity --deal --type` command for anything a
+person finds. Every dossier field (§3.10), every stated priority (§3.2) and
+every v4 event row cites `doc_id` plus a character span. Each regeneration
+of dossiers from the library is a ledger run (P17) with its
+`data_snapshot_hash`, so two dossier versions are comparable.
+
+### 3.10 Deal dossier (v4)
+The unit of record for an acquisition. `ma_events` remains the index
+(one row per deal, `deal_id`); the dossier tables hang off it:
+- `deal_terms`: announce, signing and close dates, status, price per share,
+  premium to prior close and to 30-day VWAP, equity value, enterprise value
+  net of any existing stake, consideration mix (stock %, cash option %),
+  exchange-ratio cap, financing source, termination conditions, outside
+  date, voting agreements — each with `doc_id`.
+- `deal_timeline`: one row per dated step in the relationship before and
+  after announcement (first agreement, expansions, stake purchases,
+  indications added, reimbursement decisions, clearances, reported
+  takeover interest, board approval, vote, close) with type, description,
+  `doc_id`.
+- `deal_rationale`: stated reasons verbatim, speaker, `doc_id`, span,
+  aspect tags.
+- `deal_aspects`: one row per (deal, aspect): value, method (stated /
+  derived from tables / manual), confidence, evidence `doc_id` and span.
+  Starting vocabulary: prior_commercial_relationship (duration, escalation
+  count), prior_equity_stake (percent, steps), continuum_extension (step
+  added), complementary_data_asset, mechanism_or_target_gap,
+  therapeutic_area_overlap, reimbursement_catalyst,
+  buyer_stated_priority_match, competing_stakeholder, consideration_type,
+  target_revenue_growth, target_profitability, buyer_financing_capacity,
+  patent_cliff_pressure, category_consolidation.
+- `deal_comparables`: pairs of deals in the same category and window with
+  the basis for the comparison.
+Market reaction around announcement, for both sides, comes from the event
+study (Model 2) once acquisition announcements are an event class (§3.6);
+it is not duplicated. Dossiers are produced by the deal analyser (§5.7),
+regenerable from the library, corrected through the manual layer (§3.4,
+P5) with provenance.
 
 ## 4. Objectives (P4)
 
@@ -260,6 +367,46 @@ Buyer-agnostic attractiveness (fitted screen) and hunter-specific fit
 is the fitted screen (recommendation), with scorecard rules as the plain-
 language explanation and objective matches as the "who and why".
 
+### 5.5 Aspect matcher (v4; implementation `aspect-match` under `acquirer-pairing`)
+Buyer profile as of a date: continuum steps covered, data assets, stated
+priorities (§3.2), stakes held, partners, cash and stock currency, pattern
+of past deals (consideration habit, category, cadence). Candidate profile
+as of the same date: products and continuum step, revenue growth and
+reimbursement momentum, existing relationship with the buyer, stake held
+by the buyer, competing stakeholders, size relative to the buyer. Score
+per pattern = weighted count of the pattern's aspects present for the
+pair; output lists the evidence documents next to each aspect so the
+reader sees why. Registered under the framework with declared inputs
+enforced by the harness; hand-built, not trained, so it may read any
+attribute (P2) and the paper describes its inputs. Patterns and weights
+come from the dossiers (§3.10) and are versioned with them.
+
+### 5.6 Forward test for the matcher (v4)
+For every buyer at every past year-end, generate the ranked list using
+only information dated on or before that year-end; then open the deal
+history and count (a) how many deals announced in the following year had
+the true target in the buyer's top-k (hits) and (b) how many proposed
+pairs never happened (false alarms), both against chance. Patterns
+learned from deals up to a year are tested on deals after that year,
+never on the deals they were read from (P10). The pass mark is written
+before the run, as in every protocol test in this project.
+
+### 5.7 Deal analyser (v4; pipeline, not a model)
+Per deal: gather the documents (both sides' announcement 8-K/425 filings
+and press exhibits through the EDGAR full-text search adapter that Phase 1
+gate 1.5 also needs — built once; acquirer 10-K/10-Q business-combination
+notes; 13D/13G for stakes; all prior 8-Ks between the pair for the
+timeline; transcripts, letters and news through `library add` until a
+free machine source is proved), store them in the library, and extract
+the dossier fields: stated reasons and terms by phrase matching against
+the aspect vocabulary with the span kept, the relationship timeline from
+dated filings between the pair, the numbers from the financial tables
+already ingested. Each field carries method and evidence. A review queue
+like the label QA presents a random sample plus every suspicious row; the
+hand-checked sample gives the precision the paper reports. The analyser
+runs on the 447 target-role events already in the universe first, then on
+deals the widened universe (2.9′) adds.
+
 ## 6. Use cases
 
 1. **Pharma BD team, LOE gap (O1).** Input: hunter = the pharma, its LOE
@@ -295,6 +442,11 @@ language explanation and objective matches as the "who and why".
 | G | Modality and sector classification (10-K text, patents, manual) | A |
 | H | Financial matcher (O7) and fund entities | B, C, D |
 | I | Product-text similarity (O4, O8) from 10-K text already ingested | D |
+| L1 (v4) | Research library: `documents`, `document_links`, `library add`, hashing of existing bronze documents | A |
+| L2 (v4) | Dossier schema (§3.10) and entity attributes (§3.2 equity stakes, stated priorities, assets; §3.3 typed edges; §3.6 event classes) in `schema.py` | L1, B |
+| L3 (v4) | EDGAR full-text adapter (shared with Phase 1 gate 1.5) and deal analyser v1 (§5.7) over the 447 existing events; review queue; precision on a hand-checked sample | L2 |
+| L4 (v4) | `aspect-match` matcher (§5.5) and the forward hit/false-alarm test (§5.6) | L3, D |
+| 2.9′ (v4) | Universe widened to diagnostics, tools and data companies; private targets as stubs; new regression baseline | L2 |
 
 ## 8. Open questions
 
@@ -303,14 +455,40 @@ language explanation and objective matches as the "who and why".
 3. Candidate-set rules for private entities with sparse attributes
    (minimum attribute count before a private entity enters a match run).
 4. Whether Person entities are worth maintaining manually.
-5. Snapshot policy: whether the shared repository carries silver/gold so
-   both contributors evaluate on one data snapshot.
+5. Snapshot policy — ANSWERED 2026-08-31: the repository does not carry
+   data; Jason's 2026-08-29 data, frozen 2026-08-31, is the snapshot of
+   record and is shared by USB (Implementation Plan §4; PROJECT_STATUS 0.5).
 6. Ownership of the forward-calendar builder: a Model 2 deliverable that
    Model 1 also consumes (catalyst proximity as a target attribute);
    sequence it in roadmap step C or as its own step.
 7. Model 3 number is unassigned (decision pending).
+8. (v4) Sequencing of the dossier track L1–L4 relative to Phase 1 (the FDA
+   calendar): ahead of it, alongside it, or after it — decision pending.
+9. (v4) Universe widening (2.9′): which SIC codes or lists define
+   diagnostics, tools and data companies; whether Tempus and Personalis
+   are already among the 1,379 members is checked on the operator machine
+   before the gate is scoped.
+10. (v4) Free machine sources for earnings-call transcripts and investor
+   letters (SEC 8-K exhibits carry some; the rest enter by `library add`
+   until a source is proved).
 
 ## 9. References
+
+Tempus record (v4 §2.5; retrieved 2026-08-31): Tempus press release
+2026-07-20 (tempus.com/news/pr/tempus-to-acquire-personalis-integrating-mrd);
+Tempus 10-Q for the quarter ended 2026-06-30 (sec.gov, CIK 1717115,
+accession 0001193125-26-326090); Personalis 8-K 2023-11-25 (sec.gov, CIK
+1527753, accession 0000950170-23-066458); Personalis press releases
+2024-08-16, 2024-12-16, 2025-07-09 (investors.personalis.com); Personalis
+Form 425 investor presentation 2026 (sec.gov, accession
+0001193125-26-309090); Tempus press releases 2025-02-03 (Ambry) and
+2025-08-22 (Paige) (investors.tempus.com); Tempus annual report FY2025
+(Ambry and Deep 6 consideration; sec.gov, accession 0001193125-26-145547);
+MedTech Dive 2024-11-06 and 2025-08-26; Investing.com 2026-07-18 (Needham,
+takeover interest, holder percentages); OncoDaily 2026-07-27 (Merck voting
+agreement; Natera–Foresight; Roche–Saga); The Pharma Letter, Personalis
+profile, 2026-08 (FY2025 figures, Medicare coverage, outside date).
+
 
 Rhodes-Kropf M., Robinson D.T. (2008) The market for mergers and the
 boundaries of the firm. *J. Finance* 63(3). · Hoberg G., Phillips G. (2010)
