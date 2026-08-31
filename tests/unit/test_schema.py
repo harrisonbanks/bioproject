@@ -1,4 +1,4 @@
-# tests/unit/test_schema.py
+# C:\Users\JB\Documents\dev\bioindustry\tests\unit\test_schema.py
 """Unit tests for biointel.schema (gate 0.1).
 
 1. Every column constant a module writes with must equal the schema's
@@ -139,5 +139,6 @@ def test_validate_header_mismatch_and_optional_columns(tmp_path):
 def test_validate_absent_and_planned(tmp_path):
     results = {r["path"]: r["status"] for r in schema.validate_all(tmp_path)}
     assert results["silver/companies.csv"] == "absent"
-    assert results["silver/manual_notes.csv"] == "planned"
+    assert results["silver/manual_notes.csv"] == "absent"  # live since 2.10
+    assert results["silver/benchmarks.csv"] == "planned"
     assert "0 conformant" in schema.format_report(schema.validate_all(tmp_path))

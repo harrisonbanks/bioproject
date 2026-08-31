@@ -60,7 +60,8 @@ python -m biointel ledger-seed                one-time: legacy report rows into 
 python -m biointel models                     the registry: models, implementations, evaluations, declared inputs
 python -m biointel run MODEL [--impl N] [--eval N] [--as-of D]  run a registered model under input enforcement (P2)
 python -m biointel library SUB ...            research library / file room (gate L1): add, import, import-zotero, index, find, show, open, list, view, site, manifest, merge, verify, dedupe, retire-capture
-python -m biointel dossier-seed [--report]    L2: span-verified Tempus-Personalis seed dossier into the dossier tables
+python -m biointel dossier-seed [--report]    L2: span-verified Tempus-Personalis seed dossier into the dossier tables (LEGACY once manual load carries hand data)
+python -m biointel manual SUB ...             manual layer (2.10): add-entity, add-attribute, add-note, list, validate, export, load
 """
 
 import csv
@@ -782,6 +783,11 @@ def main(argv):
         from biointel import dossier as _dossier
 
         return _dossier.cli(argv[2:])
+
+    elif cmd == "manual":
+        from biointel import manual as _manual
+
+        return _manual.cli(argv[2:])
 
     elif cmd == "validate":
         from biointel.schema import format_report, validate_db

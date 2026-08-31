@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = "0.6"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.7"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -974,9 +974,21 @@ TABLES: tuple[Table, ...] = (
         enums={"continuum_step": ("",) + CONTINUUM_STEPS},
     ),
     # ---- planned (declared by design; no writer yet) ----------------
-    Table("silver/manual_entities.csv", MANUAL_ENTITY_COLS, "gate 2.10 (B)", planned=True),
-    Table("silver/manual_attributes.csv", MANUAL_ATTRIBUTE_COLS, "gate 2.10 (B)", planned=True),
-    Table("silver/manual_notes.csv", MANUAL_NOTE_COLS, "gate 2.10 (B)", planned=True),
+    Table(
+        "silver/manual_entities.csv", MANUAL_ENTITY_COLS,
+        "manual add-entity (2.10); consumers merge at their own gates",
+        key=("entity_key",),
+    ),
+    Table(
+        "silver/manual_attributes.csv", MANUAL_ATTRIBUTE_COLS,
+        "manual add-attribute (2.10); precedence: manual over machine at merged reads",
+        key=("entity_key", "attribute"), types={"valid_from": "date"},
+    ),
+    Table(
+        "silver/manual_notes.csv", MANUAL_NOTE_COLS,
+        "manual add-note (2.10)",
+        key=("note_id",), types={"date": "date"},
+    ),
     Table("silver/benchmarks.csv", BENCHMARK_COLS, "gate 2.9 (F9)", planned=True),
 )
 

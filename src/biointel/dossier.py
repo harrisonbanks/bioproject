@@ -1,6 +1,14 @@
 # C:\Users\JB\Documents\dev\bioindustry\src\biointel\dossier.py
 """Deal dossier seed and loader (gate L2; Ontology v5 §3.10, P19).
 
+LEGACY (marked 2026-08-31 at gate 2.10, per the storage ruling): the SEED
+row content below was the delivery vehicle for the hand-entered dossier and
+is superseded as a store by the database itself, carried across rebuilds
+and machines by `manual export` / `manual load` (manual.py) and the hashed
+snapshot. Row content stays marked, not deleted (standing rule); the
+span-verification machinery (span_pattern, normalize, verify_seed) remains
+live code and is reused by the deal analyser at L3.
+
 The seed is the Tempus–Personalis dossier as committed rows (the
 legacy-ledger pattern: content in code, checked by tests), loaded by
 `dossier-seed`. Loading is propose → verify → consume, like the label

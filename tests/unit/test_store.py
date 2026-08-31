@@ -1,4 +1,4 @@
-# tests/unit/test_store.py
+# C:\Users\JB\Documents\dev\bioindustry\tests\unit\test_store.py
 """Unit tests for the DuckDB store layer, validate_db and migrate (gate 0.2).
 
 Every test uses its own database file under tmp_path; config paths are
@@ -109,7 +109,8 @@ def test_validate_db_matches_csv_path(db):
     res = {r["path"]: r for r in schema.validate_db(db)}
     assert res["events"]["status"] == "conformant" and res["events"]["rows"] == len(rows)
     assert res["companies"]["status"] == "absent"
-    assert res["manual_notes"]["status"] == "planned"
+    assert res["manual_notes"]["status"] == "absent"  # live since 2.10
+    assert res["benchmarks"]["status"] == "planned"
 
 
 def test_meta_table(db):
