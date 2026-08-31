@@ -1,3 +1,4 @@
+# src/biointel/sources/chembl.py
 """ChEMBL layer: firm x molecular-target substrate (API route).
 
 WHY. The pairing model's measured blind spot is diversifying deals --
@@ -24,13 +25,12 @@ and unlocks `chembl-ingest` only when the live response parses.
 
 from __future__ import annotations
 
-import csv
 import logging
 import re
 import time
 from datetime import date
 
-from biointel import config
+from biointel import config, store
 from biointel.store import fetch_json
 
 log = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 API = config.CHEMBL_API
 CHEMBL_DIR = config.BRONZE / "chembl"
 PROBE_MARKER = CHEMBL_DIR / "PROBE_OK"
-DRUG_TARGETS_CSV = config.SILVER / "drug_targets.csv"
+DRUG_TARGETS_TABLE = "drug_targets"
 OUT_COLS = ["IID", "DrugNameRaw", "ChEMBLId", "ChEMBLName", "TargetName", "TargetType", "FirstSeen"]
 PACE = 0.35  # seconds between uncached calls; polite, no key
 
@@ -65,24 +65,18 @@ def firm_drug_names() -> dict:
         elif k not in out:
             out[k] = ""
 
-    ev = config.SILVER / "events.csv"
-    if ev.exists():
-        with ev.open(encoding="utf-8", newline="", errors="replace") as f:
-            for r in csv.DictReader(f):
-                if r.get("Drug"):
-                    note(r["IID"], r["Drug"], (r.get("Date") or "")[:10])
-    tr = config.SILVER / "trials.csv"
-    if tr.exists():
-        with tr.open(encoding="utf-8", newline="", errors="replace") as f:
-            for r in csv.DictReader(f):
-                d = (r.get("StartDate") or "")[:10]
-                for part in re.split(r"[;|]", r.get("Drugs") or ""):
-                    if part.strip():
-                        note(r["IID"], part, d)
-                for part in re.split(r"[;|]", r.get("Interventions") or ""):
-                    p = part.strip()
-                    if _INTERV_PREFIX.match(p):
-                        note(r["IID"], _INTERV_PREFIX.sub("", p), d)
+    for r in store.read_table("events"):
+        if r.get("Drug"):
+            note(r["IID"], r["Drug"], (r.get("Date") or "")[:10])
+    for r in store.read_table("trials"):
+        d = (r.get("StartDate") or "")[:10]
+        for part in re.split(r"[;|]", r.get("Drugs") or ""):
+            if part.strip():
+                note(r["IID"], part, d)
+        for part in re.split(r"[;|]", r.get("Interventions") or ""):
+            p = part.strip()
+            if _INTERV_PREFIX.match(p):
+                note(r["IID"], _INTERV_PREFIX.sub("", p), d)
     return out
 
 
@@ -235,40 +229,38 @@ def ingest() -> dict:
             tgt_detail[t["target_chembl_id"]] = (t["pref_name"], t.get("target_type") or "")
     firm_drugs = firm_drug_names()
     n_rows, matched, firms, seen = 0, set(), set(), set()
-    DRUG_TARGETS_CSV.parent.mkdir(parents=True, exist_ok=True)
-    with DRUG_TARGETS_CSV.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=OUT_COLS)
-        w.writeheader()
-        for (iid, dn), first in sorted(firm_drugs.items()):
-            cid = name2mol.get(dn)
-            if not cid:
+    rows_out: list[dict] = []
+    for (iid, dn), first in sorted(firm_drugs.items()):
+        cid = name2mol.get(dn)
+        if not cid:
+            continue
+        for tid in sorted(mol2tgt.get(cid, ())):
+            det = tgt_detail.get(tid)
+            if not det:
                 continue
-            for tid in sorted(mol2tgt.get(cid, ())):
-                det = tgt_detail.get(tid)
-                if not det:
-                    continue
-                key = (iid, cid, det[0])
-                if key in seen:
-                    continue
-                seen.add(key)
-                w.writerow(
-                    {
-                        "IID": iid,
-                        "DrugNameRaw": dn,
-                        "ChEMBLId": cid,
-                        "ChEMBLName": mol2name.get(cid, ""),
-                        "TargetName": det[0],
-                        "TargetType": det[1],
-                        "FirstSeen": first,
-                    }
-                )
-                n_rows += 1
-            matched.add((iid, dn))
-            firms.add(iid)
+            key = (iid, cid, det[0])
+            if key in seen:
+                continue
+            seen.add(key)
+            rows_out.append(
+                {
+                    "IID": iid,
+                    "DrugNameRaw": dn,
+                    "ChEMBLId": cid,
+                    "ChEMBLName": mol2name.get(cid, ""),
+                    "TargetName": det[0],
+                    "TargetType": det[1],
+                    "FirstSeen": first,
+                }
+            )
+            n_rows += 1
+        matched.add((iid, dn))
+        firms.add(iid)
+    store.write_table(DRUG_TARGETS_TABLE, rows_out, OUT_COLS)
     return {
         "status": "ok",
-        "message": f"drug_targets.csv: {n_rows:,} firm-target rows; "
+        "message": f"drug_targets: {n_rows:,} firm-target rows; "
         f"{len(matched):,} of {len(firm_drugs):,} (firm, "
         f"drug) pairs matched across {len(firms)} firms "
-        f"-> {DRUG_TARGETS_CSV}",
+        f"-> table {DRUG_TARGETS_TABLE}",
     }

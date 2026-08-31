@@ -36,9 +36,19 @@ _load_dotenv()
 # --- paths -----------------------------------------------------------------
 ROOT = Path(__file__).resolve().parents[2]  # <repo-root>: src/biointel/config.py
 DATA = ROOT / "data"
-BRONZE = DATA / "bronze"  # raw API responses, exactly as returned
-SILVER = DATA / "silver"  # cleaned CSVs
-GOLD = DATA / "gold"  # analysis output
+BRONZE = DATA / "bronze"  # raw API responses, exactly as returned (files, P16)
+DUCKDB = DATA / "biointel.duckdb"  # every silver, gold and ledger table (P16)
+EXPORTS = DATA / "exports"  # generated reports and CSV exports; disposable, regenerated
+SNAPSHOTS = DATA / "snapshots"  # `freeze` copies of the database file
+# Pre-migration CSV folders: read by `migrate` once, then renamed to the
+# frozen names below. Live code never reads or writes them (P16).
+SILVER_CSV_SRC = DATA / "silver"
+GOLD_CSV_SRC = DATA / "gold"
+FROZEN_TAG = "20260830"
+# LEGACY read paths only (P7 amendment, 2026-08-30): baselines.py, improve.holdout
+# and fit.fit read the CSVs as frozen on migration day. Not used by live code.
+SILVER = DATA / f"silver_frozen_{FROZEN_TAG}"
+GOLD = DATA / f"gold_frozen_{FROZEN_TAG}"
 
 COMPANIES_CSV = SILVER / "companies.csv"
 EVENTS_CSV = SILVER / "events.csv"
@@ -52,7 +62,7 @@ DEALS_CSV = SILVER / "deals.csv"
 COUNTERPARTY_CSV = SILVER / "deal_counterparties.csv"
 RELATIONSHIPS_CSV = SILVER / "relationships.csv"
 
-for p in (BRONZE, SILVER, GOLD):
+for p in (BRONZE, EXPORTS, SNAPSHOTS):
     p.mkdir(parents=True, exist_ok=True)
 
 # --- endpoints -------------------------------------------------------------

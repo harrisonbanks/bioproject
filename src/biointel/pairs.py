@@ -1,3 +1,4 @@
+# src/biointel/pairs.py
 """Deal-level pair model (MASS-style), the literature's certified-best
 formulation: M&A as link prediction between firm portfolios rather than
 standalone target scoring.
@@ -21,13 +22,12 @@ Outputs:
 
 from __future__ import annotations
 
-import csv as _csv
 import logging
 import re
 from collections import defaultdict
 from datetime import date
 
-from biointel import config
+from biointel import store
 
 log = logging.getLogger(__name__)
 
@@ -62,43 +62,37 @@ _STOP = {
 
 def _firm_docs(cutoff: str) -> dict[str, str]:
     docs = defaultdict(list)
-    with (config.SILVER / "trials.csv").open(encoding="utf-8", newline="", errors="replace") as f:
-        for t in _csv.DictReader(f):
-            sd = (t.get("StartDate") or "")[:10]
-            if not sd or sd > cutoff:
-                continue
-            blob = f"{t.get('Conditions', '')} {t.get('Interventions', '')} {t.get('Drugs', '')}"
-            toks = [
-                w
-                for w in re.sub(r"[^a-z0-9 ]", " ", blob.lower()).split()
-                if len(w) > 3 and w not in _STOP
-            ]
-            docs[t["IID"]].extend(toks)
+    for t in store.read_table("trials"):
+        sd = (t.get("StartDate") or "")[:10]
+        if not sd or sd > cutoff:
+            continue
+        blob = f"{t.get('Conditions', '')} {t.get('Interventions', '')} {t.get('Drugs', '')}"
+        toks = [
+            w
+            for w in re.sub(r"[^a-z0-9 ]", " ", blob.lower()).split()
+            if len(w) > 3 and w not in _STOP
+        ]
+        docs[t["IID"]].extend(toks)
     return {iid: " ".join(ws) for iid, ws in docs.items() if len(ws) >= 8}
 
 
 def _acquirer_side_iids(cutoff: str) -> set[str]:
     """Annualized revenue > $2B as of cutoff (feature-panel row lookup)."""
     out = set()
-    with (config.GOLD / "feature_panel.csv").open(
-        encoding="utf-8", newline="", errors="replace"
-    ) as f:
-        for r in _csv.DictReader(f):
-            if r["QuarterEnd"] > cutoff or not r.get("Revenue"):
-                continue
-            try:
-                rev = float(r["Revenue"])
-            except ValueError:
-                continue
-            basis = r.get("TTMBasis") or ""
-            mult = {"annualized-Q1": 4.0, "annualized-Q2": 2.0, "annualized-Q3": 4 / 3}.get(
-                basis, 1.0
-            )
-            if (
-                rev * mult > 2e9
-                and (date.fromisoformat(cutoff) - date.fromisoformat(r["QuarterEnd"])).days <= 450
-            ):
-                out.add(str(r["IID"]))
+    for r in store.read_table("feature_panel"):
+        if r["QuarterEnd"] > cutoff or not r.get("Revenue"):
+            continue
+        try:
+            rev = float(r["Revenue"])
+        except ValueError:
+            continue
+        basis = r.get("TTMBasis") or ""
+        mult = {"annualized-Q1": 4.0, "annualized-Q2": 2.0, "annualized-Q3": 4 / 3}.get(basis, 1.0)
+        if (
+            rev * mult > 2e9
+            and (date.fromisoformat(cutoff) - date.fromisoformat(r["QuarterEnd"])).days <= 450
+        ):
+            out.add(str(r["IID"]))
     return out
 
 
@@ -118,7 +112,7 @@ def build_pair_feature() -> dict:
     cached; consumed by improve.engineer as _maxSimToAcq."""
     import numpy as np
 
-    out = config.GOLD / "pair_feature.csv"
+    out = "pair_feature"
     rows = []
     for y in range(2004, date.today().year + 1):
         cutoff = f"{y}-12-31"
@@ -132,11 +126,8 @@ def build_pair_feature() -> dict:
         for tid, v in zip(tgt, mx):
             rows.append({"IID": tid, "YearEnd": cutoff, "MaxSimToAcq": f"{float(v):.4f}"})
         log.info(f"  pair-feature {cutoff}: {len(tgt)} targets vs {len(acq)} acquirers")
-    with out.open("w", newline="", encoding="utf-8") as f:
-        w = _csv.DictWriter(f, fieldnames=["IID", "YearEnd", "MaxSimToAcq"])
-        w.writeheader()
-        w.writerows(rows)
-    return {"status": "ok", "message": f"{len(rows)} (firm, year) similarities -> {out}"}
+    store.write_table(out, rows, ["IID", "YearEnd", "MaxSimToAcq"])
+    return {"status": "ok", "message": f"{len(rows)} (firm, year) similarities -> table {out}"}
 
 
 # ---------------- MASS-inspired metric + field-protocol evaluation
@@ -234,43 +225,34 @@ def pairs_exact(negatives: int = 200, repeats: int = 20, seed: int = 7) -> dict:
     from biointel import network
 
     fp = {}
-    with (config.GOLD / "feature_panel.csv").open(
-        encoding="utf-8", newline="", errors="replace"
-    ) as f:
-        for r in _csv.DictReader(f):
-            if r["QuarterEnd"].endswith("-12-31") and r.get("Revenue"):
-                basis = r.get("TTMBasis") or ""
-                mult = {"annualized-Q1": 4.0, "annualized-Q2": 2.0, "annualized-Q3": 4 / 3}.get(
-                    basis, 1.0
-                )
-                try:
-                    fp[(str(r["IID"]), r["QuarterEnd"][:4])] = {"rev": float(r["Revenue"]) * mult}
-                except ValueError:
-                    pass
-    name_to_iid = {}
-    with (config.SILVER / "companies.csv").open(
-        encoding="utf-8", newline="", errors="replace"
-    ) as f:
-        for c in _csv.DictReader(f):
-            name_to_iid[network._norm(c.get("Name", ""))] = str(c["IID"])
-    events = []
-    with (config.SILVER / "ma_events.csv").open(
-        encoding="utf-8", newline="", errors="replace"
-    ) as f:
-        for e in _csv.DictReader(f):
-            if e.get("Role") != "target" or not e.get("AnnounceDate"):
-                continue
-            acq = network._norm(e.get("VerifiedAcquirer") or e.get("Counterparty") or "")
-            aid = name_to_iid.get(acq) or next(
-                (
-                    v
-                    for k, v in name_to_iid.items()
-                    if k and acq and (k.startswith(acq + " ") or acq.startswith(k + " "))
-                ),
-                None,
+    for r in store.read_table("feature_panel"):
+        if r["QuarterEnd"].endswith("-12-31") and r.get("Revenue"):
+            basis = r.get("TTMBasis") or ""
+            mult = {"annualized-Q1": 4.0, "annualized-Q2": 2.0, "annualized-Q3": 4 / 3}.get(
+                basis, 1.0
             )
-            if aid:
-                events.append((aid, str(e["FilerIID"]), e["AnnounceDate"]))
+            try:
+                fp[(str(r["IID"]), r["QuarterEnd"][:4])] = {"rev": float(r["Revenue"]) * mult}
+            except ValueError:
+                pass
+    name_to_iid = {}
+    for c in store.read_table("companies"):
+        name_to_iid[network._norm(c.get("Name", ""))] = str(c["IID"])
+    events = []
+    for e in store.read_table("ma_events"):
+        if e.get("Role") != "target" or not e.get("AnnounceDate"):
+            continue
+        acq = network._norm(e.get("VerifiedAcquirer") or e.get("Counterparty") or "")
+        aid = name_to_iid.get(acq) or next(
+            (
+                v
+                for k, v in name_to_iid.items()
+                if k and acq and (k.startswith(acq + " ") or acq.startswith(k + " "))
+            ),
+            None,
+        )
+        if aid:
+            events.append((aid, str(e["FilerIID"]), e["AnnounceDate"]))
 
     cache = {}
 
@@ -344,7 +326,7 @@ def pairs_exact(negatives: int = 200, repeats: int = 20, seed: int = 7) -> dict:
         )
     msg = "\n".join(lines)
     log.info(msg)
-    (config.GOLD / "pair_exact_report.txt").write_text(msg, encoding="utf-8")
+    store.write_export("pair_exact_report.txt", msg)
     return {"status": "ok", "message": msg}
 
 
@@ -382,29 +364,23 @@ def pairs_full_exact() -> dict:
     from biointel import network
 
     name_to_iid = {}
-    with (config.SILVER / "companies.csv").open(
-        encoding="utf-8", newline="", errors="replace"
-    ) as f:
-        for c in _csv.DictReader(f):
-            name_to_iid[network._norm(c.get("Name", ""))] = str(c["IID"])
+    for c in store.read_table("companies"):
+        name_to_iid[network._norm(c.get("Name", ""))] = str(c["IID"])
     events = []
-    with (config.SILVER / "ma_events.csv").open(
-        encoding="utf-8", newline="", errors="replace"
-    ) as f:
-        for e in _csv.DictReader(f):
-            if e.get("Role") != "target" or not e.get("AnnounceDate"):
-                continue
-            acq = network._norm(e.get("VerifiedAcquirer") or e.get("Counterparty") or "")
-            aid = name_to_iid.get(acq) or next(
-                (
-                    v
-                    for k, v in name_to_iid.items()
-                    if k and acq and (k.startswith(acq + " ") or acq.startswith(k + " "))
-                ),
-                None,
-            )
-            if aid:
-                events.append((aid, str(e["FilerIID"]), e["AnnounceDate"]))
+    for e in store.read_table("ma_events"):
+        if e.get("Role") != "target" or not e.get("AnnounceDate"):
+            continue
+        acq = network._norm(e.get("VerifiedAcquirer") or e.get("Counterparty") or "")
+        aid = name_to_iid.get(acq) or next(
+            (
+                v
+                for k, v in name_to_iid.items()
+                if k and acq and (k.startswith(acq + " ") or acq.startswith(k + " "))
+            ),
+            None,
+        )
+        if aid:
+            events.append((aid, str(e["FilerIID"]), e["AnnounceDate"]))
     cache = {}
     ranks, pool_sizes = [], []
     for aid, tid, ann in events:
@@ -441,5 +417,5 @@ def pairs_full_exact() -> dict:
         )
     )
     log.info(msg)
-    (config.GOLD / "pair_full_exact_report.txt").write_text(msg, encoding="utf-8")
+    store.write_export("pair_full_exact_report.txt", msg)
     return {"status": "ok", "message": msg}

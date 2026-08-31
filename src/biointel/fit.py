@@ -1,3 +1,4 @@
+# src/biointel/fit.py
 """Phase M4 (fitted): logistic target-prediction model on the panel.
 
 Replaces the checklist as the primary instrument now that the label set
@@ -21,7 +22,7 @@ import csv as _csv
 import logging
 import math
 
-from biointel import config
+from biointel import config, store
 
 log = logging.getLogger(__name__)
 
@@ -166,7 +167,12 @@ def _auc_roc(scores, labels):
 
 
 def fit(censor_lead_days: int = 0) -> dict:
-    path = config.GOLD / "model_panel.csv"
+    """LEGACY (P7 amendment 2026-08-30): gen-1 logistic screen, superseded by
+    the gen-2 fitted screen (improve.develop). Reads the frozen CSV folder,
+    is not re-pointed to the store, is not re-run; kept for baseline
+    diagnosis and removed at the cleanup gate.
+    """
+    path = config.GOLD / "model_panel.csv"  # LEGACY path
     if not path.exists():
         return {"status": "empty", "message": "Run `features` first."}
     with path.open(encoding="utf-8") as f:
@@ -307,32 +313,25 @@ def fit(censor_lead_days: int = 0) -> dict:
 
 
 def _events_for_robust(strict: bool):
-    """Target events (iid, announce) from ma_events.csv; strict keeps only
+    """Target events (iid, announce) from table ma_events; strict keeps only
     machine-corroborated ones (EDGAR-strong, wiki, or dev-verified)."""
-    import csv as _c
-
     ev = []
-    with (config.SILVER / "ma_events.csv").open(encoding="utf-8") as f:
-        for e in _c.DictReader(f):
-            if e.get("Role") == "target" and e.get("AnnounceDate"):
-                ev.append((str(e["FilerIID"]), e["AnnounceDate"], e.get("Verified", "")))
+    for e in store.read_table("ma_events"):
+        if e.get("Role") == "target" and e.get("AnnounceDate"):
+            ev.append((str(e["FilerIID"]), e["AnnounceDate"], e.get("Verified", "")))
     if not strict:
         return [(i, d) for i, d, _ in ev]
     corro = {}
-    upath = config.SILVER / "ma_events_universe.csv"
-    if upath.exists():
-        with upath.open(encoding="utf-8") as f:
-            for h in _c.DictReader(f):
-                corro[
-                    (
-                        str(h["CIK"]).lstrip("0"),
-                        str(h.get("AgreementDate") or h["AnnounceDate"])[:4],
-                    )
-                ] = h.get("Corroboration") or ""
+    for h in store.read_table("ma_events_universe"):
+        corro[
+            (
+                str(h["CIK"]).lstrip("0"),
+                str(h.get("AgreementDate") or h["AnnounceDate"])[:4],
+            )
+        ] = h.get("Corroboration") or ""
     cik_by_iid = {}
-    with (config.SILVER / "companies.csv").open(encoding="utf-8") as f:
-        for c in _c.DictReader(f):
-            cik_by_iid[str(c["IID"])] = str(c.get("CIK", "")).lstrip("0")
+    for c in store.read_table("companies"):
+        cik_by_iid[str(c["IID"])] = str(c.get("CIK", "")).lstrip("0")
     keep = []
     for iid, d, verified in ev:
         c = corro.get((cik_by_iid.get(iid, ""), d[:4]), "")
@@ -415,13 +414,9 @@ def _evaluate(feat_rows, events, split, feature_names, require_price=False):
 
 
 def robust() -> dict:
-    import csv as _c
-
-    fpath = config.GOLD / "feature_panel.csv"
-    if not fpath.exists():
+    feat = store.read_table("feature_panel")
+    if not feat:
         return {"status": "empty", "message": "Run features first."}
-    with fpath.open(encoding="utf-8") as f:
-        feat = list(_c.DictReader(f))
     allf = [n for n, _ in FEATURES]
     noprice = [n for n in allf if n not in ("logMarketCap", "Drawdown52w")]
     priceonly = ["logMarketCap", "Drawdown52w", "CAR12m", "Drift12m"]
@@ -492,7 +487,7 @@ def robust() -> dict:
         )
         log.info(lines[-1])
     report = "\n".join(lines)
-    (config.GOLD / "robustness_report.txt").write_text(report, encoding="utf-8")
+    store.write_export("robustness_report.txt", report)
     return {"status": "ok", "message": report}
 
 
@@ -543,10 +538,7 @@ def improve() -> dict:
     """Iterate HERE: logistic vs gradient boosting on fundamentals-v2,
     scored on the VALIDATION window only. The 2023+ holdout is locked --
     `final` evaluates it exactly once, when iteration stops."""
-    import csv as _c
-
-    with (config.GOLD / "feature_panel.csv").open(encoding="utf-8") as f:
-        feat = list(_c.DictReader(f))
+    feat = store.read_table("feature_panel")
     fund = [(n, f) for n, f in FEATURES if n not in PRICE_NAMES]
     fund_v2 = fund + V2_EXTRA
     ev = _events_for_robust(strict=False)
@@ -598,5 +590,5 @@ def improve() -> dict:
         lines.append("gradboost-v2    (pip install scikit-learn to enable)")
 
     report = "\n".join(lines)
-    (config.GOLD / "improve_report.txt").write_text(report, encoding="utf-8")
+    store.write_export("improve_report.txt", report)
     return {"status": "ok", "message": report}

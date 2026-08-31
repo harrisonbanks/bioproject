@@ -1,3 +1,4 @@
+# src/biointel/sources/patents.py
 """Patent layer: firm-technology substrate from Google Patents Public
 Datasets on BigQuery (adopted route, PROJECT_STATUS v0.73).
 
@@ -17,11 +18,11 @@ from __future__ import annotations
 import csv
 from datetime import date
 
-from biointel import config
+from biointel import config, store
 from biointel.match import canon
 
 BULK_DIR = config.BRONZE / "patents_bulk"
-PATENTS_CSV = config.SILVER / "patents.csv"
+PATENTS_TABLE = "patents"
 
 # --------------------------------------------------------------------------
 # BigQuery route (Google Patents Public Datasets) -- keyless for the
@@ -35,7 +36,7 @@ PATENTS_CSV = config.SILVER / "patents.csv"
 # whitespace), so the round trip is deterministic and failures are
 # missing, never wrong.
 # --------------------------------------------------------------------------
-SQL_OUT = config.GOLD / "patents_bigquery.sql"
+SQL_OUT = config.EXPORTS / "patents_bigquery.sql"
 EXPORT_COLS = [
     "publication_number",
     "assignee_name",
@@ -50,20 +51,16 @@ def _name_sources() -> list[tuple[str, str]]:
     """(name, IID-or-CIK-tag) pairs from companies.csv (+ aliases) and,
     when present, universe.csv."""
     out = []
-    with config.COMPANIES_CSV.open(encoding="utf-8", newline="", errors="replace") as f:
-        for r in csv.DictReader(f):
-            if not r.get("IID"):
-                continue
-            out.append((r.get("Name", ""), r["IID"]))
-            for a in (r.get("FDAAliases") or "").split(";"):
-                if a.strip():
-                    out.append((a.strip(), r["IID"]))
-    uni = config.SILVER / "universe.csv"
-    if uni.exists():
-        with uni.open(encoding="utf-8", newline="", errors="replace") as f:
-            for r in csv.DictReader(f):
-                if r.get("Name"):
-                    out.append((r["Name"], f"CIK:{r.get('CIK', '')}"))
+    for r in store.read_table("companies"):
+        if not r.get("IID"):
+            continue
+        out.append((r.get("Name", ""), r["IID"]))
+        for a in (r.get("FDAAliases") or "").split(";"):
+            if a.strip():
+                out.append((a.strip(), r["IID"]))
+    for r in store.read_table("universe"):
+        if r.get("Name"):
+            out.append((r["Name"], f"CIK:{r.get('CIK', '')}"))
     return out
 
 
@@ -160,53 +157,45 @@ def import_export() -> dict:
         }
     kmap = canon_key_map()
     n_out, n_unmatched, firms = 0, 0, set()
-    PATENTS_CSV.parent.mkdir(parents=True, exist_ok=True)
-    with PATENTS_CSV.open("w", newline="", encoding="utf-8") as out:
-        w = csv.DictWriter(
-            out,
-            fieldnames=[
-                "IID",
-                "PatentId",
-                "PatentDate",
-                "FilingDate",
-                "CPCSubclass",
-                "AssigneeRaw",
-            ],
-        )
-        w.writeheader()
-        for path in files:
-            with path.open(encoding="utf-8", newline="", errors="replace") as f:
-                rd = csv.DictReader(f)
-                missing = [c for c in EXPORT_COLS if c not in (rd.fieldnames or [])]
-                if missing:
-                    return {
-                        "status": "fail",
-                        "message": f"HEADER MISMATCH in {path.name}: "
-                        f"missing {missing}. REAL header -- "
-                        "paste back so this is corrected:\n"
-                        f"{rd.fieldnames}",
+    rows_out: list[dict] = []
+    for path in files:
+        with path.open(encoding="utf-8", newline="", errors="replace") as f:
+            rd = csv.DictReader(f)
+            missing = [c for c in EXPORT_COLS if c not in (rd.fieldnames or [])]
+            if missing:
+                return {
+                    "status": "fail",
+                    "message": f"HEADER MISMATCH in {path.name}: "
+                    f"missing {missing}. REAL header -- "
+                    "paste back so this is corrected:\n"
+                    f"{rd.fieldnames}",
+                }
+            for r in rd:
+                tag = kmap.get(r["match_key"])
+                if not tag:
+                    n_unmatched += 1
+                    continue
+                rows_out.append(
+                    {
+                        "IID": tag,
+                        "PatentId": r["publication_number"],
+                        "PatentDate": _iso(r["grant_date"]),
+                        "FilingDate": _iso(r["filing_date"]),
+                        "CPCSubclass": r["cpc_subclass"],
+                        "AssigneeRaw": r["assignee_name"],
                     }
-                for r in rd:
-                    tag = kmap.get(r["match_key"])
-                    if not tag:
-                        n_unmatched += 1
-                        continue
-                    w.writerow(
-                        {
-                            "IID": tag,
-                            "PatentId": r["publication_number"],
-                            "PatentDate": _iso(r["grant_date"]),
-                            "FilingDate": _iso(r["filing_date"]),
-                            "CPCSubclass": r["cpc_subclass"],
-                            "AssigneeRaw": r["assignee_name"],
-                        }
-                    )
-                    n_out += 1
-                    firms.add(tag)
+                )
+                n_out += 1
+                firms.add(tag)
+    store.write_table(
+        PATENTS_TABLE,
+        rows_out,
+        ["IID", "PatentId", "PatentDate", "FilingDate", "CPCSubclass", "AssigneeRaw"],
+    )
     return {
         "status": "ok",
-        "message": f"patents.csv: {n_out:,} patent-CPC rows across "
+        "message": f"patents: {n_out:,} patent-CPC rows across "
         f"{len(firms)} matched keys "
         f"({n_unmatched:,} export rows with no local key -- "
-        f"expected 0) -> {PATENTS_CSV}",
+        f"expected 0) -> table {PATENTS_TABLE}",
     }

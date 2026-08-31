@@ -1,4 +1,10 @@
-"""Rejected pairing engines, retained as the paper's measured baselines.
+# src/biointel/baselines.py
+"""LEGACY (P7 amendment 2026-08-30). Rejected pairing engines, retained as the
+paper's measured baselines. Not re-pointed to the DuckDB store or the reporting
+layer, never re-run; kept only to diagnose a mismatch against the fingerprinted
+baseline reports; removed at the cleanup gate. Its own reads use the frozen CSV
+folders (config.SILVER / config.GOLD); the helpers it imports from pairs.py
+(_firm_docs, _acquirer_side_iids) are live code and read the database.
 
 Moved verbatim from pairs.py in refactor step 1. None of these is on
 the shipped path: `predict` uses the MASS-exact engine in pairs.py.

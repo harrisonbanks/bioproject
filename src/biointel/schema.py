@@ -31,6 +31,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
+SCHEMA_VERSION = "0.2"  # bumped when TABLES or a table declaration changes
+
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
 # registry flags of §3.1a; stubs are rows with listed=0 and has_prices=0.
@@ -652,8 +654,21 @@ TABLES: tuple[Table, ...] = (
         MODEL_COLS,
         "features",
         key=("IID", "QuarterEnd"),
-        types={**_FEATURE_TYPES, **_LABEL_TYPES},
-        enums={"TTMBasis": TTM_BASES},
+        # label flags may be blank on quarters that have no label_panel row
+        # (features.join_with_labels writes '' when the join misses)
+        types={
+            **_FEATURE_TYPES,
+            "AcquiredNext12m": "enum",
+            "AcquiredNext24m": "enum",
+            "MadeAcquisition12m": "enum",
+            "AnnounceDate": "date",
+        },
+        enums={
+            "TTMBasis": TTM_BASES,
+            "AcquiredNext12m": ("", "0", "1"),
+            "AcquiredNext24m": ("", "0", "1"),
+            "MadeAcquisition12m": ("", "0", "1"),
+        },
     ),
     Table(
         "gold/event_study.csv",
@@ -783,76 +798,101 @@ def _check_value(kind: str, v: str, allowed: tuple[str, ...] | None) -> bool:
     return True
 
 
-def validate_table(t: Table, root: Path, max_examples: int = 3) -> dict:
-    """Check one table on disk against its declaration.
+def validate_rows(t: Table, header: list[str], rows, max_examples: int = 3) -> dict:
+    """Check a header and an iterable of row lists against a declaration.
+    Shared by the CSV path (validate_table) and the database path
+    (validate_db). Returns {"path", "status", "rows", "violations"}."""
+    viol: list[str] = []
+    n = len(t.columns)
+    if tuple(header[:n]) != t.columns:
+        viol.append(
+            f"header: expected {list(t.columns)} as the first {n} columns, got {header[:n]}"
+        )
+        return {"path": t.path, "status": "violations", "rows": 0, "violations": viol}
+    extra = header[n:]
+    bad_extra = [c for c in extra if c not in t.optional]
+    if bad_extra:
+        viol.append(f"header: undeclared columns {bad_extra}")
+    idx = {c: i for i, c in enumerate(header)}
+    key_idx = [idx[c] for c in t.key if c in idx]
+    seen: set[tuple] = set()
+    type_bad: dict[str, list[str]] = {}
+    n_rows = 0
+    for line_no, row in enumerate(rows, start=2):
+        n_rows += 1
+        if len(row) != len(header):
+            viol.append(f"line {line_no}: {len(row)} fields, header has {len(header)}")
+            if len(viol) > 50:
+                break
+            continue
+        if key_idx:
+            k = tuple(row[i] for i in key_idx)
+            if k in seen:
+                type_bad.setdefault("__key__", []).append(f"line {line_no}: {k}")
+            else:
+                seen.add(k)
+        for col, kind in t.types.items():
+            i = idx.get(col)
+            if i is None:
+                continue
+            v = (row[i] or "").strip()
+            if kind == "enum":
+                ok = _check_value(kind, v, t.enums.get(col))
+            else:
+                ok = _check_value(kind, v, None)
+            if not ok:
+                type_bad.setdefault(col, []).append(f"line {line_no}: {v!r}")
+    for col, ex in type_bad.items():
+        if col == "__key__":
+            viol.append(f"key {list(t.key)}: {len(ex)} duplicate row(s), e.g. {ex[:max_examples]}")
+        else:
+            viol.append(
+                f"column {col} ({t.types[col]}): {len(ex)} bad value(s), e.g. {ex[:max_examples]}"
+            )
+    return {
+        "path": t.path,
+        "status": "violations" if viol else "conformant",
+        "rows": n_rows,
+        "violations": viol,
+    }
 
-    Returns {"path", "status", "rows", "violations"} where status is
-    "conformant", "violations", "absent", or "planned".
-    """
+
+def validate_table(t: Table, root: Path, max_examples: int = 3) -> dict:
+    """Check one CSV table on disk against its declaration (pre-migration
+    files and fixtures). Status: conformant, violations, absent, planned."""
     p = root / t.path
     if t.planned:
         return {"path": t.path, "status": "planned", "rows": 0, "violations": []}
     if not p.exists():
         return {"path": t.path, "status": "absent", "rows": 0, "violations": []}
-    viol: list[str] = []
     with p.open(encoding="utf-8", newline="", errors="replace") as f:
         rd = csv.reader(f)
         header = next(rd, None) or []
-        n = len(t.columns)
-        if tuple(header[:n]) != t.columns:
-            viol.append(
-                f"header: expected {list(t.columns)} as the first {n} columns, got {header[:n]}"
-            )
-            return {"path": t.path, "status": "violations", "rows": 0, "violations": viol}
-        extra = header[n:]
-        bad_extra = [c for c in extra if c not in t.optional]
-        if bad_extra:
-            viol.append(f"header: undeclared columns {bad_extra}")
-        idx = {c: i for i, c in enumerate(header)}
-        key_idx = [idx[c] for c in t.key if c in idx]
-        seen: set[tuple] = set()
-        type_bad: dict[str, list[str]] = {}
-        rows = 0
-        for line_no, row in enumerate(rd, start=2):
-            rows += 1
-            if len(row) != len(header):
-                viol.append(f"line {line_no}: {len(row)} fields, header has {len(header)}")
-                if len(viol) > 50:
-                    break
-                continue
-            if key_idx:
-                k = tuple(row[i] for i in key_idx)
-                if k in seen:
-                    type_bad.setdefault("__key__", []).append(f"line {line_no}: {k}")
-                else:
-                    seen.add(k)
-            for col, kind in t.types.items():
-                i = idx.get(col)
-                if i is None:
-                    continue
-                v = row[i].strip()
-                if kind == "enum":
-                    ok = _check_value(kind, v, t.enums.get(col))
-                else:
-                    ok = _check_value(kind, v, None)
-                if not ok:
-                    type_bad.setdefault(col, []).append(f"line {line_no}: {v!r}")
-        for col, ex in type_bad.items():
-            if col == "__key__":
-                viol.append(
-                    f"key {list(t.key)}: {len(ex)} duplicate row(s), e.g. {ex[:max_examples]}"
-                )
-            else:
-                viol.append(
-                    f"column {col} ({t.types[col]}): {len(ex)} bad value(s), "
-                    f"e.g. {ex[:max_examples]}"
-                )
-    return {
-        "path": t.path,
-        "status": "violations" if viol else "conformant",
-        "rows": rows,
-        "violations": viol,
-    }
+        return validate_rows(t, header, rd, max_examples)
+
+
+def validate_db(con, max_examples: int = 3) -> list[dict]:
+    """Check every declared table present in the DuckDB database (P16).
+    The database already enforces the declared constraints at write time;
+    this re-checks stored rows independently, the same way the CSV path did."""
+    from biointel import store
+
+    out = []
+    for t in TABLES:
+        name = store.table_name(t.path)
+        if t.planned:
+            out.append({"path": name, "status": "planned", "rows": 0, "violations": []})
+            continue
+        if not store.has_table(name, con):
+            out.append({"path": name, "status": "absent", "rows": 0, "violations": []})
+            continue
+        header = store.table_columns(name, con)
+        sel = ", ".join('"' + c.replace('"', '""') + '"' for c in header)
+        rows = con.execute(f'SELECT {sel} FROM "{name}" ORDER BY _rowid').fetchall()
+        r = validate_rows(t, header, rows, max_examples)
+        r["path"] = name
+        out.append(r)
+    return out
 
 
 def validate_all(root: Path) -> list[dict]:

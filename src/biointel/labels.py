@@ -1,3 +1,4 @@
+# src/biointel/labels.py
 """Phase L, restructured: proposed events -> verified overlay -> panel.
 
 WHY THE RESTRUCTURE. The first design inferred labels purely from
@@ -44,7 +45,7 @@ import re
 from collections import defaultdict
 from datetime import date, timedelta
 
-from biointel import config
+from biointel import config, store
 from biointel.store import fetch_json
 
 log = logging.getLogger(__name__)
@@ -150,13 +151,7 @@ def still_filing_after(cik10: str, announce: str, months: int = 15) -> bool | No
 
 # ------------------------------------------------------ verified overlay
 def read_verified() -> list[dict]:
-    path = config.SILVER / "ma_events_verified.csv"
-    if not path.exists():
-        return []
-    import csv
-
-    with path.open(encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+    return store.read_table("ma_events_verified")
 
 
 # ------------------------------------------------------------- proposals
@@ -445,13 +440,9 @@ def harvest_universe() -> dict:
     high-confidence row gets its Acquirer filled and moved into
     ma_events_verified.csv after checking against public deal records.
     """
-    import csv as _csv
-
-    upath = config.SILVER / "universe.csv"
-    if not upath.exists():
+    members = store.read_table("universe")
+    if not members:
         return {"status": "empty", "message": "Run `universe` first."}
-    with upath.open(encoding="utf-8") as f:
-        members = list(_csv.DictReader(f))
 
     rows = []
     for i, m in enumerate(members, 1):
@@ -501,11 +492,8 @@ def harvest_universe() -> dict:
             )
 
     rows.sort(key=lambda r: (-r["Confidence"], r["AnnounceDate"]))
-    out = config.SILVER / "ma_events_universe.csv"
-    with out.open("w", newline="", encoding="utf-8") as f:
-        w = _csv.DictWriter(f, fieldnames=HARVEST_COLS, extrasaction="ignore")
-        w.writeheader()
-        w.writerows(rows)
+    out = "ma_events_universe"
+    store.write_table(out, rows, HARVEST_COLS)
     strong = sum(1 for r in rows if r["Confidence"] >= 2)
     return {
         "status": "ok",
@@ -576,13 +564,10 @@ def verify_fill() -> dict:
     acquirer. Verified column becomes 'auto' -- promotion to 'yes' stays
     a human decision on spot-check. Fetches are bronze-cached; reruns
     are free."""
-    import csv as _csv
-
-    path = config.SILVER / "ma_events_universe.csv"
-    if not path.exists():
+    path = "ma_events_universe"
+    rows = store.read_table(path)
+    if not rows:
         return {"status": "empty", "message": "Run `harvest` first."}
-    with path.open(encoding="utf-8") as f:
-        rows = list(_csv.DictReader(f))
 
     from biointel.sources.counterparty import fetch_text
 
@@ -623,10 +608,7 @@ def verify_fill() -> dict:
                 filled += 1
                 break
 
-    with path.open("w", newline="", encoding="utf-8") as f:
-        w = _csv.DictWriter(f, fieldnames=HARVEST_COLS, extrasaction="ignore")
-        w.writeheader()
-        w.writerows(rows)
+    store.write_table(path, rows, HARVEST_COLS)
     todo = sum(1 for r in rows if int(r["Confidence"]) >= 2 and not r.get("Acquirer"))
     return {
         "status": "ok",
@@ -645,17 +627,11 @@ def merged_events(read_companies, read_deals, read_cparty) -> list[dict]:
     Dedup on (IID, announce year); precedence: verified > harvest-filled
     > dev-set proposal.
     """
-    import csv as _csv
-
     base = build_ma_events(read_companies, read_deals, read_cparty)
     cik_to_iid = {
         str(c.get("CIK", "")).lstrip("0"): int(c["IID"]) for c in read_companies() if c.get("CIK")
     }
-    hpath = config.SILVER / "ma_events_universe.csv"
-    harvest = []
-    if hpath.exists():
-        with hpath.open(encoding="utf-8") as f:
-            harvest = list(_csv.DictReader(f))
+    harvest = store.read_table("ma_events_universe")
 
     def rank(e):
         if e.get("Verified") == "yes":
@@ -783,14 +759,12 @@ def qa_pass(sample_n: int = 60, seed: int = 11) -> dict:
     press announcements -- the R7 threat) and an EventClass; emit the
     stratified human worklist (gold/qa_worklist.csv) covering a random
     sample plus every structurally suspicious row."""
-    import csv as _csv
     import random as _random
 
-    path = config.SILVER / "ma_events_universe.csv"
-    if not path.exists():
+    path = "ma_events_universe"
+    rows = store.read_table(path)
+    if not rows:
         return {"status": "empty", "message": "Run harvest/verify-fill first."}
-    with path.open(encoding="utf-8") as f:
-        rows = list(_csv.DictReader(f))
 
     from biointel.sources.counterparty import fetch_text
 
@@ -864,22 +838,17 @@ def qa_pass(sample_n: int = 60, seed: int = 11) -> dict:
             if gap > 45:
                 r["QAFlag"] = (r.get("QAFlag", "") + f"; proxy-lag-{gap}d").strip("; ")
 
-    with path.open("w", newline="", encoding="utf-8") as f:
-        w = _csv.DictWriter(f, fieldnames=QA_COLS, extrasaction="ignore")
-        w.writeheader()
-        w.writerows(rows)
+    store.write_table(path, rows, QA_COLS)
 
     filled = [r for r in rows if r.get("Acquirer")]
     _random.seed(seed)
     sample = _random.sample(filled, min(sample_n, len(filled)))
     flagged = [r for r in rows if r.get("QAFlag")]
     worklist = {id(r): r for r in sample + flagged}.values()
-    out = config.GOLD / "qa_worklist.csv"
-    with out.open("w", newline="", encoding="utf-8") as f:
-        w = _csv.DictWriter(f, fieldnames=QA_COLS + ["HumanVerdict"], extrasaction="ignore")
-        w.writeheader()
-        for r in worklist:
-            w.writerow({**r, "HumanVerdict": ""})
+    out = "qa_worklist"
+    store.write_table(
+        out, [{**r, "HumanVerdict": ""} for r in worklist], QA_COLS + ["HumanVerdict"]
+    )
     return {
         "status": "ok",
         "message": f"QA: {n_date} agreement dates extracted, "
@@ -1014,14 +983,11 @@ def qa_corroborate(read_companies) -> dict:
     """Fill Corroboration for every event with an acquirer; suggest
     HumanVerdict='ok(machine-corroborated)' on strong agreement so the
     human worklist shrinks to the genuine residue."""
-    import csv as _csv
-
     from biointel import network
     from biointel.sources.counterparty import fetch_text
 
-    path = config.SILVER / "ma_events_universe.csv"
-    with path.open(encoding="utf-8") as f:
-        rows = list(_csv.DictReader(f))
+    path = "ma_events_universe"
+    rows = store.read_table(path)
     for r in rows:
         r.setdefault("Corroboration", "")
 
@@ -1079,16 +1045,12 @@ def qa_corroborate(read_companies) -> dict:
     cols = list(rows[0].keys())
     if "Corroboration" not in cols:
         cols.append("Corroboration")
-    with path.open("w", newline="", encoding="utf-8") as f:
-        w = _csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
-        w.writeheader()
-        w.writerows(rows)
+    store.write_table(path, rows, cols)
 
     # regenerate the human worklist: strong rows pre-verdicted, residue open
-    wl = config.GOLD / "qa_worklist.csv"
-    if wl.exists():
-        with wl.open(encoding="utf-8") as f:
-            wrows = list(_csv.DictReader(f))
+    wl = "qa_worklist"
+    wrows = store.read_table(wl)
+    if wrows:
         cmap = {(r["CIK"], r["AnnounceDate"]): r.get("Corroboration", "") for r in rows}
         open_rows = 0
         for wr in wrows:
@@ -1101,10 +1063,7 @@ def qa_corroborate(read_companies) -> dict:
         wcols = list(wrows[0].keys())
         if "Corroboration" not in wcols:
             wcols.append("Corroboration")
-        with wl.open("w", newline="", encoding="utf-8") as f:
-            w = _csv.DictWriter(f, fieldnames=wcols, extrasaction="ignore")
-            w.writeheader()
-            w.writerows(wrows)
+        store.write_table(wl, wrows, wcols)
     else:
         open_rows = -1
     return {
@@ -1124,13 +1083,10 @@ def qa_wiki(read_companies) -> dict:
     acquisition context. Marks Corroboration 'wiki:...' and pre-verdicts
     the worklist. No API key; graceful per-row failure; cached.
     """
-    import csv as _csv
-
     from biointel import network
 
-    path = config.SILVER / "ma_events_universe.csv"
-    with path.open(encoding="utf-8") as f:
-        rows = list(_csv.DictReader(f))
+    path = "ma_events_universe"
+    rows = store.read_table(path)
 
     def wiki_extract(query: str) -> str:
         try:
@@ -1183,16 +1139,12 @@ def qa_wiki(read_companies) -> dict:
             r["Corroboration"] = (c + "; wiki:no-match").strip("; ")
 
     cols = list(rows[0].keys())
-    with path.open("w", newline="", encoding="utf-8") as f:
-        w = _csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
-        w.writeheader()
-        w.writerows(rows)
+    store.write_table(path, rows, cols)
 
-    wl = config.GOLD / "qa_worklist.csv"
+    wl = "qa_worklist"
     open_rows = -1
-    if wl.exists():
-        with wl.open(encoding="utf-8") as f:
-            wrows = list(_csv.DictReader(f))
+    wrows = store.read_table(wl)
+    if wrows:
         cmap = {(r["CIK"], r["AnnounceDate"]): r.get("Corroboration", "") for r in rows}
         open_rows = 0
         for wr in wrows:
@@ -1202,10 +1154,7 @@ def qa_wiki(read_companies) -> dict:
                 wr["HumanVerdict"] = "ok(machine-corroborated)"
             if not wr.get("HumanVerdict"):
                 open_rows += 1
-        with wl.open("w", newline="", encoding="utf-8") as f:
-            w = _csv.DictWriter(f, fieldnames=list(wrows[0].keys()), extrasaction="ignore")
-            w.writeheader()
-            w.writerows(wrows)
+        store.write_table(wl, wrows, list(wrows[0].keys()))
     return {
         "status": "ok",
         "message": f"Wikipedia: {checked} residue rows checked, "

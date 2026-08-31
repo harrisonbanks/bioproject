@@ -1,3 +1,4 @@
+# src/biointel/sources/orangebook.py
 """FDA Orange Book layer: per-drug patent and exclusivity expiry dates.
 
 WHY. The literature's stated deal engine for biopharma M&A is the
@@ -29,7 +30,7 @@ from datetime import date, datetime, timezone
 
 import requests
 
-from biointel import config
+from biointel import config, store
 
 # The FDA's stable "Orange Book Data Files" media link. If it 404s or
 # redirects to HTML, the probe prints what came back for repointing.
@@ -167,18 +168,16 @@ def loe_urgency(as_of: date, horizon_years: int = 3) -> dict:
     as_of + horizon (already-expired counts: that revenue is eroding
     now). Count-based proxy -- free data carries no product revenue;
     stated as such wherever reported."""
-    import csv as _csv
 
     ends = _protection_end_by_appno()
     limit = date(as_of.year + horizon_years, as_of.month, min(as_of.day, 28))
     apps: dict = {}
-    with (config.SILVER / "events.csv").open(encoding="utf-8", newline="", errors="replace") as f:
-        for r in _csv.DictReader(f):
-            if "pproval" not in (r.get("Outcome") or ""):
-                continue
-            ap = "".join(ch for ch in (r.get("AppNo") or "") if ch.isdigit()).zfill(6)
-            if ap != "000000":
-                apps.setdefault(str(r["IID"]), set()).add(ap)
+    for r in store.read_table("events"):
+        if "pproval" not in (r.get("Outcome") or ""):
+            continue
+        ap = "".join(ch for ch in (r.get("AppNo") or "") if ch.isdigit()).zfill(6)
+        if ap != "000000":
+            apps.setdefault(str(r["IID"]), set()).add(ap)
     out = {}
     for iid, s in apps.items():
         matched = [a for a in s if a in ends]

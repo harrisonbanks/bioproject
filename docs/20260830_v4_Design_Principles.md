@@ -1,6 +1,6 @@
-docs/20260830_v3_Design_Principles.md
+docs/20260830_v4_Design_Principles.md
 
-# Design principles — Bioindustry Intelligence Platform (v3, 2026-08-30)
+# Design principles — Bioindustry Intelligence Platform (v4, 2026-08-30)
 
 Binding for every session. Loaded at session start with the handoff. Each
 principle records the decision, its date, and the reason it was taken.
@@ -138,4 +138,17 @@ run or historical-file) with rows in `run_params`, `run_metrics` and
 rendered report). Every human-readable report is rendered from its record.
 The structure copies MLflow's run record so the ledger can be exported to
 MLflow later; the software is not adopted, to avoid a third store.
+
+## P18. One store layer; set operations converge to SQL, modelling stays in Python (2026-08-30)
+Every table read or write in live code goes through `store.read_table` /
+`store.write_table`; no module opens a data file itself. Target computation
+style: set operations (joins, group-bys, as-of lookups, window functions)
+belong in SQL inside DuckDB; model fitting, scoring and statistics stay in
+Python on the result rows; no module mixes the two styles for the same
+operation. Convergence rule: a module's set operations move to SQL only in a
+gate that touches that module for its own reason, each move proved against
+the fingerprint baseline; nothing is rewritten speculatively (P9). Gate 0.2
+stored values as text with the declared types, allowed values and keys
+enforced as database constraints; typed reads (`typed=True`) are for new code
+and for modules as they converge. Legacy code (P7) never converges.
 

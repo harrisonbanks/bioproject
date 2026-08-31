@@ -1,12 +1,12 @@
-docs/20260830_v4_Implementation_Plan.md
+docs/20260830_v5_Implementation_Plan.md
 
 # Implementation plan and gate ledger
 
-Bioindustry Intelligence Platform · v4 · 2026-08-30 (v4: Phase 0 reordered — storage migration to DuckDB as 0.2, reporting layer 0.3, model framework 0.4; legacy rule; thirteen-file regression baseline; v3: gate 0.1 DONE; v2: ontology roadmap steps mapped; gates M1-G/H/I added) · Status: agreed in
+Bioindustry Intelligence Platform · v5 · 2026-08-30 (v5: gate 0.2 DONE; v4: Phase 0 reordered — storage migration to DuckDB as 0.2, reporting layer 0.3, model framework 0.4; legacy rule; thirteen-file regression baseline; v3: gate 0.1 DONE; v2: ontology roadmap steps mapped; gates M1-G/H/I added) · Status: agreed in
 principle 2026-08-30 ("all makes sense"); formal go per gate.
 Target state: docs/20260830_v1_System_Diagram_TARGET_STATE.*.
 Requirements: Ontology v3, FDA Catalyst Product Design v1, Horizon Scanning
-Design v1. Rules: Design Principles v3 (P1–P17). Process: operating manual +
+Design v1. Rules: Design Principles v4 (P1–P18). Process: operating manual +
 MACHINE_RUNBOOK v2.
 
 ## 1. How every gate proceeds (standing procedure)
@@ -35,8 +35,8 @@ Status: PLANNED · READY (entry criteria met) · IN PROGRESS · DONE (hash) · D
 | Gate | Deliverable | Depends on | Entry criteria | Exit criteria (evidence) | Status |
 |---|---|---|---|---|---|
 | 0.1 | `schema.py` (entity types, attributes, event classes, allowed values, table map) + `validate` command; `config.py` de-duplicated with guard test (added to scope 2026-08-30) | — | tree at latest docs commit, clean | `validate` reports every silver/gold table conformant or lists violations; 2+ unit tests; regression unchanged | DONE 2026-08-30 (validate 17 conformant / 1 violations / 9 absent / 5 planned; pytest 37; regression 04061e33…530d, 960307e2…e81b; runbook docs/20260830_v1_GATE01_INSTALL.md) |
-| 0.2 | Storage migration (P16): `schema.py` creates all silver/gold/ledger tables in `data\biointel.duckdb` with typed columns, keys and allowed values as database constraints; every live read/write site re-pointed from CSV to DuckDB; `migrate` command loads the existing CSVs once; `freeze` snapshots the database file; `validate` checks the database; `ma_predictions.csv` and all report text written to `data\exports\`; legacy code untouched on CSV | 0.1 | thirteen-file regression baseline recorded with current code (§5); decisions committed | `migrate` row counts equal the CSV counts; all live commands run against DuckDB; all thirteen fingerprints match; `validate` all conformant; pytest passes | PLANNED |
-| 0.3 | Reporting layer (P17): ledger tables `runs`, `run_params`, `run_metrics`, `run_artefacts` in DuckDB (MLflow structure); `results.py` record/render; every live report writer re-pointed; `report <model> <date>`; legacy reports entered as `historical-file` rows with fingerprint and commit 880da16 | 0.2 | — | seven live reports byte-identical to baseline; one `runs` row per live re-run and per legacy file; fingerprints match | PLANNED |
+| 0.2 | Storage migration (P16, P18): `schema.py` creates all silver/gold/ledger tables in `data\biointel.duckdb` with typed columns, keys and allowed values as database constraints; every live read/write site re-pointed from CSV to DuckDB; `migrate` command loads the existing CSVs once; `freeze` snapshots the database file; `validate` checks the database; `ma_predictions.csv` and all report text written to `data\exports\`; legacy code untouched on CSV | 0.1 | thirteen-file regression baseline recorded with current code (§5); decisions committed | `migrate` row counts equal the CSV counts; all live commands run against DuckDB; all thirteen fingerprints match; `validate` all conformant; pytest passes | DONE 2026-08-30 (migrate 19 tables, counts equal; validate 19/0/8/5; pytest 46; thirteen fingerprints True; runbook docs/20260830_v1_GATE02_INSTALL.md) |
+| 0.3 | Reporting layer (P17): ledger tables `runs`, `run_params`, `run_metrics`, `run_artefacts` in DuckDB (MLflow structure); `results.py` record/render; every live report writer re-pointed; `report <model> <date>`; legacy reports entered as `historical-file` rows with fingerprint and commit 880da16 | 0.2 | 0.2 DONE | seven live reports byte-identical to baseline; one `runs` row per live re-run and per legacy file; fingerprints match | PLANNED |
 | 0.4 | Model framework: interface, registry, harness; five existing models wrapped | 0.2, 0.3 | — | `python -m biointel models` lists the live models with declared inputs; harness reproduces ledger metrics for pairs-exact and gen-2 screen; regression unchanged | PLANNED |
 | 1.4 (F1) | Event table schema + migration of `events.csv`; `calendar IID` as view | 0.2 | — | row count preserved; `study-all` and `predict` hashes unchanged; view prints trials + FDA + (empty) forward rows | PLANNED |
 | 1.5 (F2) | EFTS probe; 8-K exhibit query set; date/asset parser; review queue | 1.4 | probe passes (documented endpoint behaviour, User-Agent, partitioning) | on a 90-day sample: ≥ N parsed forward events with source URLs; parse precision measured on a hand-checked sample; unparsed hits queued | PLANNED |

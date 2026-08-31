@@ -1,3 +1,4 @@
+# src/biointel/score.py
 """Phase M3-M5: target scoring, acquirer pairing, and the backtest.
 
 WHY A TRANSPARENT SCORE AND NOT A FITTED CLASSIFIER. The verified label
@@ -41,11 +42,10 @@ Vertex/Crinetics deal (announced 2026-07-06) is the live test: the
 
 from __future__ import annotations
 
-import csv as _csv
 import re
 from collections import defaultdict
 
-from biointel import config
+from biointel import config, store
 
 PRED_COLS = [
     "Rank",
@@ -95,11 +95,8 @@ _STOP = {
 }
 
 
-def _load(path):
-    if not path.exists():
-        return []
-    with path.open(encoding="utf-8") as f:
-        return list(_csv.DictReader(f))
+def _load(table: str):
+    return store.read_table(table)
 
 
 def _num(v):
@@ -111,7 +108,7 @@ def _num(v):
 
 def _condition_tokens() -> dict[int, set]:
     toks = defaultdict(set)
-    for r in _load(config.SILVER / "trials.csv"):
+    for r in _load("trials"):
         for w in re.sub(r"[^a-z0-9 ]", " ", (r.get("Conditions") or "").lower()).split():
             if len(w) > 3 and w not in _STOP:
                 toks[int(r["IID"])].add(w)
@@ -180,7 +177,7 @@ def _is_acquirer_side(r: dict) -> bool:
 
 def predict(quarter: str | None = None) -> dict:
     """Ranked predictions for one quarter (default: latest with data)."""
-    panel = _load(config.GOLD / "model_panel.csv")
+    panel = _load("model_panel")
     if not panel:
         return {"status": "empty", "message": "model_panel.csv missing. Run: features"}
     quarters = sorted({r["QuarterEnd"] for r in panel})
@@ -189,7 +186,7 @@ def predict(quarter: str | None = None) -> dict:
 
     toks = _condition_tokens()
     rels = defaultdict(set)
-    for r in _load(config.RELATIONSHIPS_CSV):
+    for r in _load("relationships"):
         if r.get("PartnerIID") not in ("", None):
             a, b = int(r["IID"]), int(r["PartnerIID"])
             rels[a].add(b)
@@ -259,11 +256,8 @@ def predict(quarter: str | None = None) -> dict:
             row[f"AcqLOE{i + 1}"] = fits[i][3] if i < len(fits) else ""
         out.append(row)
 
-    path = config.GOLD / "ma_predictions.csv"
-    with path.open("w", newline="", encoding="utf-8") as f:
-        w = _csv.DictWriter(f, fieldnames=PRED_COLS, extrasaction="ignore")
-        w.writeheader()
-        w.writerows(out)
+    store.write_table("ma_predictions", out, PRED_COLS)
+    path = store.export_csv("ma_predictions", config.EXPORTS / "ma_predictions.csv")
     return {
         "status": "ok",
         "quarter": q,
@@ -275,7 +269,7 @@ def predict(quarter: str | None = None) -> dict:
 
 def backtest() -> list[str]:
     """Where did verified acquisitions rank, pre-announcement?"""
-    panel = _load(config.GOLD / "model_panel.csv")
+    panel = _load("model_panel")
     pos_quarters = sorted(
         {
             (r["QuarterEnd"], r["Ticker"], r["Acquirer"])

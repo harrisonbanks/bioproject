@@ -1,3 +1,4 @@
+# src/biointel/universe.py
 """P1a: rule-defined company universe from EDGAR.
 
 THE RULE (stated once, applied mechanically, cited in the paper):
@@ -36,7 +37,7 @@ import logging
 import re
 from datetime import date
 
-from biointel import config
+from biointel import config, store
 from biointel.store import fetch_json
 
 log = logging.getLogger(__name__)
@@ -248,13 +249,8 @@ def build(read_companies, max_pages_per_sic: int = 40, detail_limit: int | None 
             }
         )
 
-    import csv as _csv
-
-    path = config.SILVER / "universe.csv"
-    with path.open("w", newline="", encoding="utf-8") as f:
-        w = _csv.DictWriter(f, fieldnames=UNIVERSE_COLS, extrasaction="ignore")
-        w.writeheader()
-        w.writerows(rows)
+    path = "universe"
+    store.write_table(path, rows, UNIVERSE_COLS)
     n_del = sum(1 for r in rows if r["Delisted"])
     return {
         "status": "ok",

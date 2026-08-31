@@ -1,3 +1,4 @@
+# src/biointel/features.py
 """Phase M1: the feature table.
 
 One row per (company, calendar quarter end), every feature computed
@@ -39,11 +40,10 @@ are filled when reachable, blank otherwise -- never fabricated.
 
 from __future__ import annotations
 
-import csv as _csv
 from collections import defaultdict
 from datetime import date, timedelta
 
-from biointel import config
+from biointel import store
 
 FEATURE_COLS = [
     "IID",
@@ -129,11 +129,8 @@ def _num(v):
         return None
 
 
-def _load(path, cols=None):
-    if not path.exists():
-        return []
-    with path.open(encoding="utf-8") as f:
-        return list(_csv.DictReader(f))
+def _load(table: str):
+    return store.read_table(table)
 
 
 def build_features(read_companies, start: str = "2010-01-01") -> list[dict]:
@@ -142,25 +139,25 @@ def build_features(read_companies, start: str = "2010-01-01") -> list[dict]:
     companies = read_companies()
 
     fins = defaultdict(list)
-    for r in _load(config.SILVER / "financials.csv"):
+    for r in _load("financials"):
         fins[int(r["IID"])].append(r)
     for v in fins.values():
         v.sort(key=lambda r: r["PeriodEnd"])
 
     trials = defaultdict(list)
-    for r in _load(config.SILVER / "trials.csv"):
+    for r in _load("trials"):
         trials[int(r["IID"])].append(r)
 
     events = defaultdict(list)
-    for r in _load(config.SILVER / "events.csv"):
+    for r in _load("events"):
         events[int(r["IID"])].append(r)
 
     study = defaultdict(list)
-    for r in _load(config.GOLD / "event_study.csv"):
+    for r in _load("event_study"):
         study[int(r["IID"])].append(r)
 
     rels = defaultdict(list)
-    for r in _load(config.RELATIONSHIPS_CSV):
+    for r in _load("relationships"):
         rels[int(r["IID"])].append(r)
 
     # optional price bars, one fetch per ticker for the whole span
@@ -374,7 +371,7 @@ def build_features(read_companies, start: str = "2010-01-01") -> list[dict]:
 
 def join_with_labels(features: list[dict]) -> list[dict]:
     """gold/model_panel.csv = features + labels on (IID, QuarterEnd)."""
-    labels = {(r["IID"], r["QuarterEnd"]): r for r in _load(config.GOLD / "label_panel.csv")}
+    labels = {(r["IID"], r["QuarterEnd"]): r for r in _load("label_panel")}
     out = []
     for f in features:
         lab = labels.get((str(f["IID"]), f["QuarterEnd"])) or {}

@@ -1,3 +1,4 @@
+# src/biointel/store.py
 """Bronze layer: fetch and store raw API responses before any parsing.
 
 Why: Power Query re-fetches on every refresh and stores only the parsed,
@@ -90,3 +91,266 @@ def coverage_report() -> list[dict]:
     for meta in sorted(config.BRONZE.rglob("*.meta.json")):
         out.append(json.loads(meta.read_text(encoding="utf-8")))
     return out
+
+
+# ---------------------------------------------------------------- DuckDB tables
+# Single point of access for every silver, gold and ledger table (P16).
+# Values are stored as text exactly as the CSV layer held them (gate 0.2,
+# decision 2026-08-30); declared types, keys and allowed values from
+# schema.py are enforced as CHECK / UNIQUE constraints at write time, and
+# typed reads (typed=True) cast on the way out. Row order is insertion
+# order, kept by a hidden _rowid column, so a read returns rows in the
+# order they were written, as a CSV did.
+
+import csv as _csv  # noqa: E402
+import re as _re  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import duckdb  # noqa: E402
+
+from biointel import schema as _schema  # noqa: E402
+
+_con: duckdb.DuckDBPyConnection | None = None
+_con_path: Path | None = None
+
+
+def table_name(path: str) -> str:
+    """'silver/events.csv' -> 'events'. Table names are the file stems."""
+    return Path(path).stem
+
+
+_TABLES = {table_name(t.path): t for t in _schema.TABLES}
+
+
+def connect(path: Path | None = None) -> duckdb.DuckDBPyConnection:
+    """Open (or create) the one database file; cached for the process."""
+    global _con, _con_path
+    if path is None:
+        if _con is not None:
+            return _con
+        p = config.DUCKDB
+    else:
+        p = Path(path)
+        if _con is not None and _con_path == p:
+            return _con
+        if _con is not None:
+            _con.close()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    _con = duckdb.connect(str(p))
+    _con_path = p
+    _ensure_meta(_con)
+    return _con
+
+
+def close() -> None:
+    global _con, _con_path
+    if _con is not None:
+        _con.close()
+    _con, _con_path = None, None
+
+
+def _q(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _lit(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
+def _ensure_meta(con) -> None:
+    con.execute("CREATE TABLE IF NOT EXISTS meta (key VARCHAR PRIMARY KEY, value VARCHAR)")
+    con.execute(
+        "INSERT INTO meta VALUES ('duckdb_version', ?) ON CONFLICT DO UPDATE SET value = excluded.value",
+        [duckdb.__version__],
+    )
+    con.execute(
+        "INSERT INTO meta VALUES ('schema_version', ?) ON CONFLICT DO UPDATE SET value = excluded.value",
+        [_schema.SCHEMA_VERSION],
+    )
+    con.execute("INSERT OR IGNORE INTO meta VALUES ('created_at', ?)", [_now_iso()])
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _check_sql(col: str, kind: str, allowed: tuple[str, ...] | None) -> str | None:
+    c = _q(col)
+    if kind == "int":
+        return f"CHECK ({c} = '' OR regexp_matches({c}, '^-?[0-9]+(\\.0+)?$'))"
+    if kind == "float":
+        return f"CHECK ({c} = '' OR TRY_CAST({c} AS DOUBLE) IS NOT NULL)"
+    if kind == "date":
+        return f"CHECK ({c} = '' OR TRY_STRPTIME({c}, '%Y-%m-%d') IS NOT NULL)"
+    if kind == "datetime":
+        return f"CHECK ({c} = '' OR TRY_CAST({c} AS TIMESTAMP) IS NOT NULL)"
+    if kind == "flag01":
+        return f"CHECK ({c} IN ('0', '1'))"
+    if kind == "enum" and allowed is not None:
+        vals = ", ".join("'" + v.replace("'", "''") + "'" for v in allowed)
+        return f"CHECK ({c} IN ({vals}))"
+    return None
+
+
+def _create_sql(name: str, header: list[str], t: _schema.Table | None) -> str:
+    cols = ["_rowid BIGINT NOT NULL"] + [f"{_q(c)} VARCHAR NOT NULL" for c in header]
+    cons: list[str] = []
+    if t is not None:
+        for col, kind in t.types.items():
+            if col in header:
+                s = _check_sql(col, kind, t.enums.get(col))
+                if s:
+                    cons.append(s)
+        if t.key and all(k in header for k in t.key):
+            cons.append("UNIQUE (" + ", ".join(_q(k) for k in t.key) + ")")
+    return f"CREATE OR REPLACE TABLE {_q(name)} (" + ", ".join(cols + cons) + ")"
+
+
+def has_table(name: str, con=None) -> bool:
+    con = con or connect()
+    r = con.execute(
+        "SELECT count(*) FROM information_schema.tables WHERE table_name = ?", [name]
+    ).fetchone()
+    return bool(r and r[0])
+
+
+def table_columns(name: str, con=None) -> list[str]:
+    """Header of a stored table, in written order (without _rowid)."""
+    con = con or connect()
+    rows = con.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = ? "
+        "ORDER BY ordinal_position",
+        [name],
+    ).fetchall()
+    return [r[0] for r in rows if r[0] != "_rowid"]
+
+
+def read_table(name: str, typed: bool = False, con=None) -> list[dict]:
+    """All rows of a table as dicts keyed by the written header, in written
+    order. Missing table -> []. typed=True casts int/float/date columns per
+    schema.py (blank -> None); default returns text exactly as written."""
+    con = con or connect()
+    if not has_table(name, con):
+        return []
+    header = table_columns(name, con)
+    if not header:
+        return []
+    sel = ", ".join(_q(c) for c in header)
+    rows = con.execute(f"SELECT {sel} FROM {_q(name)} ORDER BY _rowid").fetchall()
+    out = [dict(zip(header, r)) for r in rows]
+    if typed:
+        t = _TABLES.get(name)
+        if t is not None:
+            for r in out:
+                for col, kind in t.types.items():
+                    if col in r:
+                        r[col] = _cast(r[col], kind)
+    return out
+
+
+def _cast(v: str, kind: str):
+    if v == "":
+        return None
+    if kind == "int":
+        return int(float(v))
+    if kind == "float":
+        return float(v)
+    if kind == "date":
+        from datetime import date as _date
+
+        return _date.fromisoformat(v)
+    if kind == "flag01":
+        return v == "1"
+    return v
+
+
+def _cell(v) -> str:
+    if v is None:
+        return ""
+    return str(v)
+
+
+def write_table(name: str, rows: list[dict], columns: list[str] | tuple[str, ...], con=None) -> int:
+    """Replace a table's contents with rows (dicts; missing keys -> '',
+    extra keys ignored — csv.DictWriter(extrasaction='ignore') semantics).
+    Undeclared columns are rejected for declared tables; constraints from
+    schema.py are enforced. Returns the row count written."""
+    con = con or connect()
+    header = list(columns)
+    t = _TABLES.get(name)
+    if t is not None:
+        n = len(t.columns)
+        if tuple(header[:n]) != t.columns:
+            raise ValueError(
+                f"{name}: header must start with the declared columns {list(t.columns)}; got {header[:n]}"
+            )
+        bad = [c for c in header[n:] if c not in t.optional]
+        if bad:
+            raise ValueError(f"{name}: undeclared columns {bad}")
+    # Bulk path: the rows are handed to DuckDB as one NumPy object array per
+    # column (numpy is a core dependency), registered as a temporary view and
+    # copied in a single INSERT ... SELECT. No temporary file: Windows keeps a
+    # file handle open after read_csv, which broke the first version of this
+    # function on Jason's machine (gate 0.2, 2026-08-30).
+    import numpy as _np
+
+    n = len(rows)
+    view = "_biointel_bulk"
+    data = {"_rowid": _np.arange(1, n + 1, dtype=_np.int64)}
+    for c in header:
+        data[c] = _np.array([_cell(r.get(c)) for r in rows], dtype=object)
+    sel = ", ".join(["_rowid"] + [f"CAST({_q(c)} AS VARCHAR)" for c in header])
+    con.execute("BEGIN")
+    try:
+        con.execute(_create_sql(name, header, t))
+        if n:
+            con.register(view, data)
+            try:
+                con.execute(f"INSERT INTO {_q(name)} SELECT {sel} FROM {view}")
+            finally:
+                con.unregister(view)
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
+    return n
+
+
+def drop_table(name: str, con=None) -> None:
+    con = con or connect()
+    con.execute(f"DROP TABLE IF EXISTS {_q(name)}")
+
+
+def export_csv(name: str, path: Path, con=None) -> Path:
+    """Write a table to a CSV file byte-identical to what csv.DictWriter
+    produced from the same rows (\\r\\n line endings, minimal quoting)."""
+    con = con or connect()
+    header = table_columns(name, con)
+    rows = read_table(name, con=con)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as f:
+        w = _csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
+        w.writeheader()
+        for r in rows:
+            w.writerow(r)
+    return path
+
+
+def write_export(filename: str, text: str) -> Path:
+    """Write a report or other generated text to data/exports/ (disposable)."""
+    p = config.EXPORTS / filename
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text, encoding="utf-8")
+    return p
+
+
+def read_csv_rows(path: Path) -> tuple[list[str], list[dict]]:
+    """Read a CSV file as (header, rows) with the csv module — used by
+    migrate and by legacy comparisons only."""
+    with path.open(encoding="utf-8", newline="", errors="replace") as f:
+        rd = _csv.DictReader(f)
+        rows = list(rd)
+        return list(rd.fieldnames or []), rows
+
+
+_FROZEN_RE = _re.compile(r"_frozen_\d{8}$")

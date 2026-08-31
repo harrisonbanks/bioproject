@@ -1,3 +1,4 @@
+# src/biointel/pipeline.py
 """Silver layer: the three Excel workflows, as functions.
 
 add_company(ticker)   <- CompanyLookup query + AddCompany macro
@@ -7,13 +8,11 @@ price_window(...)     <- PriceWindow query
 
 from __future__ import annotations
 
-import csv
 import logging
 import re
 from datetime import date
-from pathlib import Path
 
-from biointel import config, network
+from biointel import config, network, store
 from biointel.sources import alphavantage, counterparty, deals, fda, financials, prices, sec, trials
 
 log = logging.getLogger(__name__)
@@ -69,29 +68,22 @@ TRIAL_COLS = [
 ]
 
 
-# ---------------------------------------------------------------- csv helpers
-def _read(path: Path, cols: list[str]) -> list[dict]:
-    if not path.exists():
-        return []
-    with path.open(newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+# ---------------------------------------------------------------- table access
+# Every table read or write goes through store.py (P16, gate 0.2).
+def _read(table: str) -> list[dict]:
+    return store.read_table(table)
 
 
-def _write(path: Path, cols: list[str], rows: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
-        w.writeheader()
-        for r in rows:
-            w.writerow(r)
+def _write(table: str, cols: list[str], rows: list[dict]) -> None:
+    store.write_table(table, rows, cols)
 
 
 def read_companies() -> list[dict]:
-    return _read(config.COMPANIES_CSV, COMPANY_COLS)
+    return _read("companies")
 
 
 def read_events() -> list[dict]:
-    return _read(config.EVENTS_CSV, EVENT_COLS)
+    return _read("events")
 
 
 # ---------------------------------------------------------------- add_company
@@ -134,7 +126,7 @@ def add_company(ticker: str) -> dict:
             "CTGovName": "",
         }
     )
-    _write(config.COMPANIES_CSV, COMPANY_COLS, rows)
+    _write("companies", COMPANY_COLS, rows)
     return {
         "status": "added",
         "iid": next_iid,
@@ -172,7 +164,7 @@ def get_events(iid: int) -> dict:
         added += 1
 
     existing.sort(key=lambda r: (int(r["IID"]), str(r["Date"])), reverse=False)
-    _write(config.EVENTS_CSV, EVENT_COLS, existing)
+    _write("events", EVENT_COLS, existing)
     return {
         "status": "ok",
         "added": added,
@@ -222,7 +214,7 @@ def price_window(
 
 # ------------------------------------------------------------------- trials
 def read_trials() -> list[dict]:
-    return _read(config.TRIALS_CSV, TRIAL_COLS)
+    return _read("trials")
 
 
 def _trial_search_name(company: dict) -> str:
@@ -274,7 +266,7 @@ def get_trials(iid: int) -> dict:
         added += 1
 
     existing.sort(key=lambda r: (int(r["IID"]), str(r.get("StartDate") or "")))
-    _write(config.TRIALS_CSV, TRIAL_COLS, existing)
+    _write("trials", TRIAL_COLS, existing)
     return {
         "status": "ok",
         "added": added,
@@ -375,7 +367,7 @@ SNAP_COLS = [
 
 
 def read_financials() -> list[dict]:
-    return _read(config.FINANCIALS_CSV, FIN_COLS)
+    return _read("financials")
 
 
 def get_financials(iid: int) -> dict:
@@ -443,7 +435,7 @@ def get_financials(iid: int) -> dict:
         added += 1
 
     existing.sort(key=lambda r: (int(r["IID"]), str(r["PeriodEnd"])))
-    _write(config.FINANCIALS_CSV, FIN_COLS, existing)
+    _write("financials", FIN_COLS, existing)
     return {
         "status": "ok",
         "added": added,
@@ -476,7 +468,7 @@ def build_snapshot() -> list[dict]:
             {"IID": int(c["IID"]), "Company": c["Name"], "Ticker": c["Ticker"], "CIK": cik, **snap}
         )
     rows.sort(key=lambda r: (r.get("RunwayMonths") is None, r.get("RunwayMonths") or 0))
-    _write(config.SNAPSHOT_CSV, SNAP_COLS, rows)
+    _write("financial_snapshot", SNAP_COLS, rows)
     return rows
 
 
@@ -509,7 +501,7 @@ def backfill_identity() -> dict:
     for extra in ("FDAAliases", "CTGovName"):
         if extra not in cols and any(extra in c for c in companies):
             cols.append(extra)
-    _write(config.COMPANIES_CSV, cols, companies)
+    _write("companies", cols, companies)
     return {
         "filled": filled,
         "failed": failed,
@@ -579,8 +571,8 @@ def build_partners() -> dict:
         }
 
     net = network.build_network(trials_rows, companies)
-    _write(config.PARTNERS_CSV, PARTNER_COLS, net["edges"])
-    _write(config.PARTNER_SUMMARY_CSV, PSUM_COLS, net["summary"])
+    _write("partners", PARTNER_COLS, net["edges"])
+    _write("partner_summary", PSUM_COLS, net["summary"])
     return {
         "status": "ok",
         "edges": len(net["edges"]),
@@ -668,8 +660,8 @@ def build_relationships() -> dict:
 
     # ---- trial collaborations (partners.csv) --------------------------
     n_trial = 0
-    if config.PARTNERS_CSV.exists():
-        for e in _read(config.PARTNERS_CSV, PARTNER_COLS):
+    if store.has_table("partners"):
+        for e in _read("partners"):
             upsert(
                 int(e["IID"]),
                 e["Collaborator"],
@@ -687,8 +679,8 @@ def build_relationships() -> dict:
 
     # ---- deal counterparties (deal_counterparties.csv) ----------------
     n_deal = 0
-    if config.COUNTERPARTY_CSV.exists():
-        for d in _read(config.COUNTERPARTY_CSV, CP_COLS):
+    if store.has_table("deal_counterparties"):
+        for d in _read("deal_counterparties"):
             nm = d["Counterparty"]
             upsert(
                 int(d["IID"]),
@@ -713,7 +705,7 @@ def build_relationships() -> dict:
         }
 
     out = sorted(rows.values(), key=lambda r: (r["IID"], r["RelKind"], -int(r["Count"])))
-    _write(config.RELATIONSHIPS_CSV, REL_COLS, out)
+    _write("relationships", REL_COLS, out)
     in_uni = [r for r in out if r["PartnerIID"] != "" and int(r["PartnerIID"]) != int(r["IID"])]
     ma = [r for r in out if r["AgreementType"] == "Merger/Acquisition"]
     return {
@@ -747,7 +739,7 @@ DEAL_COLS = [
 
 
 def read_deals() -> list[dict]:
-    return _read(config.DEALS_CSV, DEAL_COLS)
+    return _read("deals")
 
 
 def get_deals(iid: int) -> dict:
@@ -790,7 +782,7 @@ def get_deals(iid: int) -> dict:
         added += 1
 
     existing.sort(key=lambda r: (int(r["IID"]), str(r["FilingDate"])), reverse=False)
-    _write(config.DEALS_CSV, DEAL_COLS, existing)
+    _write("deals", DEAL_COLS, existing)
     return {
         "status": "ok",
         "added": added,
@@ -821,7 +813,7 @@ CP_COLS = [
 
 
 def read_counterparties() -> list[dict]:
-    return _read(config.COUNTERPARTY_CSV, CP_COLS)
+    return _read("deal_counterparties")
 
 
 def get_counterparties(iid: int, limit: int | None = None) -> dict:
@@ -895,7 +887,7 @@ def get_counterparties(iid: int, limit: int | None = None) -> dict:
             added += 1
 
     existing.sort(key=lambda r: (int(r["IID"]), str(r["FilingDate"])))
-    _write(config.COUNTERPARTY_CSV, CP_COLS, existing)
+    _write("deal_counterparties", CP_COLS, existing)
     rate = f"{100 * (parsed - empty) / parsed:.0f}%" if parsed else "n/a"
     return {
         "status": "ok",
@@ -924,13 +916,9 @@ def ingest_universe(limit: int = 50) -> dict:
     members may lack a ticker; price-dependent features stay blank for
     them by design -- their LABELS need no prices.
     """
-    import csv as _csv
-
-    upath = config.SILVER / "universe.csv"
-    if not upath.exists():
+    members = store.read_table("universe")
+    if not members:
         return {"status": "empty", "message": "Run `universe` first."}
-    with upath.open(encoding="utf-8") as f:
-        members = list(_csv.DictReader(f))
 
     companies = read_companies()
     have = {str(c.get("CIK", "")).lstrip("0") for c in companies}
@@ -960,7 +948,7 @@ def ingest_universe(limit: int = 50) -> dict:
             "CTGovName": "",
         }
         companies.append(row)
-        _write(config.COMPANIES_CSV, COMPANY_COLS, companies)
+        _write("companies", COMPANY_COLS, companies)
         iid = next_iid
         next_iid += 1
         parts = []
@@ -1022,14 +1010,12 @@ def extract_item1(text: str, cap: int = 60000) -> str:
 def text_ingest(limit: int = 100) -> dict:
     """Fetch Item-1 text for the next `limit` (company, fiscal-year)
     pairs not yet stored. One file per CIK-year under bronze/tenk_text."""
-    import csv as _csv
 
     from biointel.labels import _filings_reaching
     from biointel.sources.counterparty import fetch_text
 
     TENK_DIR.mkdir(parents=True, exist_ok=True)
-    with config.COMPANIES_CSV.open(encoding="utf-8") as f:
-        comps = list(_csv.DictReader(f))
+    comps = store.read_table("companies")
     done = fetched = skipped = 0
     for c in comps:
         if fetched >= limit:

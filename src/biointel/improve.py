@@ -1,3 +1,4 @@
+# src/biointel/improve.py
 """Model improvement under a leakage-proof protocol.
 
 PROTOCOL (the legitimate version of "randomize the test sets"):
@@ -24,12 +25,11 @@ IMPROVEMENTS over the baseline logistic:
 
 from __future__ import annotations
 
-import csv as _csv
 import logging
 from collections import defaultdict
 from datetime import date, timedelta
 
-from biointel import config
+from biointel import config, store
 from biointel.fit import FEATURES, _auc_pr, _auc_roc, _events_for_robust, _n
 
 log = logging.getLogger(__name__)
@@ -51,8 +51,7 @@ def _quarters_after(q, k):
 
 
 def _load_panel():
-    with (config.GOLD / "feature_panel.csv").open(encoding="utf-8") as f:
-        rows = list(_csv.DictReader(f))
+    rows = store.read_table("feature_panel")
     rows = [
         r
         for r in rows
@@ -92,21 +91,17 @@ TA_TOKENS = {
 def _activist_dates():
     """(iid -> sorted SC 13D dates) from each company's own submissions
     record -- activist stakes are a documented takeover precursor.
-    Extracted once and cached to gold/activist_13d.csv; rebuilt only if
+    Extracted once and cached in table activist_13d; rebuilt only if
     the cache is absent."""
-    import csv as _c
-
-    cache = config.GOLD / "activist_13d.csv"
     out = defaultdict(list)
-    if cache.exists():
-        with cache.open(encoding="utf-8") as f:
-            for r in _c.DictReader(f):
-                out[r["IID"]].append(r["Date"])
+    cached = store.read_table("activist_13d")
+    if cached:
+        for r in cached:
+            out[r["IID"]].append(r["Date"])
         return out
     from biointel.labels import _submissions
 
-    with (config.SILVER / "companies.csv").open(encoding="utf-8") as f:
-        comps = list(_c.DictReader(f))
+    comps = store.read_table("companies")
     for i, c in enumerate(comps, 1):
         if i % 100 == 0:
             log.info(f"  activist scan {i}/{len(comps)}")
@@ -127,12 +122,11 @@ def _activist_dates():
                 out[c["IID"]].append(d_)
     for v in out.values():
         v.sort()
-    with cache.open("w", newline="", encoding="utf-8") as f:
-        w = _c.writer(f)
-        w.writerow(["IID", "Date"])
-        for iid, ds in out.items():
-            for d in ds:
-                w.writerow([iid, d])
+    store.write_table(
+        "activist_13d",
+        [{"IID": iid, "Date": d} for iid, ds in out.items() for d in ds],
+        ["IID", "Date"],
+    )
     return out
 
 
@@ -172,19 +166,14 @@ def engineer(rows):
     # therapeutic-area exposure from trials STARTED on or before each
     # quarter (no lookahead into later trials)
     trials_by_iid = defaultdict(list)
-    tpath = config.SILVER / "trials.csv"
-    if tpath.exists():
-        with tpath.open(encoding="utf-8") as f:
-            for t in _csv.DictReader(f):
-                sd = (t.get("StartDate") or "")[:10]
-                if not sd:
-                    continue
-                low = (t.get("Conditions") or "").lower()
-                vec = tuple(
-                    1.0 if any(k in low for k in kws) else 0.0 for kws in TA_TOKENS.values()
-                )
-                if any(vec):
-                    trials_by_iid[t["IID"]].append((sd, vec))
+    for t in store.read_table("trials"):
+        sd = (t.get("StartDate") or "")[:10]
+        if not sd:
+            continue
+        low = (t.get("Conditions") or "").lower()
+        vec = tuple(1.0 if any(k in low for k in kws) else 0.0 for kws in TA_TOKENS.values())
+        if any(vec):
+            trials_by_iid[t["IID"]].append((sd, vec))
     for v in trials_by_iid.values():
         v.sort()
 
@@ -201,18 +190,15 @@ def engineer(rows):
     # the same fields -- documented approximation)
     p3done = defaultdict(list)
     termd = defaultdict(list)
-    tpath2 = config.SILVER / "trials.csv"
-    if tpath2.exists():
-        with tpath2.open(encoding="utf-8") as f:
-            for t in _csv.DictReader(f):
-                d = (t.get("PrimaryCompletion") or t.get("CompletionDate") or "")[:10]
-                if not d:
-                    continue
-                st = t.get("Status") or ""
-                if st == "COMPLETED" and "PHASE3" in (t.get("Phase") or ""):
-                    p3done[t["IID"]].append(d)
-                elif st == "TERMINATED":
-                    termd[t["IID"]].append(d)
+    for t in store.read_table("trials"):
+        d = (t.get("PrimaryCompletion") or t.get("CompletionDate") or "")[:10]
+        if not d:
+            continue
+        st = t.get("Status") or ""
+        if st == "COMPLETED" and "PHASE3" in (t.get("Phase") or ""):
+            p3done[t["IID"]].append(d)
+        elif st == "TERMINATED":
+            termd[t["IID"]].append(d)
     for v in p3done.values():
         v.sort()
     for v in termd.values():
@@ -224,11 +210,8 @@ def engineer(rows):
         return float(_bi3.bisect_right(ds, q) - _bi3.bisect_right(ds, lo))
 
     pairf = defaultdict(list)
-    pf = config.GOLD / "pair_feature.csv"
-    if pf.exists():
-        with pf.open(encoding="utf-8") as f:
-            for r0 in _csv.DictReader(f):
-                pairf[r0["IID"]].append((r0["YearEnd"], float(r0["MaxSimToAcq"])))
+    for r0 in store.read_table("pair_feature"):
+        pairf[r0["IID"]].append((r0["YearEnd"], float(r0["MaxSimToAcq"])))
     for v in pairf.values():
         v.sort()
 
@@ -455,7 +438,7 @@ def develop() -> dict:
             )
             log.info(lines[-1])
     report = "\n".join(lines)
-    (config.GOLD / "development_report.txt").write_text(report, encoding="utf-8")
+    store.write_export("development_report.txt", report)
     return {"status": "ok", "message": report}
 
 
@@ -502,7 +485,7 @@ def text_sweep() -> dict:
         ap = _auc_pr(pool_s, pool_y)
         lines.append(f"  alpha={alpha:<8} AUC-PR {ap:.4f}  lift {ap / br:.2f}x")
         log.info(lines[-1])
-    (config.GOLD / "text_sweep_report.txt").write_text("\n".join(lines), encoding="utf-8")
+    store.write_export("text_sweep_report.txt", "\n".join(lines))
     return {"status": "ok", "message": "\n".join(lines)}
 
 
@@ -550,7 +533,8 @@ def tune() -> dict:
         if best is None or ap > best[0]:
             best = (ap, {"max_depth": d, "learning_rate": lr, "min_samples_leaf": leaf})
     if best:
-        (config.GOLD / "best_config.json").write_text(
+        store.write_export(
+            "best_config.json",
             json.dumps(
                 {
                     "model": "hist-gbm",
@@ -560,18 +544,23 @@ def tune() -> dict:
                 },
                 indent=1,
             ),
-            encoding="utf-8",
         )
         lines.append(
             f"BEST -> {best[1]} (dev AUC-PR {best[0]:.4f}), persisted to gold/best_config.json"
         )
         log.info(lines[-1])
-    (config.GOLD / "tuning_report.txt").write_text("\n".join(lines), encoding="utf-8")
+    store.write_export("tuning_report.txt", "\n".join(lines))
     return {"status": "ok", "message": "\n".join(lines)}
 
 
 def holdout(model_name: str, spec_name: str) -> dict:
-    """ONE-SHOT final evaluation on 2023+ of the chosen configuration."""
+    """LEGACY (P7 amendment 2026-08-30): ONE-SHOT final evaluation on 2023+
+    of the chosen configuration. Both pre-registered accesses are SPENT (P10);
+    never run again without a new-protocol decision. Kept for baseline
+    diagnosis only. Shares engineer()/_load_panel() with live code, so an
+    execution under a new protocol would read the live tables; its own
+    reads (best_config.json) and its report stay on the frozen CSV folder.
+    """
     rows = engineer(_load_panel())
     events = _events_for_robust(strict=False)
     feats = dict(
@@ -616,7 +605,7 @@ def holdout(model_name: str, spec_name: str) -> dict:
         f"AUC-PR {ap:.3f}  lift {ap / br:.1f}x  "
         f"ROC {_auc_roc(p, yte):.3f}"
     )
-    (config.GOLD / "holdout_report.txt").write_text(msg, encoding="utf-8")
+    (config.GOLD / "holdout_report.txt").write_text(msg, encoding="utf-8")  # LEGACY path
     return {"status": "ok", "message": msg}
 
 
@@ -656,7 +645,6 @@ def _text_index():
 def _text_assets(rows):
     """(doc_matrix, row_doc_index) for the panel rows: each row maps to
     the latest 10-K filed <= its quarter end (within 450 days), or -1."""
-    import csv as _c
 
     from sklearn.feature_extraction.text import HashingVectorizer
 
@@ -664,9 +652,8 @@ def _text_assets(rows):
     if not files:
         return None, None
     cik_by_iid = {}
-    with (config.SILVER / "companies.csv").open(encoding="utf-8") as f:
-        for c in _c.DictReader(f):
-            cik_by_iid[str(c["IID"])] = str(c.get("CIK", "")).zfill(10)
+    for c in store.read_table("companies"):
+        cik_by_iid[str(c["IID"])] = str(c.get("CIK", "")).zfill(10)
     keys = sorted(files)
     key_pos = {k: i for i, k in enumerate(keys)}
     texts = (files[k].read_text(encoding="utf-8", errors="replace") for k in keys)

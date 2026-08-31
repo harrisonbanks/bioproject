@@ -22,26 +22,26 @@ python -m biointel tags IID                   which XBRL tags a company reports
 python -m biointel window "APPNO" YYYY-MM-DD  price window around one event
 python -m biointel study "APPNO" YYYY-MM-DD   event-study metrics for one event
 python -m biointel study-all                  metrics for every event since 2010
-python -m biointel freeze                     snapshot silver+gold for reproducibility
+python -m biointel freeze                     snapshot the database file for reproducibility
 python -m biointel relationships              N2: unified trial+deal partner table
-python -m biointel labels                     L: ma_events.csv + label_panel.csv
-python -m biointel features                   M1: feature_panel.csv + model_panel.csv
+python -m biointel labels                     L: tables ma_events + label_panel
+python -m biointel features                   M1: tables feature_panel + model_panel
 python -m biointel predict [QUARTER]          M3/M4: ranked M&A predictions
 python -m biointel universe-probe             P1a: test EDGAR browse parsing (run FIRST)
 python -m biointel patents-sql                PAT: generate BigQuery query from your company list
-python -m biointel patents-import             PAT: consume BigQuery CSV export -> silver/patents.csv
+python -m biointel patents-import             PAT: consume BigQuery CSV export -> table patents
 python -m biointel pairs-substrate [MODE]     paired substrate comparison (patents|targets)
 python -m biointel chembl-probe               CHM: test ChEMBL download route (run FIRST)
-python -m biointel chembl-ingest              CHM: download+build silver/drug_targets.csv
+python -m biointel chembl-ingest              CHM: download+build table drug_targets
 python -m biointel pairs-exact                paired MASS-exact vs incumbent engine test
 python -m biointel pairs-full-exact           full-universe re-rank with the adopted engine
 python -m biointel orangebook-probe           OB: test Orange Book download (run FIRST)
-python -m biointel universe                   P1a: build rule-defined universe.csv
+python -m biointel universe                   P1a: build rule-defined table universe
 python -m biointel harvest                    L: propose acquisition events for whole universe
 python -m biointel verify-fill                L: auto-extract acquirers from merger proxies
 python -m biointel ingest [N]                 P1b: ingest next N universe members (default 50)
 python -m biointel backtest                   M5: rank of verified deals pre-announcement
-python -m biointel fit [LEAD_DAYS]            M4: fitted model (optional censor lead, e.g. 90)
+python -m biointel fit [LEAD_DAYS]            LEGACY gen-1 screen (frozen CSVs; not re-run)
 python -m biointel qa                         L-QA: agreement dates, EventClass, worklist
 python -m biointel qa-corroborate             L-QA: auto-verify vs acquirer filings
 python -m biointel qa-wiki                    L-QA: verify residue vs Wikipedia
@@ -50,7 +50,8 @@ python -m biointel improve                    M6: iterate on VALIDATION (holdout
 python -m biointel list                       show companies
 python -m biointel sponsors                   top CT.gov lead sponsors
 python -m biointel coverage                   what was fetched, and when
-python -m biointel validate                   check every silver/gold table against schema.py
+python -m biointel validate                   check every table in the database against schema.py
+python -m biointel migrate                    one-time: load pre-migration CSVs into the database
 """
 
 import csv
@@ -78,6 +79,7 @@ from biointel import (
     price_window,
     read_companies,
     read_events,
+    store,
 )
 
 
@@ -116,8 +118,9 @@ def main(argv):
         if not rows:
             print("Nothing yet. Run:  python -m biointel trials", iid)
             return 1
-        out = config.GOLD / f"calendar_{iid}.csv"
+        out = config.EXPORTS / f"calendar_{iid}.csv"
         cols = ["Date", "Stage", "Drug", "Detail", "Status", "Ref", "Source"]
+        out.parent.mkdir(parents=True, exist_ok=True)
         with out.open("w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
             w.writeheader()
@@ -148,7 +151,7 @@ def main(argv):
         if not rows:
             print("No financials yet. Run:  python -m biointel fin-all")
             return 1
-        print(f"{len(rows)} companies -> {config.SNAPSHOT_CSV}\n")
+        print(f"{len(rows)} companies -> table financial_snapshot\n")
         print(f"  {'IID':>3} {'TICK':<6} {'CASH+STI':>14} {'BURN/YR':>14} {'RUNWAY':>9}")
         print("  " + "-" * 52)
         for r in rows:
@@ -164,11 +167,9 @@ def main(argv):
         print(r["message"])
         if r["status"] != "ok":
             return 1
-        print(f"  -> {config.PARTNERS_CSV}")
-        print(f"  -> {config.PARTNER_SUMMARY_CSV}\n")
-        import csv as _csv
-
-        rows = list(_csv.DictReader(config.PARTNER_SUMMARY_CSV.open(encoding="utf-8")))
+        print("  -> table partners")
+        print("  -> table partner_summary\n")
+        rows = store.read_table("partner_summary")
         print(
             f"  {'TICK':<6}{'TOTAL':>6}{'INDUSTRY':>10}{'ACADEMIC':>10}"
             f"{'GOVT':>7}{'CRO':>6}{'DIAG':>6}{'CDMO':>6}"
@@ -183,16 +184,10 @@ def main(argv):
             )
 
     elif cmd == "partners-of":
-        import csv as _csv
-
-        if not config.PARTNERS_CSV.exists():
+        if not store.has_table("partners"):
             print("Run:  python -m biointel partners")
             return 1
-        rows = [
-            r
-            for r in _csv.DictReader(config.PARTNERS_CSV.open(encoding="utf-8"))
-            if str(r["IID"]) == argv[2]
-        ]
+        rows = [r for r in store.read_table("partners") if str(r["IID"]) == argv[2]]
         if not rows:
             print(f"No collaborators recorded for IID {argv[2]}.")
             return 1
@@ -215,16 +210,10 @@ def main(argv):
         print(f"{r['companies']} companies, {r['added']} new deal rows")
 
     elif cmd == "deals-of":
-        import csv as _csv
-
-        if not config.DEALS_CSV.exists():
+        if not store.has_table("deals"):
             print("Run:  python -m biointel deals-all")
             return 1
-        rows = [
-            r
-            for r in _csv.DictReader(config.DEALS_CSV.open(encoding="utf-8"))
-            if str(r["IID"]) == argv[2]
-        ]
+        rows = [r for r in store.read_table("deals") if str(r["IID"]) == argv[2]]
         if not rows:
             print(f"No deal filings for IID {argv[2]}.")
             return 1
@@ -246,20 +235,14 @@ def main(argv):
                 f"  {r['FilingDate']:<12}{r['Item']:<7}{r['EventType'][:37]:<38}{r['FilingURL'][:44]}"
             )
         if len(rows) > 30:
-            print(f"  ... {len(rows) - 30} more in {config.DEALS_CSV.name}")
+            print(f"  ... {len(rows) - 30} more in table deals")
 
     elif cmd == "cparty":
         lim = int(argv[3]) if len(argv) > 3 else None
         r = get_counterparties(int(argv[2]), lim)
         print(r["message"])
         if r.get("added"):
-            import csv as _csv
-
-            rows = [
-                x
-                for x in _csv.DictReader(config.COUNTERPARTY_CSV.open(encoding="utf-8"))
-                if str(x["IID"]) == argv[2]
-            ]
+            rows = [x for x in store.read_table("deal_counterparties") if str(x["IID"]) == argv[2]]
             rows.sort(key=lambda x: x["FilingDate"], reverse=True)
             print(f"\n  {'DATE':<12}{'TYPE':<22}COUNTERPARTY")
             print("  " + "-" * 78)
@@ -268,7 +251,7 @@ def main(argv):
                     f"  {x['FilingDate']:<12}{x['AgreementType'][:21]:<22}{x['Counterparty'][:44]}"
                 )
             if len(rows) > 30:
-                print(f"  ... {len(rows) - 30} more in {config.COUNTERPARTY_CSV.name}")
+                print(f"  ... {len(rows) - 30} more in table deal_counterparties")
 
     elif cmd == "cparty-all":
         lim = int(argv[2]) if len(argv) > 2 else None
@@ -297,7 +280,7 @@ def main(argv):
                 " and that price data covers that date."
             )
             return 1
-        out = config.GOLD / "window.csv"
+        out = config.EXPORTS / "window.csv"
         cols = [
             "IID",
             "AppNo",
@@ -313,6 +296,7 @@ def main(argv):
             "Volume",
             "PctFromT0",
         ]
+        out.parent.mkdir(parents=True, exist_ok=True)
         with out.open("w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
             w.writeheader()
@@ -331,25 +315,15 @@ def main(argv):
             return 1
 
     elif cmd == "labels":
-        from biointel.labels import MA_COLS, PANEL_COLS, build_label_panel
-        from biointel.pipeline import CP_COLS as _CP
-        from biointel.pipeline import _read, read_deals
+        from biointel.labels import MA_COLS, PANEL_COLS, build_label_panel, merged_events
+        from biointel.pipeline import read_counterparties, read_deals
 
-        read_cp = lambda: _read(config.COUNTERPARTY_CSV, _CP)
-        from biointel.labels import merged_events
-
-        events = merged_events(read_companies, read_deals, read_cp)
-        out = config.SILVER / "ma_events.csv"
-        with out.open("w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=MA_COLS, extrasaction="ignore")
-            w.writeheader()
-            w.writerows(events)
+        events = merged_events(read_companies, read_deals, read_counterparties)
+        out = "ma_events"
+        store.write_table(out, events, MA_COLS)
         panel = build_label_panel(read_companies, events)
-        out2 = config.GOLD / "label_panel.csv"
-        with out2.open("w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=PANEL_COLS, extrasaction="ignore")
-            w.writeheader()
-            w.writerows(panel)
+        out2 = "label_panel"
+        store.write_table(out2, panel, PANEL_COLS)
         n_t = sum(1 for e in events if e["Role"] == "target")
         n_a = sum(1 for e in events if e["Role"] == "acquirer")
         n_u = sum(1 for e in events if e["Role"] == "unknown")
@@ -363,17 +337,11 @@ def main(argv):
         from biointel.features import FEATURE_COLS, MODEL_COLS, build_features, join_with_labels
 
         feats = build_features(read_companies)
-        out = config.GOLD / "feature_panel.csv"
-        with out.open("w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=FEATURE_COLS, extrasaction="ignore")
-            w.writeheader()
-            w.writerows(feats)
+        out = "feature_panel"
+        store.write_table(out, feats, FEATURE_COLS)
         model = join_with_labels(feats)
-        out2 = config.GOLD / "model_panel.csv"
-        with out2.open("w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=MODEL_COLS, extrasaction="ignore")
-            w.writeheader()
-            w.writerows(model)
+        out2 = "model_panel"
+        store.write_table(out2, model, MODEL_COLS)
         n_fin = sum(1 for r in feats if r.get("Cash") is not None)
         n_px = sum(1 for r in feats if r.get("PriceQ") not in (None, ""))
         pos = sum(1 for r in model if r.get("AcquiredNext12m") == "1")
@@ -540,7 +508,7 @@ def main(argv):
         if r["status"] != "ok":
             print(r["message"])
             return 1
-        print(f"\nreport -> {config.GOLD / 'robustness_report.txt'}")
+        print(f"\nreport -> {config.EXPORTS / 'robustness_report.txt'}")
 
     elif cmd == "improve":
         from biointel.fit import improve as _improve
@@ -599,7 +567,7 @@ def main(argv):
         if r["status"] != "ok":
             print(r["message"])
             return 1
-        print(f"\nreport -> {config.GOLD / 'development_report.txt'}")
+        print(f"\nreport -> {config.EXPORTS / 'development_report.txt'}")
 
     elif cmd == "holdout":
         from biointel.improve import holdout as _ho
@@ -648,17 +616,11 @@ def main(argv):
         if not rows:
             print("No computable events. Check price connectivity.")
             return 1
-        out = config.GOLD / "event_study.csv"
-        with out.open("w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=STUDY_COLS, extrasaction="ignore")
-            w.writeheader()
-            w.writerows(rows)
+        out = "event_study"
+        store.write_table(out, rows, STUDY_COLS)
         summ = summarize(rows)
-        out2 = config.GOLD / "event_study_summary.csv"
-        with out2.open("w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=list(summ[0].keys()), extrasaction="ignore")
-            w.writeheader()
-            w.writerows(summ)
+        out2 = "event_study_summary"
+        store.write_table(out2, summ, list(summ[0].keys()))
         print(f"{len(rows)} events -> {out}")
         print(f"{len(summ)} outcome classes -> {out2}")
         for r in summ:
@@ -672,16 +634,25 @@ def main(argv):
         import shutil
         from datetime import date as _date
 
-        dst = config.DATA / "frozen" / _date.today().isoformat().replace("-", "")
+        dst = config.SNAPSHOTS / _date.today().isoformat().replace("-", "")
         dst.mkdir(parents=True, exist_ok=True)
-        for sub in ("silver", "gold"):
-            src = config.DATA / sub
-            if src.exists():
-                shutil.copytree(src, dst / sub, dirs_exist_ok=True)
+        store.close()  # flush and release the file before copying
+        if config.DUCKDB.exists():
+            shutil.copy2(config.DUCKDB, dst / config.DUCKDB.name)
         manifest = coverage_report()
         (dst / "manifest.json").write_text(_json.dumps(manifest, indent=1), encoding="utf-8")
-        print(f"Frozen silver+gold + coverage manifest ({len(manifest)} fetches) -> {dst}")
+        print(
+            f"Snapshot of {config.DUCKDB.name} + coverage manifest ({len(manifest)} fetches) -> {dst}"
+        )
         print("Bronze is immutable raw and is referenced by the manifest, not copied.")
+
+    elif cmd == "migrate":
+        from biointel.migrate import migrate
+
+        r = migrate()
+        print(r["message"])
+        if r["status"] != "ok":
+            return 1
 
     elif cmd == "list":
         for c in read_companies():
@@ -695,9 +666,9 @@ def main(argv):
         print("\n  NOTE: head of the distribution only. Small sponsors are absent.")
 
     elif cmd == "validate":
-        from biointel.schema import format_report, validate_all
+        from biointel.schema import format_report, validate_db
 
-        results = validate_all(config.DATA)
+        results = validate_db(store.connect())
         print(format_report(results))
         if any(r["status"] == "violations" for r in results):
             return 1

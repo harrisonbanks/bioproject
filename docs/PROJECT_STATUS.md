@@ -2,10 +2,10 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 0.89. Supersedes v0.88. Decisions of 2026-08-30 (afternoon):
-legacy rule, DuckDB storage, ledger structure, Phase 0 reorder. PARTS
+Version 0.90. Supersedes v0.89. Gate 0.2 DONE: silver and gold tables
+live in data/biointel.duckdb; CSV folders frozen for legacy code. PARTS
 1–7 and the changelog are unchanged from v0.81 except where noted. Design
-decisions of 2026-08-30 are in docs/20260830_v3_Design_Principles.md
+decisions of 2026-08-30 are in docs/20260830_v4_Design_Principles.md
 (binding) and
 docs/20260830_v3_Ontology_and_Matching_Design.md.
 
@@ -39,12 +39,13 @@ Assistant delivers single files with the deploy path on line 1 (no zips unless a
 | fit.py | 602 | gen-1 logistic screen, robust suite, leak diagnostics (frozen baseline, P7) |
 | improve.py | 744 | engineered features, gen-2 fitted screen (BASE_FUND), develop/tune/holdout (spent) |
 | interfaces/__init__.py | 0 | package marker |
-| interfaces/cli.py | 716 | dispatch for 56 commands (0.4); configures logging |
+| interfaces/cli.py | 687 | dispatch for 57 commands (0.4); configures logging |
 | labels.py | 1215 | merger trails, harvest, verify_fill, qa, qa_corroborate, qa_wiki, merged events, label panel |
 | match.py | 114 | canon() entity resolution |
 | network.py | 361 | partner classification, relationships |
 | pairs.py | 445 | MASS-exact buyer–target pairing engine (adopted), build_pair_feature |
-| pipeline.py | 1076 | registry, per-layer getters, ingest, text_ingest (10-K Item 1) |
+| pipeline.py | 1062 | registry, per-layer getters, ingest, text_ingest (10-K Item 1); table access via store.py |
+| migrate.py | 109 | one-time CSV -> DuckDB migration; refuses if the database exists; renames the CSV folders to *_frozen_20260830 (gate 0.2) |
 | schema.py | 882 | schema as code: entity types, attribute groups, relationship types, event classes, table map (32 tables); validate_all (gate 0.1) |
 | score.py | 295 | hand scorecard predict/backtest (paper baseline; drives predict today, P7 open) |
 | sources/__init__.py | 0 | package marker |
@@ -59,19 +60,20 @@ Assistant delivers single files with the deploy path on line 1 (no zips unless a
 | sources/prices.py | 91 | Yahoo chart bars (survivorship hole documented) |
 | sources/sec.py | 47 | ticker map, submissions |
 | sources/trials.py | 193 | ClinicalTrials.gov v2 |
-| store.py | 92 | fetch_json/fetch_text bronze cache, manifests, rate limit |
+| store.py | 356 | fetch_json/fetch_text bronze cache, manifests, rate limit; DuckDB store layer: connect, read_table, write_table, has_table, export_csv, write_export (P16, gate 0.2) |
 | study.py | 263 | Model 2: FDA event study (CAR vs XBI) |
 | universe.py | 265 | rule-defined membership (EDGAR browse, 2001+ window, Form-25 delisting) |
 
 Removed in the refactor (commit 26133aa): fossil tree `biointel/biointel1/`, Excel workbook, duplicate scripts, `crsp_import`, `ner_status`, `_pair_by_date`, the dead USPTO bulk patent route, CLI branches `patents-probe`/`patents-ingest`. Scripts (`scripts/`): check_exhibits, check_names, check_ocf, check_one, cleanup_feed_junk, debug_fit, summary, text_diag, migrate_from_excel, suggest_aliases; `scripts/refactor/00…50` and `_regress.py`.
 
-## 0.4 CLI commands (56, all live; `python -m biointel` prints the list)
+## 0.4 CLI commands (57, all live; `python -m biointel` prints the list)
 Universe/ingest: universe-probe, universe, ingest N, text-ingest N.
 Layers: fin(-all), trials(-all), events(-all), deals(-all), cparty(-all), partners, relationships, study(-all).
 Labels/QA: harvest, verify-fill, qa, qa-corroborate, qa-wiki, labels.
 Modeling: features, fit [LEAD], robust, develop [tune|textsweep], holdout (SPENT), pairs, pairs-fit, pairs-protocol, pairs-substrate [MODE], pairs-exact, pairs-full-exact, predict, backtest, improve.
 Data: patents-sql, patents-import, orangebook-probe, chembl-probe, chembl-ingest.
-Ops: freeze, snapshot, coverage, list, add, backfill, calendar, window, tags, sponsors, deals-of, partners-of, validate (gate 0.1: every silver/gold table checked against schema.py).
+Ops: freeze, snapshot, coverage, list, add, backfill, calendar, window, tags, sponsors, deals-of, partners-of, validate (gate 0.1: every table checked against schema.py; since 0.2 on the database), migrate (gate 0.2: one-time CSV -> DuckDB).
+LEGACY commands (P7 amendment; kept, not maintained, not re-run): fit, holdout, pairs, pairs-fit, pairs-protocol, pairs-substrate.
 
 ## 0.5 Final numbers (all measurement CLOSED unless reopened deliberately)
 - Pairing: MASS-exact adoption SUSPENDED pending corrected re-run. Defect self-caught after the 0.318 result: the exact formula degenerates for the global-max-diagonal firm; the guard returned all-zero scores and the rank computation credited all-tied rows as rank 1 -- possible unearned hits for MASS-exact only. Fix: midpoint tie-ranking applied identically to both metrics; degeneracy test added (a degenerate acquirer now scores mid-pool, verified 0.0 HR@5 on a constructed case). The 0.318 number is QUARANTINED until the re-run; incumbent MASS-inspired 0.222/0.284 remains the engine of record. predict() reverted-in-effect: exact fit stays wired but is not the engine of record until re-adoption.
@@ -83,7 +85,7 @@ Ops: freeze, snapshot, coverage, list, add, backfill, calendar, window, tags, sp
 
 
 ## 0.6 Standing behavioral rules
-See docs/20260830_v3_Design_Principles.md P1–P17 (binding) and the operating manual. In brief: verify deliverables through the real code path; single annotated command blocks, one per turn, absolute paths; probe-first for new endpoints; report numbers as-is, holdout ledger binding; PROJECT_STATUS updated every progress turn; tables model-agnostic; separation at model input lists; requirements stated general-case first.
+See docs/20260830_v4_Design_Principles.md P1–P18 (binding) and the operating manual. In brief: verify deliverables through the real code path; single annotated command blocks, one per turn, absolute paths; probe-first for new endpoints; report numbers as-is, holdout ledger binding; PROJECT_STATUS updated every progress turn; tables model-agnostic; separation at model input lists; requirements stated general-case first.
 
 ## 0.7 Decision taken (v0.69) — final improvement cycle, then close
 ADOPTED: patent-substrate pairing upgrade + Orange Book acquirer LOE-urgency feature, probe-gated; then assembly -> freeze -> draft. PRE-REGISTERED ADOPTION RULE: pairs-protocol re-run on three substrates (patents / trials / fused) under the identical field protocol (200 negatives, 20 repeats, same events); a substrate ships only if HR@5 beats 0.222 outside +/-0.010 repeat noise, else MASS-inspired-on-trials stands and the null is reported. No target-screen holdout is touched (0.5 ledger intact). 13F/Form 4/news/options recorded as future work.
@@ -98,16 +100,17 @@ ADOPTED: patent-substrate pairing upgrade + Orange Book acquirer LOE-urgency fea
 ## 0.8 Refactor record (2026-08-29, branch jason/refactor)
 Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code and duplicates removed (−2,750 lines) · f0ceeb0 credentials to .env · 49572ec coverage fix, portable VS Code path · 55bc9c1 src layout, pyproject, scripts/docs/data directories · 5c16ec8 ruff · da29a85 endpoints in config.py, package logging · c2cea4d/9db4cea docs and system diagram. Every gate reproduced the step-0 hashes; no model output changed. Verified on Jason's regenerated snapshot: 1,357 targets ranked, 22 acquirer-side, pairs median rank 80/862, hit@10 0.27; event study approvals +0.29/+0.31, rejections −6.98/−21.61.
 
-## 0.8a Gate record (Implementation Plan ledger; detail in docs/20260830_v4_Implementation_Plan.md)
+## 0.8a Gate record (Implementation Plan ledger; detail in docs/20260830_v5_Implementation_Plan.md)
+- Gate 0.2 DONE 2026-08-30: two stores (P16): data/bronze/ raw files and data/biointel.duckdb for every silver/gold table (values as text; types, allowed values and keys enforced as database constraints); the store layer in store.py is the single point of access; `migrate` loaded 19 tables with counts equal to the CSVs and renamed the CSV folders to silver_frozen_20260830 and gold_frozen_20260830 (legacy read-only); reports and ma_predictions.csv are exports under data/exports/ (disposable); `freeze` snapshots the database file to data/snapshots/; all thirteen regression fingerprints reproduced; 46 unit tests. Defect fixed in-gate: the temporary-file bulk path failed on Windows (WinError 32) and was replaced by NumPy array registration.
 - Gate 0.1 DONE 2026-08-30: `src/biointel/schema.py` (32 tables declared: 27 built, 5 planned) and `validate`; 30 unit tests added (37 total); `config.py` de-duplicated (endpoint constants defined once, guarded by test); first live `validate` on Jason's snapshot: 17 conformant, 1 with violations (blank `S5_CeasedFiling` on harvest-derived `ma_events.csv` rows, a writer fact; schema now allows blank), 9 absent, 5 planned; regression hashes unchanged (04061e33…530d, 960307e2…e81b).
 
-## 0.9 Open queue (2026-08-30; detail in docs/20260830_v9_Session_Handoff.md §5)
+## 0.9 Open queue (2026-08-30; detail in docs/20260830_v10_Session_Handoff.md §5)
 1. Rotate Alpha Vantage key; set repository private (Harrison).
 2. Pull request jason/refactor → main; Harrison's post-merge steps in the handoff.
 3. Review the Ontology and Matching Design v1; then roadmap steps A (schema + validate) and D (model framework).
 3a. Review docs/20260830_v1_FDA_Catalyst_Product_Design.md (Model 2 requirements) with docs/20260830_v2_FDA_Catalyst_Research.md; then roadmap F1.
 3b. Review docs/20260830_v1_Horizon_Scanning_Design.md (Model 4 requirements).
-3c. Implementation plan and gate ledger: docs/20260830_v4_Implementation_Plan.md (0.1 DONE; Phase 0 reordered: 0.2 storage migration to DuckDB, 0.3 reporting layer, 0.4 model framework; thirteen-file regression baseline recorded before 0.2); target state: docs/20260830_v1_System_Diagram_TARGET_STATE.*. Gameplan agreed 2026-08-30: Phase 0 foundations (schema, central reporting, framework) → Phase 1 calendar system → Phase 2 attributes/universe/manual layer → Phase 3 Model 2 product.
+3c. Implementation plan and gate ledger: docs/20260830_v5_Implementation_Plan.md (0.1 and 0.2 DONE; next gate 0.3 reporting layer with ledger tables in DuckDB, then 0.4 model framework); target state: docs/20260830_v1_System_Diagram_TARGET_STATE.*. Gameplan agreed 2026-08-30: Phase 0 foundations (schema, central reporting, framework) → Phase 1 calendar system → Phase 2 attributes/universe/manual layer → Phase 3 Model 2 product.
 4. Decide which screen drives `predict` (P7).
 5. Note: 0.5 above still records MASS-exact as QUARANTINED (v0.81 text); the chat-5 record and the shipped code (`score.predict` calls `pairs.exact_state`) treat the corrected MASS-exact (HR@5 0.310 after midpoint tie-ranking) as adopted. Harrison to confirm and update 0.5.
 
@@ -1375,6 +1378,7 @@ collaborations work, deal counterparties do not.
 
 ## Changelog
 
+| 0.90 | 2026-08-30 | Gate 0.2 DONE: DuckDB store layer (store.py), migrate command, 57 commands, exports/snapshots folders, CSV folders frozen for legacy, thirteen fingerprints reproduced, 46 tests; P18 (Design Principles v4); Implementation Plan v5; handoff v10. |
 | 0.89 | 2026-08-30 | Decisions: P7 legacy amendment (legacy register: baselines.py, improve.holdout, fit.fit), P16 two stores (bronze files + one DuckDB file, exports, snapshots; no MLflow, no SQLite), P17 ledger in MLflow structure; Phase 0 reordered (0.2 storage, 0.3 reporting, 0.4 framework); regression baseline extended to thirteen files. Design Principles v3, Implementation Plan v4, handoff v9. |
 | 0.88 | 2026-08-30 | Gate 0.1 DONE: schema.py + validate (56 commands), config.py de-duplicated with guard test, 30 unit tests added; first validate run recorded in 0.8a; Implementation Plan v3, handoff v8. |
 | 0.87 | 2026-08-30 | Implementation Plan v2: ontology/product/scanning roadmaps cross-referenced to gates; deferred gates M1-G/H/I added. |
