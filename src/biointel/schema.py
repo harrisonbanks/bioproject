@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = "0.5"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.6"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -118,6 +118,12 @@ RELATIONSHIP_TYPES = (
     "collaborates_with",
     "presented_at",
     "funded_by",
+    # v4 typed edges (Ontology v5 §3.3), names declared at gate L2; the
+    # relationships table change (type/date/source columns) lands at 2.10.
+    "exclusive_commercial_partner",
+    "distributes_for",
+    "customer_of",
+    "holds_stake_in",
 )
 
 # Event classes and outcome states (FDA Catalyst Research v2 §4; binding
@@ -162,6 +168,28 @@ DESIGNATIONS = ("fast_track", "breakthrough", "rmat", "orphan", "priority_review
 
 # Acquisition objectives (Ontology §4, P4).
 OBJECTIVES = ("O1", "O2", "O3", "O4", "O5", "O6", "O7", "O8")
+
+# Deal-aspect vocabulary (Ontology v5 §3.10; gate L2) and the product
+# continuum (§3.2 assets attribute group).
+ASPECTS = (
+    "prior_commercial_relationship",
+    "prior_equity_stake",
+    "continuum_extension",
+    "complementary_data_asset",
+    "mechanism_or_target_gap",
+    "therapeutic_area_overlap",
+    "reimbursement_catalyst",
+    "buyer_stated_priority_match",
+    "competing_stakeholder",
+    "consideration_type",
+    "target_revenue_growth",
+    "target_profitability",
+    "buyer_financing_capacity",
+    "patent_cliff_pressure",
+    "category_consolidation",
+)
+ASPECT_METHODS = ("stated", "derived", "manual")
+CONTINUUM_STEPS = ("risk", "diagnosis", "treatment_selection", "monitoring")
 
 # ---------------------------------------------------------------- allowed values
 # Closed sets defined in code today (source module named per set).
@@ -423,6 +451,21 @@ MANUAL_NOTE_COLS = (
     "entered_on", "tags",
 )
 BENCHMARK_COLS = ("name", "type", "constituents_or_ticker")
+# Deal dossier (Ontology v5 §3.10; gate L2). P19: every row carries the
+# doc_id (capture hash in the research library) and the span it was read
+# from; the seed loader verifies the span occurs in the cited capture.
+DEAL_TERM_COLS = ("deal_id", "field", "value", "doc_id", "span")
+DEAL_TIMELINE_COLS = ("deal_id", "step_date", "step_type", "description", "doc_id", "span")
+DEAL_RATIONALE_COLS = ("deal_id", "seq", "stated_by", "statement", "doc_id", "span")
+DEAL_ASPECT_COLS = ("deal_id", "aspect", "value", "method", "confidence", "doc_id", "span")
+DEAL_COMPARABLE_COLS = ("deal_id", "comparable_deal_id", "basis", "doc_id", "span")
+# Entity attributes v4 (Ontology v5 §3.2; gate L2).
+EQUITY_STAKE_COLS = ("holder_key", "issuer_key", "percent", "as_of", "doc_id", "span")
+STATED_PRIORITY_COLS = ("entity_key", "stated_at", "category", "statement", "doc_id", "span")
+ASSET_COLS = (
+    "entity_key", "product", "category", "continuum_step", "modality", "indications",
+    "regulatory_status", "reimbursement_status", "doc_id", "span",
+)
 # fmt: on
 
 _DATE_COLS_TRIALS = {
@@ -642,6 +685,7 @@ TABLES: tuple[Table, ...] = (
         "silver/ma_events.csv",
         MA_COLS,
         "labels",
+        optional=("deal_id",),  # gate L2: dossier index key; populated from 2.9′
         types={
             "FilerIID": "int",
             "CounterpartyIID": "int",
@@ -872,6 +916,62 @@ TABLES: tuple[Table, ...] = (
             "event_class": "enum",
         },
         enums={"event_class": tuple(EVENT_CLASSES)},
+    ),
+    Table(
+        "silver/deal_terms.csv",
+        DEAL_TERM_COLS,
+        "dossier-seed (L2); deal analyser (L3)",
+        key=("deal_id", "field"),
+    ),
+    Table(
+        "silver/deal_timeline.csv",
+        DEAL_TIMELINE_COLS,
+        "dossier-seed (L2); deal analyser (L3)",
+        key=("deal_id", "step_date", "step_type"),
+        types={"step_date": "date"},
+    ),
+    Table(
+        "silver/deal_rationale.csv",
+        DEAL_RATIONALE_COLS,
+        "dossier-seed (L2); deal analyser (L3)",
+        key=("deal_id", "seq"),
+        types={"seq": "int"},
+    ),
+    Table(
+        "silver/deal_aspects.csv",
+        DEAL_ASPECT_COLS,
+        "dossier-seed (L2); deal analyser (L3)",
+        key=("deal_id", "aspect"),
+        types={"aspect": "enum", "method": "enum", "confidence": "float"},
+        enums={"aspect": ASPECTS, "method": ASPECT_METHODS},
+    ),
+    Table(
+        "silver/deal_comparables.csv",
+        DEAL_COMPARABLE_COLS,
+        "dossier-seed (L2); deal analyser (L3)",
+        key=("deal_id", "comparable_deal_id"),
+    ),
+    Table(
+        "silver/equity_stakes.csv",
+        EQUITY_STAKE_COLS,
+        "dossier-seed (L2); stakes adapter (L3)",
+        key=("holder_key", "issuer_key", "as_of"),
+        types={"percent": "float", "as_of": "date"},
+    ),
+    Table(
+        "silver/stated_priorities.csv",
+        STATED_PRIORITY_COLS,
+        "dossier-seed (L2); library sources",
+        key=("entity_key", "stated_at", "category"),
+        types={"stated_at": "date"},
+    ),
+    Table(
+        "silver/assets.csv",
+        ASSET_COLS,
+        "dossier-seed (L2); manual layer (2.10)",
+        key=("entity_key", "product"),
+        types={"continuum_step": "enum"},
+        enums={"continuum_step": ("",) + CONTINUUM_STEPS},
     ),
     # ---- planned (declared by design; no writer yet) ----------------
     Table("silver/manual_entities.csv", MANUAL_ENTITY_COLS, "gate 2.10 (B)", planned=True),

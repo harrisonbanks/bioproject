@@ -2,7 +2,23 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 1.01. Supersedes v1.00. Decision 2026-08-31 (0.7, 0.9): L2 loads its
+Version 1.02. Supersedes v1.01. Gate L2 DONE (0.8a): dossier schema live at
+SCHEMA_VERSION 0.6 — deal_terms/deal_timeline/deal_rationale/deal_aspects/
+deal_comparables plus equity_stakes/stated_priorities/assets (47 declared),
+ASPECTS vocabulary (15) as the deal_aspects enum, v4 relationship type names
+declared, ma_events gains optional deal_id. The Tempus–Personalis seed
+(deal_id TEM-PSNL-20260720) loaded 16/16 span-verified rows across 5 tables
+(run 20260831T203033-dossier): dossier-seed resolves each row's SEC accession
+to its active library capture, stamps the capture hash as doc_id at load
+time, and verifies the row's verbatim span occurs in the capture (whitespace-
+tolerant at symbol boundaries for inline-XBRL); rows without a stating
+captured source stay out (equity_value_usd pending the Tempus PR capture via
+`library add <file> --for Rf573315b3de`; three Merck rows pending the
+merger-agreement exhibit or §9 news URLs). Membership check
+MEMBERSHIP_MATCHES 0: 2.9′ precedes L3 (order of record
+L1 → 1.4 → L2 → 2.10 → 1.5 → 2.9′ → L3 → L4); the deal's ma_events index row
+attaches at 2.9′. Next gate: 2.10 (manual layer).
+v1.01. Supersedes v1.00. Decision 2026-08-31 (0.7, 0.9): L2 loads its
 seed dossier (Tempus–Personalis) through a committed hand-curated seed on the
 verified-overlay pattern — every field carrying a `doc_id` resolving to an
 active library capture plus its span (P19) — and gate 2.10 (manual layer) is
@@ -50,7 +66,7 @@ standing rules, and the open queue.
 - Repository: https://github.com/harrisonbanks/bioproject (public as of 2026-08-31 — to be set private; key rotation pending). Branch `jason/refactor` holds all work since 2026-08-29 (commits 76a3ba3 … 93c2194); `main` is at the pre-refactor commit b52de01.
 - Operator machines: Harrison `C:\Users\bocchirock\Documents\dev\bioindustry\` (pre-refactor layout until merge); Jason `C:\Users\JB\Documents\dev\bioindustry\` (current layout; data regenerated 2026-08-29: 1,379 universe members; migrated to DuckDB 2026-08-30; frozen 2026-08-31 as the snapshot of record, 0.5). Windows, Python 3.13, venv at `<root>\.venv`, venv + pip (no uv, P9).
 - Repository layout: `src/biointel/` package (modules below) · `scripts/` diagnostics and `scripts/refactor/` gate tooling · `docs/` · `tests/unit/` (65 tests) · `pyproject.toml` (dependencies: numpy, scikit-learn, scipy, requests, openpyxl, duckdb>=1.3,<2; dev: ruff, mypy, pytest) · `requirements.lock` (UTF-8) · `.env` (git-ignored; template `.env.example`).
-- Data layout (P16; all git-ignored under `data\`): `bronze\` raw API responses and documents with manifests, never edited · `biointel.duckdb` every silver, gold and ledger table (39 declared in `schema.py` at SCHEMA_VERSION 0.5: 35 live incl. 4 ledger and the L1 library tables and 1.4 events_table, 4 planned) · `exports\` reports and CSV exports, disposable, regenerated per check · `snapshots\<date>\` `freeze` copies of the database file · `silver_frozen_20260830\`, `gold_frozen_20260830\` pre-migration CSVs, read only by LEGACY code, never written.
+- Data layout (P16; all git-ignored under `data\`): `bronze\` raw API responses and documents with manifests, never edited · `biointel.duckdb` every silver, gold and ledger table (47 declared in `schema.py` at SCHEMA_VERSION 0.6: 43 live incl. 4 ledger, the L1 library tables, 1.4 events_table and the L2 dossier/attribute tables, 4 planned) · `exports\` reports and CSV exports, disposable, regenerated per check · `snapshots\<date>\` `freeze` copies of the database file · `silver_frozen_20260830\`, `gold_frozen_20260830\` pre-migration CSVs, read only by LEGACY code, never written.
 - Install: `python -m venv .venv` → `.venv\Scripts\python.exe -m pip install -e ".[dev]"`; optional `".[ner]"` for spacy.
 - Credentials: `BIOINTEL_USER_AGENT`, `BIOINTEL_ALPHA_VANTAGE_KEY` in `.env`; read via `config.require()` at the HTTP call sites; nothing in code.
 - Run form: `& "<root>\.venv\Scripts\python.exe" -m biointel <command>`.
@@ -64,7 +80,7 @@ Per gate: scope message → go → dry-run on a container copy → single files 
 | __init__.py | 51 | re-exports of pipeline entry points |
 | __main__.py | 8 | entry point: python -m biointel |
 | config.py | 89 | paths (P16 layout), all HTTP endpoints, windows; .env loader; require() |
-| schema.py | 1048 | schema as code: entity types, attribute groups, relationship types, event classes (incl. the v4 classes since 1.4), 39-table map with types/keys/enums; validate (CSV and database) |
+| schema.py | 1148 | schema as code: entity types, attribute groups, relationship types (incl. v4 typed-edge names), event classes (incl. the v4 classes since 1.4), ASPECTS vocabulary, 47-table map with types/keys/enums; validate (CSV and database) |
 | store.py | 516 | bronze fetch/cache and manifests; DuckDB store layer (single point of table access: connect, read_table, write_table, append_rows, export_csv, write_export); input enforcement (enforce, InputViolation, trace) |
 | migrate.py | 109 | one-time CSV → DuckDB migration (refuses if the database exists; freezes the CSV folders) |
 | results.py | 423 | run ledger (P17): start/finish, render-from-record dispatch, run_type, ledger views, data/exports/ledger.csv |
@@ -85,17 +101,18 @@ Per gate: scope message → go → dry-run on a container copy → single files 
 | pairs.py | 455 | acquirer-pairing/mass-exact: pairs-exact, pairs-full-exact (record + render), build_pair_feature |
 | baselines.py | 654 | LEGACY: rejected pairing engines (cosine, supervised, protocol, substrates); paper baselines; not maintained |
 | study.py | 263 | fda-event-study/daily-bars: CAR vs XBI by outcome class |
-| interfaces/cli.py | 799 | dispatch for 62 commands (1.4); configures logging |
+| interfaces/cli.py | 805 | dispatch for 63 commands (L2); configures logging |
+| dossier.py | 419 | gate L2: Tempus–Personalis seed rows + span-verified loader (accession→capture resolution, doc_id stamped at load, propose→report→load) |
 | sources/*.py (11) | 2,535 | one adapter per public source: sec, financials (XBRL), deals (8-K), counterparty (NER, optional spacy), trials (CT.gov v2), fda (Drugs@FDA, CRL), prices (Yahoo), orangebook, chembl, patents (BigQuery export), alphavantage |
 
 Removed in the refactor (26133aa): fossil tree, Excel workbook, duplicate scripts, `crsp_import`, `ner_status`, `_pair_by_date`, dead USPTO route (−2,750 lines).
 
-## 0.4 CLI commands (62, all live; `python -m biointel` prints the list)
+## 0.4 CLI commands (63, all live; `python -m biointel` prints the list)
 - Universe/ingest: universe-probe, universe, ingest N, text-ingest N, add, backfill.
 - Layers: fin(-all), trials(-all), events(-all), deals(-all), cparty(-all), partners, relationships, snapshot.
 - Labels/QA: harvest, verify-fill, qa, qa-corroborate, qa-wiki, labels.
 - Models (all routed through the registry harness under input enforcement): features, predict [QUARTER], robust, improve, develop [tune|textsweep], pairs-exact, pairs-full-exact, study-all, backtest; `models` (the registry), `run MODEL [--impl N] [--eval N] [--as-of D]`.
-- Reporting and ledger: report MODEL [DATE], report ledger, report runs MODEL, ledger-seed (once), validate, freeze, migrate (once), events-migrate (once; gate 1.4).
+- Reporting and ledger: report MODEL [DATE], report ledger, report runs MODEL, ledger-seed (once), validate, freeze, migrate (once), events-migrate (once; gate 1.4), dossier-seed [--report] (L2; idempotent).
 - Data adapters: patents-sql, patents-import, orangebook-probe, chembl-probe, chembl-ingest.
 - Lookups: list, coverage, calendar IID, window, study, tags, sponsors, deals-of, partners-of.
 - LEGACY (P7; kept, not maintained, not re-run): fit, holdout (both accesses spent), pairs, pairs-fit, pairs-protocol, pairs-substrate.
@@ -139,6 +156,7 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 - Gate 0.3 DONE 2026-08-30 (29b8701): run ledger (runs, run_params, run_metrics, run_artefacts), render-from-record for seven reports and predict, ledger-seed (7 legacy rows), report views.
 - Gate 0.4 DONE 2026-08-31 (93c2194): models/ registry (target-screen: scorecard, fitted; acquirer-pairing: mass-exact; fda-event-study: daily-bars; six evaluations), declared inputs enforced at run time, run_type, models/run commands; first real run caught one undeclared legitimate read, fixed by declaration.
 - DOC gate DONE 2026-08-31: this PART 0 regenerated; current-state diagram v2 (docs/20260831_v2_System_Diagram.md); target-state diagram v2 after Ontology v4 (docs/20260831_v2_System_Diagram_TARGET_STATE.md) and research-process diagram (docs/20260831_v1_Research_Process_Diagram.md), both Mermaid, 2026-08-31.
+- Gate L2 DONE 2026-08-31: dossier schema (8 tables, 47 declared, SCHEMA_VERSION 0.6) + span-verified Tempus–Personalis seed, 16/16 rows across 5 tables (run 20260831T203033-dossier); P19 mechanical (accession→capture→doc_id at load; span must occur in the capture); report-driven corrections (3 reassignments, 4 rows pending sources); validate 35/0/8/4; pytest 95; thirteen fingerprints MATCH; runbook docs/20260831_v1_GATEL2_INSTALL.md.
 - Gate 1.4 DONE 2026-08-31: `events_table` live (4,282 rows migrated 1:1 from `events`, deterministic event_id, ledger run recorded); `event_date` column added per the approved amendment; v4 event classes declared (vocabulary complete from birth, writers at their own gates); `calendar IID` a view over trials + events_table with forward rows empty until 1.5/1.6; pytest 85; validate 27/0/8/4 (39 declared); thirteen fingerprints MATCH; runbook docs/20260831_v1_GATE14_INSTALL.md.
 - Regression baseline: thirteen fingerprints (docs/regression_baseline.txt, ffbbf20), reproduced at every gate since.
 
@@ -148,7 +166,7 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 3. Rotate the Alpha Vantage key; set the repository private (Harrison).
 4. Pull request jason/refactor → main; Harrison's post-merge steps (install, migrate, ledger-seed) in the handoff.
 5. Harrison to confirm the corrected MASS-exact figure (0.310) on his snapshot and retire the v0.81 "SUSPENDED" text in PART 5+.
-6. Next gate: L2 dossier schema (order of record L1 → 1.4 → L2 → 2.10 → 1.5 → L3 → L4, decided 2026-08-31). The L2/2.10 dependency is resolved: L2 seeds through the verified-overlay pattern; 2.10 runs immediately after L2. Precondition inside the L2 gate: the Tempus–Personalis source documents (Ontology v5 §9 list) captured into the research library, since every seed field must cite a resolving doc_id (P19).
+6. Next gate: 2.10 manual layer (L2 DONE 2026-08-31; order of record L1 → 1.4 → L2 → 2.10 → 1.5 → 2.9′ → L3 → L4 — 2.9′ before L3 per the membership result). Pending seed rows re-admitted by captures, no gate needed: equity_value_usd (Tempus PR via `library add <file> --for Rf573315b3de`), the three Merck rows (merger-agreement exhibit or §9 news URLs), later timeline/comparables rows (remaining §9 URLs).
 7. Universe check before 2.9′: are Tempus AI and Personalis among the 1,379 members (one query; Ontology v4 §8 Q9).
 8. `predict` composition (item 2) is subordinate to the dossier track: `aspect-match` results (gate L4) inform it; the buyer-agnostic checklist-versus-fitted test remains available as a cheap evaluation.
 
@@ -1416,6 +1434,7 @@ collaborations work, deal counterparties do not.
 
 ## Changelog
 
+| 1.02 | 2026-08-31 | Gate L2 DONE: dossier schema + span-verified seed — 8 tables live (SCHEMA_VERSION 0.6, 47 declared), ASPECTS enum, v4 edge names, ma_events optional deal_id; dossier-seed (63rd command) propose→report→load with accession→capture doc_id resolution and in-capture span verification; 16/16 rows loaded across 5 tables (run 20260831T203033-dossier); 3 assignments corrected and 4 rows held out pending sources on report evidence; MEMBERSHIP_MATCHES 0 → 2.9′ precedes L3; validate 35/0/8/4 of 47; pytest 95; thirteen fingerprints MATCH, PROBLEMS 0; runbook docs/20260831_v1_GATEL2_INSTALL.md. |
 | 1.01 | 2026-08-31 | Decision: L2 seeds the Tempus–Personalis dossier through a committed hand-curated seed (verified-overlay pattern, P19 doc_id+span per field); gate 2.10 pulled forward to immediately after L2 (order of record L1 → 1.4 → L2 → 2.10 → 1.5 → L3 → L4) so the manual layer exists before L3's review queue produces the first corrections. Implementation Plan v14; no code or data change. |
 | 1.00 | 2026-08-31 | Gate 1.4 DONE: event table + forward FDA calendar view — EVENT_TABLE_COLS gains `event_date` (approved amendment; scheduled_date reserved for goal dates); seven v4 event classes declared (vocabulary complete from birth); `events-migrate` copied 4,282/4,282 `events` rows with deterministic ids and a ledger run; `calendar IID` a view over trials + events_table, forward rows 0 until 1.5/1.6; pytest 85; ruff clean on gate files; validate 27/0/8/4 (39 declared); thirteen fingerprints MATCH, PROBLEMS 0; runbook docs/20260831_v1_GATE14_INSTALL.md. |
 | 0.99 | 2026-08-31 | Gate L1 DONE: research library / file room live — schema references/captures/reference_links; library.py + collectors (manual, folder, pipeline, zotero); 733 filings indexed with CIK links; commands add/import/import-zotero/index/find/show/open/list/view/site/manifest/merge/verify/dedupe/retire-capture; DONE 2026-08-31 (pytest 76; ruff clean on gate files; index 733 refs/733 caps idempotent, 733 CIK links after v002 meta-name fix; URL add, file add, no-fetch, retire-capture 1, dedupe 0; validate 26/0/8/5; manifest 735, verify 0; thirteen fingerprint MATCH, PROBLEMS 0; ledger 35 runs; runbook docs/20260831_v1_GATEL1_INSTALL.md) |
