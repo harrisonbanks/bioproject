@@ -19,7 +19,7 @@ was evidenced by a paste in the 2026-08-29 or 2026-08-30 session.
 0i. docs/20260830_v1_GATE03_INSTALL.md — gate 0.3 runbook and exit evidence (§8a).
 0h. docs/20260830_v1_GATE02_INSTALL.md — gate 0.2 runbook, exit evidence (§8a) and the Windows temp-file lesson.
 0g. docs/20260830_v1_GATE01_INSTALL.md — gate 0.1 runbook (deliverables, exit criteria, deferred items).
-0f. docs/20260830_v1_System_Diagram_TARGET_STATE.md/.png/.svg — target architecture; current state remains 20260829_v1_System_Diagram.*.
+0f. docs/20260830_v1_System_Diagram_TARGET_STATE.md/.png/.svg — target architecture; current state after Phase 0: docs/20260831_v2_System_Diagram.md (v1 kept as the pre-Phase-0 record).
 1. docs/20260823_OPERATINGMANUAL_NEW.md — process of record (in the repository since 53cccfa).
 2. docs/20260829_v2_MACHINE_RUNBOOK.md — Jason's machine conventions (updated for the src layout).
 3. This file.
