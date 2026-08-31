@@ -1,8 +1,8 @@
-docs/20260831_v7_Implementation_Plan.md
+docs/20260831_v8_Implementation_Plan.md
 
 # Implementation plan and gate ledger
 
-Bioindustry Intelligence Platform · v7 · 2026-08-31 (v7: gate 0.4 DONE, Phase 0 complete; v6: gate 0.3 DONE; v5: gate 0.2 DONE; v4: Phase 0 reordered — storage migration to DuckDB as 0.2, reporting layer 0.3, model framework 0.4; legacy rule; thirteen-file regression baseline; v3: gate 0.1 DONE; v2: ontology roadmap steps mapped; gates M1-G/H/I added) · Status: agreed in
+Bioindustry Intelligence Platform · v8 · 2026-08-31 (v8: data-snapshot policy decided, §4 and §5; v7: gate 0.4 DONE, Phase 0 complete; v6: gate 0.3 DONE; v5: gate 0.2 DONE; v4: Phase 0 reordered — storage migration to DuckDB as 0.2, reporting layer 0.3, model framework 0.4; legacy rule; thirteen-file regression baseline; v3: gate 0.1 DONE; v2: ontology roadmap steps mapped; gates M1-G/H/I added) · Status: agreed in
 principle 2026-08-30 ("all makes sense"); formal go per gate.
 Target state: docs/20260830_v1_System_Diagram_TARGET_STATE.*.
 Requirements: Ontology v3, FDA Catalyst Product Design v1, Horizon Scanning
@@ -86,7 +86,7 @@ interleaved; nothing in Phase 3 starts before 1.7, 2.8 and 0.4 are DONE.
 - Pull request `jason/refactor` → `main` at a point both agree
   (recommended: after Phase 0, so Harrison's machine gets the layout,
   framework and reporting before the calendar work starts).
-- Data snapshot policy (ontology §8.5) decided before Phase 3 measurement.
+- Data snapshot policy (Ontology §8 Q5): DECIDED 2026-08-31, option A. The snapshot of record from Phase 1 onward is Jason's 2026-08-29 data, frozen as it stood on 2026-08-31: `data\snapshots\20260831\biointel.duckdb`, 95,170,560 bytes, SHA-256 `B93A833BE46667AD402C71776C41D5E34EF1AC2126A73138D24C74D3928C0E65`; `manifest.json` 12,053 fetches, no credential. It reaches Harrison on a USB drive after the merge, never through git; identity by SHA-256 and by equal `data_snapshot_hash` in `report runs`. Harrison's 2026-08-25/26 results stay `historical-file` ledger rows labelled with the earlier snapshot; the paper states that in one sentence. No `ingest`, `labels`, `features`, `study-all`, `text-ingest` or `cparty-all` runs outside a named gate that records a new baseline with a ledger note (§1 step 5).
 
 ## 5. Regression baseline (decision 2026-08-30)
 
@@ -102,7 +102,7 @@ machine (`fit_report.txt`, `holdout_report.txt`, `pair_report.txt`,
 never regenerated. Every gate from 0.2 must reproduce each of the thirteen byte for
 byte. Note: the live-report numbers on Jason's snapshot differ from the ledger numbers
 recorded from Harrison's snapshot (e.g. development best 0.0561/1.87× vs 0.0674/2.13×);
-the data-snapshot policy (Ontology §8 Q5) must be decided before paper numbers are final.
+the data-snapshot policy was decided on 2026-08-31 (§4): the live-report numbers on Jason's snapshot are the numbers of record; Harrison's are historical.
 
 ## 6. Legacy register (P7 as amended 2026-08-30)
 

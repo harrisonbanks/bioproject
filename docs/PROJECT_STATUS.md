@@ -2,9 +2,10 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 0.93. Supersedes v0.92. DOC gate after Phase 0: PART 0 regenerated in
-full from the tree at 93c2194 and the run ledger; current-state diagram v2. PARTS
-1–7 and the changelog are unchanged from v0.81 except where noted. Design
+Version 0.94. Supersedes v0.93. Decision of 2026-08-31: data-snapshot policy of
+record (0.5, 0.7, 0.9); PART 0 otherwise as regenerated at v0.93 from the tree at
+93c2194 and the run ledger; current-state diagram v2. PARTS 1–7 and the changelog
+are unchanged from v0.81 except where noted. Design
 decisions of 2026-08-30 are in docs/20260830_v4_Design_Principles.md
 (binding) and
 docs/20260830_v3_Ontology_and_Matching_Design.md.
@@ -25,7 +26,7 @@ standing rules, and the open queue.
 
 ## 0.1 Environment & locations
 - Repository: https://github.com/harrisonbanks/bioproject (public as of 2026-08-31 — to be set private; key rotation pending). Branch `jason/refactor` holds all work since 2026-08-29 (commits 76a3ba3 … 93c2194); `main` is at the pre-refactor commit b52de01.
-- Operator machines: Harrison `C:\Users\bocchirock\Documents\dev\bioindustry\` (pre-refactor layout until merge); Jason `C:\Users\JB\Documents\dev\bioindustry\` (current layout; data regenerated 2026-08-29: 1,379 universe members; migrated to DuckDB 2026-08-30). Windows, Python 3.13, venv at `<root>\.venv`, venv + pip (no uv, P9).
+- Operator machines: Harrison `C:\Users\bocchirock\Documents\dev\bioindustry\` (pre-refactor layout until merge); Jason `C:\Users\JB\Documents\dev\bioindustry\` (current layout; data regenerated 2026-08-29: 1,379 universe members; migrated to DuckDB 2026-08-30; frozen 2026-08-31 as the snapshot of record, 0.5). Windows, Python 3.13, venv at `<root>\.venv`, venv + pip (no uv, P9).
 - Repository layout: `src/biointel/` package (modules below) · `scripts/` diagnostics and `scripts/refactor/` gate tooling · `docs/` · `tests/unit/` (65 tests) · `pyproject.toml` (dependencies: numpy, scikit-learn, scipy, requests, openpyxl, duckdb>=1.3,<2; dev: ruff, mypy, pytest) · `requirements.lock` (UTF-8) · `.env` (git-ignored; template `.env.example`).
 - Data layout (P16; all git-ignored under `data\`): `bronze\` raw API responses and documents with manifests, never edited · `biointel.duckdb` every silver, gold and ledger table (36 declared in `schema.py`: 27 built, 4 ledger, 5 planned) · `exports\` reports and CSV exports, disposable, regenerated per check · `snapshots\<date>\` `freeze` copies of the database file · `silver_frozen_20260830\`, `gold_frozen_20260830\` pre-migration CSVs, read only by LEGACY code, never written.
 - Install: `python -m venv .venv` → `.venv\Scripts\python.exe -m pip install -e ".[dev]"`; optional `".[ner]"` for spacy.
@@ -78,9 +79,9 @@ Removed in the refactor (26133aa): fossil tree, Excel workbook, duplicate script
 - LEGACY (P7; kept, not maintained, not re-run): fit, holdout (both accesses spent), pairs, pairs-fit, pairs-protocol, pairs-substrate.
 
 ## 0.5 Numbers of record, with provenance (generated from the run ledger; P6)
-Two data snapshots exist and are not yet reconciled (open decision, 0.9 item 1): Harrison's (built 2026-08-25/26, the numbers in the historical record below and the legacy ledger rows) and Jason's (rebuilt 2026-08-29, 1,379 members, no 10-K text corpus; every `run` since gate 0.3). Each ledger row carries its `data_snapshot_hash`; `report runs MODEL` shows them side by side.
+**Snapshot of record (decision 2026-08-31, option A):** Jason's 2026-08-29 data is the snapshot of record for every number from Phase 1 onward. It was frozen as it stood on 2026-08-31 (no data-changing command run before the freeze): `data\snapshots\20260831\biointel.duckdb`, 95,170,560 bytes, SHA-256 `B93A833BE46667AD402C71776C41D5E34EF1AC2126A73138D24C74D3928C0E65`, byte-identical to the live `data\biointel.duckdb` at freeze time; `manifest.json` lists 12,053 bronze fetches and contains no credential (0 occurrences of `apikey`, checked before any copy). Transfer to Harrison: the whole `data\snapshots\20260831\` folder on a USB drive after the merge, never through git; identity on his machine is proved by the same SHA-256 and by an equal `data_snapshot_hash` in `report runs` after his first run. Harrison's 2026-08-25/26 results (holdout 2.2×, substrate nulls, protocol 0.222) remain `historical-file` ledger rows labelled with the earlier snapshot, and the paper states that provenance in one sentence. On this snapshot the relationship features (`RelDeal`, `Deals24m`, `LicensesEver`, `CollabsEver`, the S1 merger-row label signal) are trial-collaboration-only because `cparty-all` was never run (spacy absent) and 10-K text is absent; any enrichment enters only at a named gate that records a new baseline with a ledger note (Implementation Plan §1 step 5). Each ledger row carries its `data_snapshot_hash`; `report runs MODEL` shows both snapshots side by side.
 
-| Model | Metric | Harrison snapshot | Jason snapshot | Status |
+| Model | Metric | Harrison snapshot (2026-08-25/26, historical) | Jason snapshot (2026-08-29, of record) | Status |
 |---|---|---|---|---|
 | target-screen / fitted (gen-2) | holdout 2023+ AUC-PR / lift / ROC | 0.079 / 2.2× / 0.720 (holdout_report, historical-file) | not run (P10: both accesses spent) | final |
 | target-screen / fitted | development best (tune, hist-gbm fund+eng) | 0.0674 / 2.13× (v0.68 record) | 0.0561 / 1.87× (ledger run tune) | snapshot-dependent |
@@ -100,7 +101,8 @@ docs/20260830_v4_Design_Principles.md P1–P18 (binding) and the operating manua
 ## 0.7 Historical decisions (kept for the record; superseded where noted)
 - v0.69: final improvement cycle (patent substrate + Orange Book LOE urgency, probe-gated) then assembly → freeze → draft; pre-registered adoption rule for substrates (HR@5 must beat 0.222 outside ±0.010) — executed; both substrates rejected (0.5).
 - v0.67 ranked options (exact Sapling formula, EFTS strategic-review scanner, 24-month screen, LightGCN, close measurement) — the exact formula shipped as MASS-exact; EFTS becomes Phase 1 gate 1.5; the rest superseded by the Implementation Plan.
-- 2026-08-30/31 decisions: P7 legacy rule; P16 two stores; P17 ledger in MLflow structure; P18 one store layer and SQL convergence; models named by question, M1/M2 labels retired (Implementation Plan v7 §7).
+- 2026-08-30/31 decisions: P7 legacy rule; P16 two stores; P17 ledger in MLflow structure; P18 one store layer and SQL convergence; models named by question, M1/M2 labels retired (Implementation Plan v8 §7).
+- 2026-08-31: data-snapshot policy option A (0.5): Jason's 2026-08-29 data frozen as the snapshot of record; freeze as it stood (no `cparty-all` first); USB transfer to Harrison, not git (public repository, binary history growth, LFS quota); Ontology §8 Q5 thereby answered: the repository does not carry data.
 
 ## 0.8 Refactor record (2026-08-29, branch jason/refactor)
 Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code and duplicates removed (−2,750 lines) · f0ceeb0 credentials to .env · 49572ec coverage fix, portable VS Code path · 55bc9c1 src layout, pyproject, scripts/docs/data directories · 5c16ec8 ruff · da29a85 endpoints in config, package logging; six scripted gates 00–50 plus two fix scripts, all with matching SHA-256 hashes.
@@ -113,8 +115,8 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 - DOC gate DONE 2026-08-31: this PART 0 regenerated; current-state diagram v2 (docs/20260831_v2_System_Diagram.md).
 - Regression baseline: thirteen fingerprints (docs/regression_baseline.txt, ffbbf20), reproduced at every gate since.
 
-## 0.9 Open queue (2026-08-31; detail in docs/20260831_v12_Session_Handoff.md §5)
-1. Data-snapshot policy (Ontology §8 Q5): which snapshot is the paper's; both are in the ledger with their hashes — decision needed before Phase 1 numbers are final.
+## 0.9 Open queue (2026-08-31; detail in docs/20260831_v13_Session_Handoff.md §5)
+1. Snapshot of record decided (0.5); remaining action: after the merge, hand `data\snapshots\20260831\` to Harrison on USB; he places `biointel.duckdb` at `<his root>\data\biointel.duckdb`, verifies the SHA-256 in 0.5 and runs `validate`.
 2. `predict` composition (M1-P): `target-screen/fitted` has no fit/predict path; `scorecard` drives `predict`; decide fitted-ranks/scorecard-explains or keep.
 3. Rotate the Alpha Vantage key; set the repository private (Harrison).
 4. Pull request jason/refactor → main; Harrison's post-merge steps (install, migrate, ledger-seed) in the handoff.
@@ -1385,6 +1387,7 @@ collaborations work, deal counterparties do not.
 
 ## Changelog
 
+| 0.94 | 2026-08-31 | Decision: data-snapshot policy option A — Jason's 2026-08-29 data frozen as the snapshot of record (`data\snapshots\20260831\biointel.duckdb`, 95,170,560 bytes, SHA-256 B93A833BE466…, manifest 12,053 fetches, no credential); freeze as it stood; USB hand-over to Harrison after the merge; Harrison's results stay historical-file rows. Implementation Plan v8, handoff v13, README. No code or data change; fingerprints untouched. |
 | 0.93 | 2026-08-31 | DOC gate: PART 0 regenerated in full (layout, workflow, codebase map, 61 commands, numbers of record with two-snapshot provenance from the ledger, rules, historical decisions, gate record, open queue); System Diagram v2 (current state). |
 | 0.92 | 2026-08-31 | Gate 0.4 DONE (Phase 0 complete): models/ registry + enforcing harness, run_type, models/run commands (61), 65 tests, fingerprints reproduced; model naming by question, M1/M2 retired. Implementation Plan v7, handoff v12. |
 | 0.91 | 2026-08-30 | Gate 0.3 DONE: results.py run ledger (4 tables), render-from-record for 7 reports + predict, report/ledger-seed commands (59), legacy rows seeded with provenance, ledger.csv export, 58 tests; thirteen fingerprints reproduced twice (after split, after re-render). Implementation Plan v6, handoff v11. |

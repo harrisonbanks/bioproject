@@ -1,11 +1,11 @@
-docs/20260831_v12_Session_Handoff.md
+docs/20260831_v13_Session_Handoff.md
 
-# Session handoff v12 — bioproject, 2026-08-31 (Phase 0 complete: gates 0.1–0.4 done; next Phase 1)
+# Session handoff v13 — bioproject, 2026-08-31 (Phase 0 complete; snapshot of record decided; next: `predict` decision, then gate 1.4)
 
-Supersedes docs/20260830_v11_Session_Handoff.md. Structure per J. Banks's
+Supersedes docs/20260831_v12_Session_Handoff.md. Structure per J. Banks's
 2026-08-29 instruction (attachments, session-start sequence with lineage by
 hash, verified state, standing rules, open queue). Every state claim below
-was evidenced by a paste in the 2026-08-29 or 2026-08-30 session.
+was evidenced by a paste in the 2026-08-29, 2026-08-30 or 2026-08-31 session.
 
 ## 1. Required attachments for the next session
 
@@ -14,7 +14,7 @@ was evidenced by a paste in the 2026-08-29 or 2026-08-30 session.
 0b. docs/20260830_v2_FDA_Catalyst_Research.md — Model 2 research synthesis.
 0c. docs/20260830_v1_FDA_Catalyst_Product_Design.md — Model 2 requirements (R1–R8, roadmap F1–F9), under review.
 0d. docs/20260830_v1_Horizon_Scanning_Design.md — Model 4 requirements (H1–H9), under review.
-0e. docs/20260831_v7_Implementation_Plan.md — gate ledger and procedure; Phase 0 complete (0.1–0.4 DONE); next Phase 1 (1.4 event table); §5 thirteen-file baseline; §6 legacy register; §7 model naming.
+0e. docs/20260831_v8_Implementation_Plan.md — gate ledger and procedure; Phase 0 complete (0.1–0.4 DONE); §4 snapshot of record (decided 2026-08-31); next Phase 1 (1.4 event table); §5 thirteen-file baseline; §6 legacy register; §7 model naming.
 0j. docs/20260831_v1_GATE04_INSTALL.md — gate 0.4 runbook and exit evidence (§8a).
 0i. docs/20260830_v1_GATE03_INSTALL.md — gate 0.3 runbook and exit evidence (§8a).
 0h. docs/20260830_v1_GATE02_INSTALL.md — gate 0.2 runbook, exit evidence (§8a) and the Windows temp-file lesson.
@@ -31,7 +31,9 @@ was evidenced by a paste in the 2026-08-29 or 2026-08-30 session.
 ```
 git -C "C:\Users\JB\Documents\dev\bioindustry" log --oneline -20
 # expected, newest first:
-#   <hash>  Gate 0.4: model framework (registry, declared inputs, enforcing harness, run_type, models/run); docs 0.92, plan v7, handoff v12
+#   <hash>  Decision 2026-08-31: data-snapshot policy of record (PROJECT_STATUS 0.94, plan v8, handoff v13, README)
+#   9fd24d2 DOC gate after Phase 0: PROJECT_STATUS 0.93 PART 0 regenerated; System Diagram v2
+#   93c2194 Gate 0.4: model framework (registry, declared inputs, enforcing harness, run_type, models/run); docs 0.92, plan v7, handoff v12
 #   29b8701 Gate 0.3: run ledger + render from record (results.py, legacy_ledger.py, report/ledger-seed); docs 0.91, plan v6, handoff v11
 #   5dbf595 Gate 0.2: storage migration to DuckDB (store layer, migrate, exports, snapshots, frozen CSV folders); P18; docs 0.90, plan v5, handoff v10
 #   ffbbf20 Regression baseline extended to thirteen files ...
@@ -58,10 +60,13 @@ git -C "C:\Users\JB\Documents\dev\bioindustry" log --oneline -20
 git -C "C:\Users\JB\Documents\dev\bioindustry" status --short
 # expected: empty
 Get-Content "C:\Users\JB\Documents\dev\bioindustry\docs\regression_baseline.txt"
-# expected: ma_predictions.csv 04061e33a77056ae6e8519273ca73c6de0329be856e389a8a69be8cb1329530d
+# expected: thirteen lines; the first two:
+#           ma_predictions.csv 04061e33a77056ae6e8519273ca73c6de0329be856e389a8a69be8cb1329530d
 #           pair_full_exact_report.txt 960307e2dbb259a3b6e452e005469b3e9cb7a87618a59668654f3905db35e81b
+(Get-FileHash "C:\Users\JB\Documents\dev\bioindustry\data\snapshots\20260831\biointel.duckdb" -Algorithm SHA256).Hash
+# expected: B93A833BE46667AD402C71776C41D5E34EF1AC2126A73138D24C74D3928C0E65  (snapshot of record, 4.19)
 ```
-No code change is issued until all three outputs are pasted and match.
+No code change is issued until all four outputs are pasted and match.
 
 ## 3. Verified state
 
@@ -76,6 +81,7 @@ No code change is issued until all three outputs are pasted and match.
 3.11 Decisions of 2026-08-30 (afternoon), recorded as P13–P15 and in ontology v3 / product design v1: global universe with ADRs and stubs; daily bars only, no trading; all event classes at once with delays first-class; cross-event ranking with attribution and no assumption about purpose; no options; benchmarks XBI plus user-defined; calendar sources of record = FDA (past) + SEC EDGAR full-text 8-K mining (forward) + FDA AdCom calendar + CT.gov completion dates, aggregators as cross-check only; manual templated notes; Model 4 = Horizon Scanning (entity discovery from papers/news); Model 3 unassigned.
 3.10 Model 2 research note committed (0cc5e25): formal framing (event study; catalyst trading; run-up and post-announcement drift; investor distraction), evidence base, theses T1–T6, event taxonomy, candidate models M2.1–M2.7, rules R1–R8, data gaps (forward calendar is the critical missing asset), evaluation protocol.
 3.12 Gate 0.1 DONE (2026-08-30, evidenced by paste): `src/biointel/schema.py` declares entity types, attribute groups, relationship types, event classes/outcome states and a 32-table map (27 built, 5 planned); `python -m biointel validate` (56th command) checks header, key uniqueness, types and enumerations per table; `config.py` de-duplicated (cause: `50_config_logging.py` wrote its endpoint block before a later guard assertion and was re-run); tests 37 passed; first live `validate`: 17 conformant, 1 with violations (blank `S5_CeasedFiling` on harvest-derived `ma_events.csv` rows; schema corrected to allow blank), 9 absent, 5 planned; regression hashes unchanged. Output-drop hazard (4.9) recurred: four `validate` lines were missing from the paste while the summary counts were complete.
+3.13 Snapshot of record frozen (2026-08-31, evidenced by paste): `freeze` wrote `data\snapshots\20260831\biointel.duckdb` (95,170,560 bytes, SHA-256 B93A833BE46667AD402C71776C41D5E34EF1AC2126A73138D24C74D3928C0E65, identical to the live `data\biointel.duckdb` at freeze time) and `manifest.json` (12,053 fetches; 0 occurrences of `apikey`); no data-changing command ran before the freeze; decision A recorded in PROJECT_STATUS 0.94 §0.5 and Implementation Plan v8 §4.
 3.9 Decisions of 2026-08-30 (recorded as principles P1–P8): tables stay model-agnostic, no split; separation enforced at model input lists; entities neutral; objectives a dimension; manual layer general; model framework with one yardstick; existing models keep purposes; general-case-first requirements. Table split proposal withdrawn; Architecture Instructions superseded (P9).
 
 ## 4. Standing rules (agreed 2026-08-29)
@@ -90,7 +96,7 @@ No code change is issued until all three outputs are pasted and match.
 4.8 Data tables are model-agnostic; separation between the M&A model and the FDA/price model is enforced at each model's input list, never by splitting tables. The hand scorecard in `score.py` may read market cap and event CAR; the paper must describe its inputs accurately.
 4.9 Output-drop caveat: pasted terminal output has repeatedly omitted lines (five instances, cause unknown, PSReadLine disabled); substance is verified by status/hash commands, never by the presence of a printed line.
 
-4.10 Design principles P1–P17 are binding and override generic rules in any other document.
+4.10 Design principles P1–P18 are binding and override generic rules in any other document.
 4.11 Every decision is put to Jason as a question and answered before any build step (2026-08-30 instruction).
 4.12 Every git command in a block carries --no-pager: a paged `git log` swallowed a whole pasted block as keystrokes on 2026-08-30.
 4.13 Anything that writes or deletes temporary files needs a Windows paste before it counts; the Linux dry-run did not show the WinError 32 file-handle failure.
@@ -98,6 +104,7 @@ No code change is issued until all three outputs are pasted and match.
 4.17 Model framework since gate 0.4: models are named by question (target-screen, acquirer-pairing, fda-event-study); every model run goes through models/harness under store.enforce with the registry's declared inputs; an InputViolation stops the run and records nothing; when a real-data branch reads a legitimate undeclared column the fix is the declaration in models/registry.py, never disabling the check; "M1/M2" labels are retired from new material.
 4.18 Requirements before code: restate general case, instances, derived requirements; derive declarations from code and traces, not memory; re-read the binding principle text (P1–P18) before asserting a rule (2026-08-31: a rule was misquoted from memory and had to be withdrawn).
 4.16 PowerShell in blocks: `Select-Object -First N` and `-Last N` are separate calls; never combine them in one argument (2026-08-30 block error skipped `predict`).
+4.19 Snapshot of record (decision 2026-08-31): Jason's 2026-08-29 data, frozen 2026-08-31 (3.13), is the snapshot of record from Phase 1 onward; it travels to Harrison on a USB drive, never through git (public repository, unrotated key, binary history growth, LFS quota); identity is proved by the SHA-256 in 3.13 and by equal `data_snapshot_hash` in `report runs`; Harrison's 2026-08-25/26 results stay `historical-file` rows labelled with the earlier snapshot; no `ingest`, `labels`, `features`, `study-all`, `text-ingest` or `cparty-all` runs outside a named gate that records a new baseline with a ledger note.
 4.14 Data layout since gate 0.2: data\bronze\ (raw files), data\biointel.duckdb (all tables), data\exports\ (disposable reports and CSVs; regenerated for every regression check), data\snapshots\ (freeze copies), data\silver_frozen_20260830\ and data\gold_frozen_20260830\ (legacy read-only; never written).
 
 ## 5. Open queue (priority order)
@@ -107,9 +114,9 @@ No code change is issued until all three outputs are pasted and match.
 3. **Review the Ontology and Matching Design (v1)** and its §8 open questions; approve or amend before roadmap step A starts.
 3a. **Review the FDA Catalyst Product Design v1** (requirements) and ontology v3 §§3.1a, 3.2a, 3.6–3.8; approve or amend; then roadmap F1 (event table) which shares its schema with ontology step A.
 3b. **Review the Horizon Scanning Design v1** (Model 4).
-3c. **Gameplan (ledger in Implementation Plan v7; Phase 0 complete; next: decide the data-snapshot policy (Ontology §8 Q5) and the `predict` implementation (0.9), then Phase 1 gate 1.4 event table)**: Phase 0 schema-as-code → central reporting layer → model framework; Phase 1 calendar system (event table, EFTS probe/parser, official feeds, daily maintenance job); Phase 2 price-action attributes, ADR/stub universe, benchmarks, manual layer; Phase 3 Model 2 models, ranking, rules, daily product. Model 4 build and Model 1 objective matchers after Phase 3 is measured.
+3c. **Gameplan (ledger in Implementation Plan v8; Phase 0 complete; snapshot of record decided 2026-08-31; next: decide the `predict` implementation (0.9 item 2), then Phase 1 gate 1.4 event table)**: Phase 0 schema-as-code → central reporting layer → model framework; Phase 1 calendar system (event table, EFTS probe/parser, official feeds, daily maintenance job); Phase 2 price-action attributes, ADR/stub universe, benchmarks, manual layer; Phase 3 Model 2 models, ranking, rules, daily product. Model 4 build and Model 1 objective matchers after Phase 3 is measured.
 4. **Scorecard vs fitted model (design decision, Jason + Harrison; P7).** `predict` ranks by the hand scorecard (`score.target_score`, weights set by judgement); the validated gen-2 model (`improve.py`, 2.2× chance on held-out deals) exists alongside. Decide whether `predict` should rank by the fitted model with the scorecard as explanation, or state the scorecard as the product.
-5. **PROJECT_STATUS.md PART 0 is stale** (says v0.68 layout: `app\`, 26 modules, 47 commands, `cli.py` 509 lines). Regenerate from the live tree: `src/biointel` module list, 55 commands, new run form. Not scripted yet.
+5. **Snapshot hand-over to Harrison (after item 2).** Copy `data\snapshots\20260831\` to a USB drive; Harrison places `biointel.duckdb` at `<his root>\data\biointel.duckdb`, verifies the SHA-256 in 3.13, runs `validate` and `ledger-seed`, and his first `report runs` shows the same `data_snapshot_hash` as Jason's rows. (PROJECT_STATUS PART 0 regeneration, formerly this item, was done at the DOC gate, 9fd24d2.)
 6. **Two unused variables** (`score.py:toks`, `study.py:prev_adj`) and two lambda assignments are human-review items; not auto-fixed.
 7. **spacy** declared as optional group `ner`; install with `pip install -e ".[ner]"` and download the model before `cparty-all`.
 8. **MACHINE_RUNBOOK question 4.1** (re-enable PSReadLine to test the output drop) remains open.
