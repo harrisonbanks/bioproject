@@ -1,11 +1,14 @@
-docs/20260831_v4_Ontology_and_Matching_Design.md
+docs/20260831_v5_Ontology_and_Matching_Design.md
 
 # Ontology and M&A matching design
 
-Bioindustry Intelligence Platform · design document v4 · 2026-08-31
-Status: proposed, for review by J. Banks and H. Banks. Supersedes v3
-(2026-08-30). v4 (decision 2026-08-31, "deal dossiers on top of a research
-library"): adds the research library (§3.9), the deal dossier (§3.10), the
+Bioindustry Intelligence Platform · design document v5 · 2026-08-31
+Status: §3.9 approved by J. Banks 2026-08-31 (file-room design); remainder
+proposed, for review by J. Banks and H. Banks. Supersedes v4 (2026-08-31).
+v5: §3.9 rewritten as the approved file-room design (references / captures /
+links; collector modules; Zotero optional and offline; reconciliation by
+manifest and merge; navigation; duplicate management; video; AI-over-store
+noted for future development, §7); §8 Q8 marked answered. v4 added the research library (§3.9), the deal dossier (§3.10), the
 entity attributes and event classes the dossier needs (§3.2, §3.3, §3.6),
 the aspect matcher and the forward hit/false-alarm test (§5.5, §5.6),
 roadmap steps L1–L4 and 2.9′ (§7), and answers §8 Q5. v3 added
@@ -265,26 +268,132 @@ requirements: a separate Model 4 design document (not yet written).
 values, and the table each is read from; a `validate` command checks every
 silver/gold table against it. This is the written ontology.
 
-### 3.9 Research library (v4)
-Purpose: every fact the platform asserts about a company or a deal can be
-traced to a document, and the document can be re-read later; the whole
-extraction can be re-run against the same corpus when the vocabulary
-changes. Storage: `data/bronze/library/<sha256>.<ext>`, one copy per
-document, named by its hash, never edited (P16). Index tables:
-`documents` (`doc_id` = sha256, `url`, `source_type` — sec_8k, sec_425,
-sec_s4, sec_defm14a, sec_13d, sec_13g, sec_10k, sec_10q, press_release,
-transcript, investor_letter, analyst_note, news, regulatory_notice,
-manual_upload — `publisher`, `title`, `published_at`, `retrieved_at`,
-`accession` where SEC, `access` public/paywalled, `added_by` code or
-person, `note`) and `document_links` (`doc_id`, `entity_key` / `deal_id` /
-`event_id`, `role` acquirer / target / third_party / comparable /
-commentary). Two ways in: code (every `fetch_json` document already carries
-URL, status and time; the library adds hash, type and links) and a manual
-`library add <url-or-file> --entity --deal --type` command for anything a
-person finds. Every dossier field (§3.10), every stated priority (§3.2) and
-every v4 event row cites `doc_id` plus a character span. Each regeneration
-of dossiers from the library is a ledger run (P17) with its
-`data_snapshot_hash`, so two dossier versions are comparable.
+### 3.9 Research library — the file room (v5, approved 2026-08-31)
+
+Purpose: every fact the platform asserts is traceable to a source; every
+source can be re-read; the whole extraction can be re-run against the same
+corpus. The library is source-agnostic and type-agnostic: a reference is a
+reference whether it came from the pipeline, a person, Zotero or a future
+search engine, and whether it is a filing, an article, a paper, a page, a
+PDF, a video or a bare link.
+
+**Objects (three tables in the DuckDB store):**
+- `references` — the source as a citation, held copy or not: `ref_id`;
+  `ref_type` (sec_filing, press_release, news_article, research_paper,
+  transcript, investor_letter, analyst_note, regulatory_notice, web_page,
+  video, dataset, book, other); identifiers as they exist (`url`, `doi`,
+  `pmid`, `sec_accession`, `isbn`); `title`, `authors`, `publisher`,
+  `published_at`, `accessed_at`, `language`, `access` (open, paywalled,
+  private); `source_system` (pipeline, library_add, folder, zotero,
+  video_dl, search…), `source_key`; `added_by`, `note`; `status` (active,
+  retired), `merged_into`. Modelled on the reference-manager item
+  (Zotero); a reference with no capture is allowed and visibly marked,
+  but cannot support a dossier fact (P19).
+- `captures` — one held copy of a reference; zero, one or many per
+  reference: `capture_id` = SHA-256 of the bytes (this is the `doc_id`
+  that P19 and §3.10 cite); `ref_id`; `kind` (fetched_html, fetched_pdf,
+  fetched_text, printed_pdf, uploaded_file, media_file, captions,
+  wayback); `path`; `bytes`, `ext`, `mime`; `captured_at`,
+  `capture_method`; `archive_url`, `archive_ts`; `status` (active,
+  retired) with reason. Content-addressed: the hash is the primary key,
+  so identical bytes exist once however often they arrive. Captures are
+  never edited and never deleted; a wrong or redundant capture is retired
+  and stays on disk so existing citations keep resolving.
+- `reference_links` — what the reference is about: `ref_id`; `key_type`
+  IID/CIK (deal_id and event_id from §3.10 onward); `entity_key`; `role`
+  (subject, acquirer, target, third_party, comparable, commentary,
+  author_affiliation); `added_at`, `added_by`.
+
+**Store:** `data/bronze/library/<aa>/<sha256>.<ext>` (two-hex-character
+subfolders, as in Git's object store); one copy per hash; never edited,
+never in git (P16; transfer is USB, as for the database). A file on a
+person's disk is copied in, never linked; a `linked_file` kind exists in
+the vocabulary but is disabled (it cannot travel or be verified, so it
+cannot support a fact).
+
+**Collectors (adapter family, one module per source, none required):**
+each implements `discover()` (candidate references with the metadata the
+source knows) and `fetch(reference)` (bytes or "no copy"), and the store
+does the rest identically: hash, dedupe, reference row, links,
+`source_system`/`source_key`. L1 ships `manual` (`library add
+<url-or-file>` with `--no-fetch` for bare links and `--for <ref_id>` for
+attaching a printed or downloaded copy), `folder` (`library import
+<folder>`), `pipeline` (the 733 `sec_filing_doc` filings copied in, one
+`sec_filing` reference + `fetched_text` capture each, URL and time from
+the `.meta.json`), and `zotero` (below). `video_dl` (yt-dlp wrapper
+producing `media_file` + `captions` captures) is defined but off by
+default: media files are large and platform terms govern downloading, so
+it runs deliberately per reference; a video a person already holds enters
+through `manual` or `folder` like any file. `search` (Model 4 /
+discovery) is an interface only until that work exists; a URL it finds
+becomes a reference at once, the capture follows when a fetch succeeds,
+and a failed fetch stays visible as reference-without-capture.
+
+**Zotero (optional human capture tool):** desktop app, no account, sync
+off, data directory local; the browser button captures page metadata and
+a copy (single-file HTML snapshot, or the PDF); `library import-zotero`
+reads the local read-only API (pyzotero as an optional extra, like
+`[ner]`), copies each attachment into the store under its hash, creates
+the reference with Zotero's metadata and `source_key` = the item key, and
+maps `IID:`/`CIK:` tags to links; skipped when Zotero is absent or not
+running. Zotero's folder is an inbox, emptiable after import; Zotero the
+service stores nothing (no account, sync off). Per-person AI plugins
+inside Zotero (PapersGPT, Aria, Beaver, Zotero MCP servers) are personal
+reading aids and out of scope for the system of record.
+
+**Duplicate management:** identical bytes cannot duplicate (hash primary
+key). Same source captured twice with different bytes (ads, revisions) is
+one reference with two dated captures — correct, not duplication; a
+knowingly redundant capture is retired (`library retire-capture`, reason
+recorded); from L3, a text-content hash over the extracted article body
+flags same-content captures automatically and auto-retires the later one
+unless told otherwise. Same source entered as two references is prevented
+by an identifier ladder at add time (`source_system`+`source_key` →
+`sec_accession`/`doi`/`pmid` → normalised URL); what slips past
+(syndicated URLs, DOI-versus-page) is listed by `library dedupe` (fuzzy
+title + date + publisher or author) for human-confirmed merge; a merge
+keeps every capture and link on the surviving `ref_id` and retires the
+other with `merged_into`, so existing citations resolve forever. Nothing
+is ever deleted.
+
+**Reconciliation between machines (no cloud):** `library manifest`
+writes `manifest-sha256.txt` (BagIt-style fixity list) plus row exports;
+the USB carries `library/` and the exports; `library merge <folder>` on
+the receiver copies unknown hashes, upserts references through the same
+identifier ladder (both people capturing one article become one reference
+with two captures), unions links, and queues uncertain matches for
+`library dedupe`; `library verify` re-hashes every file against the
+manifest. Same mechanism as the database snapshot: SHA-256 identity, USB
+transport, manifest proof.
+
+**Navigation:** CLI (`library find / show / open / list`); the generated
+browser page `library site` (one self-contained HTML report in
+`data/exports/library_site/`, filter by company, deal, type, publisher,
+date, text over titles and notes; rendered from record, disposable, P17);
+Explorer folder views `library view --entity` (disposable copies with an
+`index.csv`). These are interim: the long-term interface is
+object-linked — click an entity, deal or event and see its documents —
+a product-layer view over `reference_links` that changes nothing in these
+tables. Search inside documents (full text) arrives with text extraction
+at L3 (DuckDB FTS extension, to be verified live at L3 scope). SQL over
+the three tables is the machine route for agents and generated queries,
+under declared-inputs discipline (P2).
+
+**AI integration (noted for future development; roadmap §7):** (i)
+per-person AI inside Zotero — personal choice, outside the system of
+record; (ii) AI over the store — after L3, a small MCP server over
+`references`, `captures` and the full-text index gives any MCP client
+(Claude Desktop, Claude Code and similar) search and reading over the
+entire library including pipeline filings; (iii) media analysis —
+transcription of `media_file` captures and image description as later
+type-specific processors attaching derived captures to the same
+reference; all three are read-only over the store, with P19 provenance
+intact.
+
+**Provenance and ledger:** every import and merge is a ledger run (P17)
+recording counts and `data_snapshot_hash`, so what came from where, and
+when, is on record; metadata corrections go through the manual layer
+(P5), never by editing files, and are never pushed back into Zotero.
 
 ### 3.10 Deal dossier (v4)
 The unit of record for an acquisition. `ma_events` remains the index
@@ -442,7 +551,10 @@ deals the widened universe (2.9′) adds.
 | G | Modality and sector classification (10-K text, patents, manual) | A |
 | H | Financial matcher (O7) and fund entities | B, C, D |
 | I | Product-text similarity (O4, O8) from 10-K text already ingested | D |
-| L1 (v4) | Research library: `documents`, `document_links`, `library add`, hashing of existing bronze documents | A |
+| L1 (v5) | Research library / file room per §3.9: `references`, `captures`, `reference_links`; content-addressed store; collectors manual, folder, pipeline (733 filings copied in), zotero (optional); commands add, import, import-zotero, find, show, open, list, view, site, manifest, merge, verify, dedupe, retire-capture | A |
+| AI-over-store (future) | MCP server over `references`/`captures` + L3 full-text index for AI assistants; media transcription and description as type-specific processors | after L3 |
+| Zotero-as-reader (future) | BibTeX export of the store into Zotero as a viewing library; verify first that import can link rather than copy files and that re-import avoids duplicates | optional |
+| video_dl (defined, off by default) | yt-dlp collector: `media_file` + `captions` captures per video reference, run deliberately per reference | policy per use |
 | L2 (v4) | Dossier schema (§3.10) and entity attributes (§3.2 equity stakes, stated priorities, assets; §3.3 typed edges; §3.6 event classes) in `schema.py` | L1, B |
 | L3 (v4) | EDGAR full-text adapter (shared with Phase 1 gate 1.5) and deal analyser v1 (§5.7) over the 447 existing events; review queue; precision on a hand-checked sample | L2 |
 | L4 (v4) | `aspect-match` matcher (§5.5) and the forward hit/false-alarm test (§5.6) | L3, D |
@@ -462,8 +574,9 @@ deals the widened universe (2.9′) adds.
    Model 1 also consumes (catalyst proximity as a target attribute);
    sequence it in roadmap step C or as its own step.
 7. Model 3 number is unassigned (decision pending).
-8. (v4) Sequencing of the dossier track L1–L4 relative to Phase 1 (the FDA
-   calendar): ahead of it, alongside it, or after it — decision pending.
+8. Sequencing — ANSWERED 2026-08-31: order of record L1 → 1.4 → L2 → 1.5 →
+   L3 → L4, with 1.6, 1.7 and 2.9′ placed as they fall due (Implementation
+   Plan v10 §3).
 9. (v4) Universe widening (2.9′): which SIC codes or lists define
    diagnostics, tools and data companies; whether Tempus and Personalis
    are already among the 1,379 members is checked on the operator machine
