@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = "0.8"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.9"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -448,6 +448,21 @@ EVENT_FORWARD_COLS = (
 DATE_PRECISIONS = ("day", "month", "quarter", "half", "year")
 EVENT_STATUSES = ("", "superseded")
 CONFIDENCE_TIERS = ("", "A", "B", "C", "D")  # A FDA page, B SEC filing, C CT.gov estimate, D aggregator-only
+# Mined-candidate ledger (gate 1.5b): one row per text window the miner
+# examined, accepted or rejected, with exact grounding (capture hash +
+# character offsets into the normalized text), TimeML-style value/precision/
+# modifier, ConText-style assertion status, and the rule version — so no
+# examined statement is ever discarded and every rule change is diffable.
+MINED_CANDIDATE_COLS = (
+    "candidate_id", "entity_key", "adsh", "doc", "form", "file_date", "items", "doc_id",
+    "char_start", "char_end", "anchor_kind", "anchor_text", "phrase", "phrase_start",
+    "date_start", "date_end", "date_precision", "date_mod", "anchored", "assertion",
+    "outcome_words", "rule_version", "decision", "reason", "mined_at",
+)
+ANCHOR_KINDS = ("pdufa", "readout")
+ASSERTIONS = ("affirmed", "negated", "historical", "hypothetical")
+DATE_MODS = ("", "early", "mid", "late", "approx")
+CANDIDATE_DECISIONS = ("accepted", "rejected")
 # Planned tables (Ontology §3.4, §3.7); built at gates 2.9, 2.10.
 MANUAL_ENTITY_COLS = (
     "entity_key", "name", "aliases", "type", "listed", "has_prices", "cik", "ticker", "hq",
@@ -993,21 +1008,54 @@ TABLES: tuple[Table, ...] = (
         types={"continuum_step": "enum"},
         enums={"continuum_step": ("",) + CONTINUUM_STEPS},
     ),
+    Table(
+        "silver/mined_candidates.csv",
+        MINED_CANDIDATE_COLS,
+        "mine-pdufa run (1.5b); realized/delay writers read it at 1.5c",
+        key=("candidate_id",),
+        types={
+            "file_date": "date",
+            "char_start": "int",
+            "char_end": "int",
+            "phrase_start": "int",
+            "date_start": "date",
+            "date_end": "date",
+            "anchored": "int",
+            "mined_at": "datetime",
+            "anchor_kind": "enum",
+            "date_precision": "enum",
+            "date_mod": "enum",
+            "assertion": "enum",
+            "decision": "enum",
+        },
+        enums={
+            "anchor_kind": ANCHOR_KINDS,
+            "date_precision": ("",) + DATE_PRECISIONS,
+            "date_mod": DATE_MODS,
+            "assertion": ASSERTIONS,
+            "decision": CANDIDATE_DECISIONS,
+        },
+    ),
     # ---- planned (declared by design; no writer yet) ----------------
     Table(
-        "silver/manual_entities.csv", MANUAL_ENTITY_COLS,
+        "silver/manual_entities.csv",
+        MANUAL_ENTITY_COLS,
         "manual add-entity (2.10); consumers merge at their own gates",
         key=("entity_key",),
     ),
     Table(
-        "silver/manual_attributes.csv", MANUAL_ATTRIBUTE_COLS,
+        "silver/manual_attributes.csv",
+        MANUAL_ATTRIBUTE_COLS,
         "manual add-attribute (2.10); precedence: manual over machine at merged reads",
-        key=("entity_key", "attribute"), types={"valid_from": "date"},
+        key=("entity_key", "attribute"),
+        types={"valid_from": "date"},
     ),
     Table(
-        "silver/manual_notes.csv", MANUAL_NOTE_COLS,
+        "silver/manual_notes.csv",
+        MANUAL_NOTE_COLS,
         "manual add-note (2.10)",
-        key=("note_id",), types={"date": "date"},
+        key=("note_id",),
+        types={"date": "date"},
     ),
     Table("silver/benchmarks.csv", BENCHMARK_COLS, "gate 2.9 (F9)", planned=True),
 )
