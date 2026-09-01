@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = "0.7"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.8"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -438,6 +438,16 @@ EVENT_TABLE_COLS = (
     "scheduled_date", "disclosure_datetime", "outcome_state", "outcome_subtype",
     "source_url", "provenance", "first_seen", "last_verified",
 )
+# Forward-row columns (gate 1.5a; optional so 1.4 rows stay conformant).
+# A fuzzy timing statement is a range plus its verbatim language, never an
+# invented exact date; a moved date inserts a new row and marks the old one
+# superseded; confidence_tier is rule-driven by source class.
+EVENT_FORWARD_COLS = (
+    "scheduled_date_end", "date_precision", "date_raw", "status", "confidence_tier",
+)
+DATE_PRECISIONS = ("day", "month", "quarter", "half", "year")
+EVENT_STATUSES = ("", "superseded")
+CONFIDENCE_TIERS = ("", "A", "B", "C", "D")  # A FDA page, B SEC filing, C CT.gov estimate, D aggregator-only
 # Planned tables (Ontology §3.4, §3.7); built at gates 2.9, 2.10.
 MANUAL_ENTITY_COLS = (
     "entity_key", "name", "aliases", "type", "listed", "has_prices", "cik", "ticker", "hq",
@@ -905,17 +915,27 @@ TABLES: tuple[Table, ...] = (
     Table(
         "silver/events_table.csv",
         EVENT_TABLE_COLS,
-        "events-migrate (gate 1.4); forward-row writers arrive at gates 1.5/1.6",
+        "events-migrate (gate 1.4); calendar-forward trials|adcom (1.5a); miner (1.5b)",
+        optional=EVENT_FORWARD_COLS,
         key=("event_id",),
         types={
             "event_date": "date",
             "scheduled_date": "date",
+            "scheduled_date_end": "date",
             "disclosure_datetime": "datetime",
             "first_seen": "datetime",
             "last_verified": "datetime",
             "event_class": "enum",
+            "date_precision": "enum",
+            "status": "enum",
+            "confidence_tier": "enum",
         },
-        enums={"event_class": tuple(EVENT_CLASSES)},
+        enums={
+            "event_class": tuple(EVENT_CLASSES),
+            "date_precision": ("",) + DATE_PRECISIONS,
+            "status": EVENT_STATUSES,
+            "confidence_tier": CONFIDENCE_TIERS,
+        },
     ),
     Table(
         "silver/deal_terms.csv",

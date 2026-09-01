@@ -7,7 +7,7 @@ free public data: `target-screen` and `acquirer-pairing` (M&A) and
 `fda-event-study` (catalyst price action; research: `docs/20260830_v2_FDA_Catalyst_Research.md`, requirements: `docs/20260830_v1_FDA_Catalyst_Product_Design.md`); `entity-discovery` (Horizon Scanning): `docs/20260830_v1_Horizon_Scanning_Design.md`. Design: see
 `docs/20260831_v5_Ontology_and_Matching_Design.md`; rules:
 `docs/20260831_v5_Design_Principles.md`; state: `docs/PROJECT_STATUS.md`;
-diagrams: current state `docs/20260831_v2_System_Diagram.md`, target state `docs/20260831_v2_System_Diagram_TARGET_STATE.md`; plan and gate ledger: `docs/20260831_v16_Implementation_Plan.md`.
+diagrams: current state `docs/20260831_v2_System_Diagram.md`, target state `docs/20260831_v2_System_Diagram_TARGET_STATE.md`; plan and gate ledger: `docs/20260831_v17_Implementation_Plan.md`.
 
 ## Install (Windows, Python 3.13, venv + pip)
 
@@ -28,7 +28,7 @@ descriptive agent with a contact email) and `BIOINTEL_ALPHA_VANTAGE_KEY`
 
 ```
 src/biointel/           package; run as  python -m biointel <command>
-  interfaces/cli.py     64 commands (python -m biointel prints the list)
+  interfaces/cli.py     65 commands (python -m biointel prints the list)
   models/               registry (models by question, declared inputs), harness (P2 enforcement), adapters
   results.py            run ledger + render from record (report MODEL, report ledger)
   legacy_ledger.py      legacy report rows with quoted source lines (ledger-seed)
@@ -62,6 +62,7 @@ python -m biointel labels
 python -m biointel study-all            # fda-event-study
 python -m biointel events-migrate       # event table (gate 1.4): events -> events_table
 python -m biointel manual load          # 2.10: restore hand-entered tables from data\manual\hand_data.json
+python -m biointel calendar-forward all  # 1.5a: forward FDA calendar (CT.gov primary completion; FDA AdCom endpoint)
 # before any rebuild-from-bronze: python -m biointel manual export  (hand data survives the wipe)
 python -m biointel features
 python -m biointel orangebook-probe

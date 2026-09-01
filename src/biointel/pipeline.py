@@ -367,7 +367,18 @@ def build_events_table() -> dict:
     rows = _events_table_rows(events, now_iso)
     from biointel import schema as _schema
 
-    n = store.write_table("events_table", rows, _schema.EVENT_TABLE_COLS)
+    all_cols = _schema.EVENT_TABLE_COLS + _schema.EVENT_FORWARD_COLS
+    # gate 1.5a: forward rows (blank event_date, scheduled_date set) are
+    # written by calendar-forward, not derived from `events`; keep them.
+    kept = []
+    if store.has_table("events_table"):
+        for r in store.read_table("events_table"):
+            if not r.get("event_date") and r.get("scheduled_date"):
+                full = {c: "" for c in all_cols}
+                full.update(r)
+                kept.append(full)
+    rows = [{**{c: "" for c in all_cols}, **r} for r in rows] + kept
+    n = store.write_table("events_table", rows, all_cols)
     run.metric("_", "source_rows", len(events))
     run.metric("_", "rows_written", n)
     run_id = results.finish(run)
@@ -378,7 +389,7 @@ def build_events_table() -> dict:
         "run_id": run_id,
         "message": (
             f"events-migrate: {n} events_table rows written from {len(events)} "
-            f"events rows (run {run_id} recorded)"
+            f"events rows ({len(kept)} forward rows kept) (run {run_id} recorded)"
         ),
     }
 

@@ -18,9 +18,11 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "EXPORTS", data / "exports")
     store.close()
     con = store.connect(config.DUCKDB)
-    for t, cols in (("references", schema.REFERENCE_COLS),
-                    ("captures", schema.CAPTURE_COLS),
-                    ("reference_links", schema.REFERENCE_LINK_COLS)):
+    for t, cols in (
+        ("references", schema.REFERENCE_COLS),
+        ("captures", schema.CAPTURE_COLS),
+        ("reference_links", schema.REFERENCE_LINK_COLS),
+    ):
         store.write_table(t, [], cols, con=con)
     yield con
     store.close()
@@ -50,11 +52,23 @@ def test_norm_url_strips_tracking_and_case():
 def test_upsert_ladder_attaches_by_accession(env):
     con = env
     r1, c1 = library.upsert_reference(
-        {"ref_type": "sec_filing", "sec_accession": "0001234567890123",
-         "url": "https://www.sec.gov/x", "title": "8-K"}, con)
+        {
+            "ref_type": "sec_filing",
+            "sec_accession": "0001234567890123",
+            "url": "https://www.sec.gov/x",
+            "title": "8-K",
+        },
+        con,
+    )
     r2, c2 = library.upsert_reference(
-        {"ref_type": "sec_filing", "sec_accession": "0001234567890123",
-         "url": "https://other.example/mirror", "title": "8-K mirror"}, con)
+        {
+            "ref_type": "sec_filing",
+            "sec_accession": "0001234567890123",
+            "url": "https://other.example/mirror",
+            "title": "8-K mirror",
+        },
+        con,
+    )
     assert c1 and not c2 and r1 == r2
     assert len(store.read_table("references", con=con)) == 1
 
@@ -63,10 +77,12 @@ def test_capture_row_per_ref_same_bytes_once_on_disk(env, tmp_path):
     con = env
     f = _mk(tmp_path, "press.txt", "press release body")
     sha, dst, _ = library.put_file(f)
-    ra, _ = library.upsert_reference({"ref_type": "press_release", "title": "A",
-                                      "url": "https://a.example/pr"}, con)
-    rb, _ = library.upsert_reference({"ref_type": "press_release", "title": "B",
-                                      "url": "https://b.example/pr"}, con)
+    ra, _ = library.upsert_reference(
+        {"ref_type": "press_release", "title": "A", "url": "https://a.example/pr"}, con
+    )
+    rb, _ = library.upsert_reference(
+        {"ref_type": "press_release", "title": "B", "url": "https://b.example/pr"}, con
+    )
     assert library.add_capture(ra, sha, dst, "uploaded_file", "t", con)
     assert library.add_capture(rb, sha, dst, "uploaded_file", "t", con)
     assert not library.add_capture(ra, sha, dst, "uploaded_file", "t", con)
@@ -81,10 +97,17 @@ def test_pipeline_index_idempotent(env, tmp_path):
     src.mkdir(parents=True)
     for i, name in enumerate(["f1.txt", "f2.txt"]):
         (src / name).write_text(f"filing body {i}", encoding="utf-8")
-        (src / f"{name}.meta.json").write_text(json.dumps({
-            "url": f"https://www.sec.gov/Archives/edgar/data/32003{i}/000119312526000{i}11/doc.htm",
-            "fetched_at": "2026-08-29T00:00:00Z"}), encoding="utf-8")
+        (src / f"{name}.meta.json").write_text(
+            json.dumps(
+                {
+                    "url": f"https://www.sec.gov/Archives/edgar/data/32003{i}/000119312526000{i}11/doc.htm",
+                    "fetched_at": "2026-08-29T00:00:00Z",
+                }
+            ),
+            encoding="utf-8",
+        )
     from biointel.collectors import pipeline_docs
+
     assert pipeline_docs.run(con) == 0
     refs = store.read_table("references", con=con)
     caps = store.read_table("captures", con=con)
@@ -101,12 +124,16 @@ def test_manual_add_file_and_no_fetch(env, tmp_path):
     pdfish = tmp_path / "note.pdf"
     pdfish.write_bytes(b"%PDF-1.4 fake")
     from biointel.collectors import manual
-    rc = manual.add([str(pdfish)], {"type": ["analyst_note"], "title": ["Note"],
-                                    "entity": ["320193"]}, con)
+
+    rc = manual.add(
+        [str(pdfish)], {"type": ["analyst_note"], "title": ["Note"], "entity": ["320193"]}, con
+    )
     assert rc == 0
-    rc = manual.add(["https://example.com/story"],
-                    {"type": ["news_article"], "no-fetch": [""],
-                     "title": ["Story"], "entity": ["TEMPUS"]}, con)
+    rc = manual.add(
+        ["https://example.com/story"],
+        {"type": ["news_article"], "no-fetch": [""], "title": ["Story"], "entity": ["TEMPUS"]},
+        con,
+    )
     assert rc == 0
     refs = store.read_table("references", con=con)
     caps = store.read_table("captures", con=con)
@@ -114,16 +141,19 @@ def test_manual_add_file_and_no_fetch(env, tmp_path):
     assert len(refs) == 2 and len(caps) == 1
     nf = [r for r in refs if r["ref_type"] == "news_article"][0]
     assert not any(c["ref_id"] == nf["ref_id"] for c in caps)  # visibly no copy
-    assert {(x["key_type"], x["entity_key"]) for x in links} == {("CIK", "320193"),
-                                                                ("IID", "TEMPUS")}
+    assert {(x["key_type"], x["entity_key"]) for x in links} == {
+        ("CIK", "320193"),
+        ("IID", "TEMPUS"),
+    }
 
 
 def test_retire_capture_keeps_file(env, tmp_path):
     con = env
     f = _mk(tmp_path, "x.txt", "body")
     sha, dst, _ = library.put_file(f)
-    r, _ = library.upsert_reference({"ref_type": "other", "title": "X",
-                                     "url": "https://x.example/1"}, con)
+    r, _ = library.upsert_reference(
+        {"ref_type": "other", "title": "X", "url": "https://x.example/1"}, con
+    )
     library.add_capture(r, sha, dst, "uploaded_file", "t", con)
     assert library.retire_capture(sha[:12], "ad noise", con) == 1
     row = store.read_table("captures", con=con)[0]
@@ -133,12 +163,26 @@ def test_retire_capture_keeps_file(env, tmp_path):
 
 def test_dedupe_merge_moves_and_resolves(env, tmp_path):
     con = env
-    a, _ = library.upsert_reference({"ref_type": "news_article", "title": "Tempus buys Personalis",
-                                     "published_at": "2026-07-20", "publisher": "Reuters",
-                                     "url": "https://r.example/1"}, con)
-    b, _ = library.upsert_reference({"ref_type": "news_article", "title": "Tempus buys Personalis",
-                                     "published_at": "2026-07-20", "publisher": "Reuters",
-                                     "url": "https://amp.r.example/1x"}, con)
+    a, _ = library.upsert_reference(
+        {
+            "ref_type": "news_article",
+            "title": "Tempus buys Personalis",
+            "published_at": "2026-07-20",
+            "publisher": "Reuters",
+            "url": "https://r.example/1",
+        },
+        con,
+    )
+    b, _ = library.upsert_reference(
+        {
+            "ref_type": "news_article",
+            "title": "Tempus buys Personalis",
+            "published_at": "2026-07-20",
+            "publisher": "Reuters",
+            "url": "https://amp.r.example/1x",
+        },
+        con,
+    )
     f = _mk(tmp_path, "amp.html", "<html>story</html>")
     sha, dst, _ = library.put_file(f)
     library.add_capture(b, sha, dst, "fetched_html", "t", con)
@@ -159,8 +203,9 @@ def test_manifest_and_verify_detect_tamper(env, tmp_path, capsys):
     con = env
     f = _mk(tmp_path, "doc.txt", "original")
     sha, dst, _ = library.put_file(f)
-    r, _ = library.upsert_reference({"ref_type": "other", "title": "D",
-                                     "url": "https://d.example/1"}, con)
+    r, _ = library.upsert_reference(
+        {"ref_type": "other", "title": "D", "url": "https://d.example/1"}, con
+    )
     library.add_capture(r, sha, dst, "uploaded_file", "t", con)
     library.manifest(con)
     assert library.verify(con) == 0
@@ -171,33 +216,55 @@ def test_manifest_and_verify_detect_tamper(env, tmp_path, capsys):
 
 def test_merge_from_other_machine(env, tmp_path):
     con = env
-    r, _ = library.upsert_reference({"ref_type": "press_release", "title": "Here",
-                                     "url": "https://h.example/1"}, con)
+    r, _ = library.upsert_reference(
+        {"ref_type": "press_release", "title": "Here", "url": "https://h.example/1"}, con
+    )
     other = tmp_path / "usb"
     (other / "ab").mkdir(parents=True)
     payload = b"remote press release"
     import hashlib
+
     sha = hashlib.sha256(payload).hexdigest()
     (other / sha[:2]).mkdir(exist_ok=True)
     (other / sha[:2] / f"{sha}.txt").write_bytes(payload)
     hdr = ",".join(schema.REFERENCE_COLS)
     row = {c: "" for c in schema.REFERENCE_COLS}
-    row.update({"ref_id": "Rremote0000000001", "ref_type": "press_release",
-                "title": "Remote", "url": "https://remote.example/pr",
-                "status": "active", "source_system": "library_add"})
+    row.update(
+        {
+            "ref_id": "Rremote0000000001",
+            "ref_type": "press_release",
+            "title": "Remote",
+            "url": "https://remote.example/pr",
+            "status": "active",
+            "source_system": "library_add",
+        }
+    )
     (other / "references.csv").write_text(
-        hdr + "\n" + ",".join(row[c] for c in schema.REFERENCE_COLS) + "\n",
-        encoding="utf-8")
+        hdr + "\n" + ",".join(row[c] for c in schema.REFERENCE_COLS) + "\n", encoding="utf-8"
+    )
     crow = {c: "" for c in schema.CAPTURE_COLS}
-    crow.update({"capture_id": sha, "ref_id": "Rremote0000000001",
-                 "kind": "fetched_text", "path": f"bronze/library/{sha[:2]}/{sha}.txt",
-                 "bytes": str(len(payload)), "ext": "txt",
-                 "capture_method": "library add", "status": "active"})
+    crow.update(
+        {
+            "capture_id": sha,
+            "ref_id": "Rremote0000000001",
+            "kind": "fetched_text",
+            "path": f"bronze/library/{sha[:2]}/{sha}.txt",
+            "bytes": str(len(payload)),
+            "ext": "txt",
+            "capture_method": "library add",
+            "status": "active",
+        }
+    )
     (other / "captures.csv").write_text(
-        ",".join(schema.CAPTURE_COLS) + "\n" +
-        ",".join(crow[c] for c in schema.CAPTURE_COLS) + "\n", encoding="utf-8")
+        ",".join(schema.CAPTURE_COLS)
+        + "\n"
+        + ",".join(crow[c] for c in schema.CAPTURE_COLS)
+        + "\n",
+        encoding="utf-8",
+    )
     (other / "reference_links.csv").write_text(
-        ",".join(schema.REFERENCE_LINK_COLS) + "\n", encoding="utf-8")
+        ",".join(schema.REFERENCE_LINK_COLS) + "\n", encoding="utf-8"
+    )
     library.merge_from(other, con)
     refs = store.read_table("references", con=con)
     caps = store.read_table("captures", con=con)
@@ -210,11 +277,35 @@ def test_merge_from_other_machine(env, tmp_path):
 
 def test_cli_find_and_site(env, capsys):
     con = env
-    library.upsert_reference({"ref_type": "news_article", "title": "MRD market grows",
-                              "publisher": "MedTech Dive", "published_at": "2026-07-01",
-                              "url": "https://m.example/1"}, con)
+    library.upsert_reference(
+        {
+            "ref_type": "news_article",
+            "title": "MRD market grows",
+            "publisher": "MedTech Dive",
+            "published_at": "2026-07-01",
+            "url": "https://m.example/1",
+        },
+        con,
+    )
     rows = library.find_rows(con, text="mrd")
     assert len(rows) == 1 and rows[0]["publisher"] == "MedTech Dive"
     out = library.site(con)
     assert out.exists() and "MRD market grows" in out.read_text(encoding="utf-8")
     capsys.readouterr()
+
+
+def test_manifest_excludes_itself_and_verify_stays_clean_on_rerun(env, tmp_path):
+    con = env
+    f = tmp_path / "doc.txt"
+    f.write_text("hello", encoding="utf-8")
+    sha, dst, _ = library.put_file(f)
+    ref_id, _ = library.upsert_reference(
+        {"ref_type": "other", "title": "t", "url": "https://x/y"}, con
+    )
+    library.add_capture(ref_id, sha, dst, "uploaded_file", "test", con)
+    library.manifest(con)
+    m2 = library.manifest(con)  # second run must not flag the first manifest as altered
+    text = m2.read_text(encoding="utf-8")
+    assert "manifest-sha256.txt" not in text
+    assert text.count("\n") == 1  # exactly one stored file listed
+    assert library.verify(con) == 0

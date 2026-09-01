@@ -8,6 +8,7 @@ python -m biointel trials IID                 clinical trials
 python -m biointel trials-all                 every company
 python -m biointel calendar IID               pipeline calendar: trials + FDA + forward rows (view over events_table)
 python -m biointel events-migrate             1.4: one-time copy of `events` into `events_table` (Ontology §3.6)
+python -m biointel calendar-forward [trials|adcom|all] [--file RESPONSE.json]  1.5a: forward FDA calendar rows (CT.gov primary completion; FDA AdCom calendar JSON endpoint)
 python -m biointel backfill                   fill CIK for migrated rows
 python -m biointel fin IID                    SEC financials, one company
 python -m biointel fin-all                    every company
@@ -149,7 +150,7 @@ def main(argv):
             print("\n  FDA rows served from `events` (events_table absent).")
             print("  Run once:  python -m biointel events-migrate")
         else:
-            print(f"\n  forward FDA calendar rows: {n_fwd} (writers arrive at gates 1.5/1.6)")
+            print(f"\n  forward FDA calendar rows: {n_fwd}")
 
     elif cmd == "events-migrate":
         from biointel.pipeline import build_events_table
@@ -788,6 +789,11 @@ def main(argv):
         from biointel import manual as _manual
 
         return _manual.cli(argv[2:])
+
+    elif cmd == "calendar-forward":
+        from biointel import forward as _forward
+
+        return _forward.cli(argv[2:])
 
     elif cmd == "validate":
         from biointel.schema import format_report, validate_db
