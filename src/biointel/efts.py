@@ -54,7 +54,7 @@ _MONTH = (
 _DATE_PHRASE = re.compile(
     rf"(?P<d>{_MONTH}\s+\d{{1,2}},?\s+\d{{4}}|{_MONTH}\s+(?:of\s+)?\d{{4}}|[Qq][1-4]\s*\d{{4}}|[1-4]Q\s*\d{{4}}|"
     rf"(?:first|second|third|fourth|last|1st|2nd|3rd|4th)\s+quarter\s+(?:of\s+)?\d{{4}}|"
-    rf"[12]H\s*\d{{4}}|H[12]\s*\d{{4}}|(?:first|second)\s+half\s+(?:of\s+)?\d{{4}}|"
+    rf"[12]H:?\s*\d{{4}}|H[12]:?\s*\d{{4}}|(?:first|second)\s+half\s+(?:of\s+)?\d{{4}}|"
     rf"(?:early|mid|late)[-\s]\d{{4}}|\b(?:20\d{{2}})\b)",
     re.I,
 )
@@ -85,6 +85,17 @@ _PERIOD_LABEL = re.compile(
 _PERIOD_LEAD = re.compile(
     r"\b(as of|ended|ending|through|since|during|into|until|runway (?:into|through))(?:\s+the)?\s*$",
     re.I,
+)
+_CLAUSE = re.compile(
+    r"exercisable until|following the (?:date of )?(?:the )?(?:Company[\u2019']s )?public announcement|earlier of \(i\)",
+    re.I,
+)
+_RUNWAY = re.compile(
+    r"\b(?:proceeds|cash|capital|runway|sufficient to fund|expected to fund|will fund)\b.{0,60}\boperations\b.{0,40}\b(?:into|through)\b",
+    re.I | re.S,
+)
+_EXPECT_NEAR = re.compile(
+    r"\b(expected|anticipated|planned|targeted|projected|due)\b[^.]{0,20}$", re.I
 )
 _PAST_AFTER = re.compile(
     r"^\s*(?:\w+\s+){0,2}(presented|announced|reported|released|published|were|was)\b", re.I
@@ -254,6 +265,7 @@ def _range_for(phrase: str) -> tuple[str, str, str] | None:
     if m:  # year precision, raw language retained
         y = m[2]
         return f"{y}-01-01", f"{y}-12-31", "year"
+    p = re.sub(r"^([12]H|H[12]):", r"\1 ", p)  # "1H:2026" colon form
     m = re.fullmatch(r"([12])H\s*(\d{4})", p, re.I)  # filings write "1H 2027"
     if m:
         p = f"H{m[1]} {m[2]}"
@@ -267,7 +279,7 @@ def _range_for(phrase: str) -> tuple[str, str, str] | None:
     return parse_date_range(p)
 
 
-RULE_VERSION = "1.5b-r9"
+RULE_VERSION = "1.5c-r10"
 _HYPOTHETICAL = re.compile(r"\b(if|assuming|subject to|contingent on|should)\b", re.I)
 _APPROX = re.compile(r"\b(approximately|around|about|roughly)\s*$", re.I)
 _OUTCOME_WORDS = re.compile(
@@ -346,6 +358,10 @@ def examine(text: str, file_date: str = "") -> list[dict]:
                 continue
             if kind == "pdufa" and _META_PDUFA.search(segment):
                 rec["reason"] = "meta_statement"  # about when the date will be known, not the date
+                out.append(rec)
+                continue
+            if kind == "readout" and _CLAUSE.search(segment):
+                rec["reason"] = "contract_clause"  # warrant terms, announcement triggers
                 out.append(rec)
                 continue
             if (
@@ -439,6 +455,14 @@ def examine(text: str, file_date: str = "") -> list[dict]:
                     else ("approx" if _APPROX.search(prefix) else ""),
                 }
             )
+            if kind == "readout" and _RUNWAY.search(segment):
+                lead_txt = (after[: dm.start()] if use_after else before[: dm.start()])[-24:]
+                if not _EXPECT_NEAR.search(lead_txt):
+                    rec["reason"] = (
+                        "runway"  # cash-runway statement; the date is not a readout expectation
+                    )
+                    out.append(rec)
+                    continue
             if rec["assertion"] != "affirmed":
                 rec["reason"] = rec["assertion"]
                 out.append(rec)
@@ -757,6 +781,7 @@ def recall(ics_path: str, today: date | None = None) -> int:
         for r in store.read_table("events_table", con=con)
         if (r.get("provenance") or "").startswith("source=efts")
         and r.get("outcome_subtype") == "pdufa_target_date"
+        and "writer=" not in (r.get("provenance") or "")
         and r.get("status") == ""
         and r.get("date_precision") == "day"
     ]
@@ -1246,6 +1271,7 @@ def extras(ics_path: str, today: date | None = None) -> int:
         for r in store.read_table("events_table", con=con)
         if (r.get("provenance") or "").startswith("source=efts")
         and r.get("outcome_subtype") == "pdufa_target_date"
+        and "writer=" not in (r.get("provenance") or "")
         and r.get("status") == ""
         and r.get("date_precision") == "day"
     ]
@@ -1257,6 +1283,213 @@ def extras(ics_path: str, today: date | None = None) -> int:
         )
         print(f'    "{r["date_raw"][:300]}"')
     return 0
+
+
+# ---------------------------------------------------------------- 1.5c writers over the candidate ledger
+_OUTCOME_MAP = (
+    ("not_met", re.compile(r"did not meet|failed to meet", re.I)),
+    ("met_primary", re.compile(r"met (?:its |the )?primary endpoint", re.I)),
+    ("safety_stop", re.compile(r"clinical hold", re.I)),
+)
+
+
+def _outcome_state(words: str) -> str:
+    for state, rx in _OUTCOME_MAP:
+        if rx.search(words or ""):
+            return state
+    return "unspecified"
+
+
+def _ledger_current(con) -> list[dict]:
+    rows = (
+        store.read_table("mined_candidates", con=con)
+        if store.has_table("mined_candidates", con)
+        else []
+    )
+    return [r for r in rows if r["rule_version"] == RULE_VERSION]
+
+
+def write_realized(today: date | None = None) -> dict:
+    """Realized events from the ledger, no re-mining: (a) historical readout
+    statements become clinical_readout rows dated by the filing that disclosed
+    them (event_date only when the statement carries an exact day), with
+    outcome_state mapped conservatively from the stored outcome words;
+    (b) past exact-day PDUFA targets become regulatory_decision rows whose
+    actual outcome is joined from Drugs@FDA at its own gate, not guessed here."""
+    today = today or date.today()
+    con = store.connect()
+    led = _ledger_current(con)
+    run_ = results.start(
+        "calendar",
+        "mine-pdufa write-realized",
+        ["mined_candidates", "events_table"],
+        {"rule_version": RULE_VERSION},
+    )
+    rows, states = [], {}
+    for r in led:
+        kind = r["anchor_kind"]
+        historical_readout = kind == "readout" and r["assertion"] == "historical"
+        past_pdufa = (
+            kind == "pdufa"
+            and r["assertion"] == "affirmed"
+            and r["date_precision"] == "day"
+            and r["date_end"]
+            and r["date_end"] < today.isoformat()
+            and r["reason"] in ("", "past")
+        )
+        if not (historical_readout or past_pdufa):
+            continue
+        state = _outcome_state(r["outcome_words"]) if historical_readout else "unspecified"
+        if historical_readout:
+            states[state] = states.get(state, 0) + 1
+        row = _blank_row()
+        start, end = r["date_start"], r["date_end"]
+        row.update(
+            {
+                "event_id": "R"
+                + hashlib.sha256(
+                    f"{r['entity_key']}|{kind}|{start}|{end}|{r['adsh']}|{r['doc']}".encode()
+                ).hexdigest()[:16],
+                "entity_key": r["entity_key"],
+                "event_class": "clinical_readout" if historical_readout else "regulatory_decision",
+                "outcome_subtype": "topline_readout_disclosed"
+                if historical_readout
+                else "pdufa_target_date",
+                "event_date": start if (start and r["date_precision"] == "day") else "",
+                "disclosure_datetime": r["file_date"],
+                "outcome_state": state,
+                "scheduled_date": start,
+                "scheduled_date_end": end,
+                "date_precision": r["date_precision"],
+                "date_raw": r["phrase"],
+                "confidence_tier": "B",
+                "source_url": f"https://www.sec.gov/Archives/edgar/data/{r['adsh'].replace('-', '')}/{r['doc']}",
+                "provenance": (
+                    f"source=efts;writer=realized;adsh={r['adsh']};doc={r['doc']};form={r['form']};"
+                    f"file_date={r['file_date']};candidate={r['candidate_id']};rule={RULE_VERSION}"
+                ),
+            }
+        )
+        rows.append(row)
+    counts = (
+        _upsert(
+            rows,
+            lambda r: (
+                f"realized|{r['entity_key']}|{r['outcome_subtype']}|{r['scheduled_date']}|{r['scheduled_date_end']}"
+            ),
+            con,
+        )
+        if rows
+        else {"inserted": 0, "refreshed": 0, "superseded": 0, "total": 0}
+    )
+    for k, v in {**counts, **{f"state_{k}": v for k, v in states.items()}}.items():
+        run_.metric("_", k, v)
+    run_id = results.finish(run_)
+    dist = ", ".join(f"{k} {v}" for k, v in sorted(states.items())) or "none"
+    print(
+        f"mine-pdufa write-realized ({RULE_VERSION}): {len(rows)} realized rows "
+        f"({counts['inserted']} inserted, {counts['refreshed']} refreshed); "
+        f"readout outcome states: {dist}; events_table now {counts['total']} rows (run {run_id} recorded)"
+    )
+    return {"status": "ok", "rows": len(rows), **counts, "states": states, "run_id": run_id}
+
+
+def write_delays(today: date | None = None) -> dict:
+    """Withdrawn guidance from the ledger: a negated readout statement with a
+    parsed range becomes a delay_timing row, and any live forward row for the
+    same company and range is superseded with the negating filing recorded."""
+    today = today or date.today()
+    con = store.connect()
+    led = _ledger_current(con)
+    run_ = results.start(
+        "calendar",
+        "mine-pdufa write-delays",
+        ["mined_candidates", "events_table"],
+        {"rule_version": RULE_VERSION},
+    )
+    rows = []
+    negated = [
+        r
+        for r in led
+        if r["anchor_kind"] == "readout" and r["assertion"] == "negated" and r["date_start"]
+    ]
+    for r in negated:
+        row = _blank_row()
+        row.update(
+            {
+                "event_id": "D"
+                + hashlib.sha256(
+                    f"{r['entity_key']}|{r['date_start']}|{r['date_end']}|{r['adsh']}|{r['doc']}".encode()
+                ).hexdigest()[:16],
+                "entity_key": r["entity_key"],
+                "event_class": "delay_timing",
+                "outcome_subtype": "review_delay",
+                "disclosure_datetime": r["file_date"],
+                "scheduled_date": r["date_start"],
+                "scheduled_date_end": r["date_end"],
+                "date_precision": r["date_precision"],
+                "date_raw": r["phrase"],
+                "confidence_tier": "B",
+                "source_url": f"https://www.sec.gov/Archives/edgar/data/{r['adsh'].replace('-', '')}/{r['doc']}",
+                "provenance": (
+                    f"source=efts;writer=delays;adsh={r['adsh']};doc={r['doc']};form={r['form']};"
+                    f"file_date={r['file_date']};candidate={r['candidate_id']};rule={RULE_VERSION}"
+                ),
+            }
+        )
+        rows.append(row)
+    counts = (
+        _upsert(
+            rows,
+            lambda r: (
+                f"delay|{r['event_class']}|{r['entity_key']}|{r['scheduled_date']}|{r['scheduled_date_end']}"
+            ),
+            con,
+        )
+        if rows
+        else {"inserted": 0, "refreshed": 0, "superseded": 0, "total": 0}
+    )
+    # supersede live forward guidance the company has withdrawn
+    superseded = 0
+    if negated and store.has_table("events_table", con):
+        from biointel.forward import ALL_COLS
+
+        withdrawn = {
+            (r["entity_key"], r["date_start"], r["date_end"], f"{r['file_date']}|{r['adsh']}")
+            for r in negated
+        }
+        keys = {(e, s0, s1) for e, s0, s1, _ in withdrawn}
+        note = {(e, s0, s1): src for e, s0, s1, src in withdrawn}
+        evs = store.read_table("events_table", con=con)
+        for ev in evs:
+            if (
+                (ev.get("provenance") or "").startswith("source=efts")
+                and ev.get("outcome_subtype") == "guided_readout"
+                and ev.get("status") == ""
+                and (ev["entity_key"], ev["scheduled_date"], ev["scheduled_date_end"]) in keys
+            ):
+                ev["status"] = "superseded"
+                ev["provenance"] += (
+                    f";withdrawn_by={note[(ev['entity_key'], ev['scheduled_date'], ev['scheduled_date_end'])]}"
+                )
+                superseded += 1
+        if superseded:
+            store.write_table("events_table", evs, ALL_COLS, con=con)
+    for k, v in {**counts, "withdrawn_superseded": superseded}.items():
+        run_.metric("_", k, v)
+    run_id = results.finish(run_)
+    print(
+        f"mine-pdufa write-delays ({RULE_VERSION}): {len(rows)} delay rows "
+        f"({counts['inserted']} inserted, {counts['refreshed']} refreshed); "
+        f"{superseded} withdrawn forward rows superseded; events_table now {counts['total']} rows (run {run_id} recorded)"
+    )
+    return {
+        "status": "ok",
+        "rows": len(rows),
+        "withdrawn_superseded": superseded,
+        **counts,
+        "run_id": run_id,
+    }
 
 
 def cli(argv: list[str]) -> int:
@@ -1292,6 +1525,10 @@ def cli(argv: list[str]) -> int:
         if len(argv) >= 3 and argv[1].isdigit() and argv[2].isdigit():
             return precision(int(argv[1]), int(argv[2]))  # legacy: typed count
         return precision_from_reviews(_opt("--rule"))
+    if sub == "write-realized":
+        r1 = write_realized()
+        r2 = write_delays()
+        return 0 if r1["status"] == "ok" and r2["status"] == "ok" else 1
     if sub == "explain":
         if len(argv) < 3:
             print("usage: mine-pdufa explain TICKER YYYY-MM-DD")

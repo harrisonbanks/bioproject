@@ -7,7 +7,7 @@ free public data: `target-screen` and `acquirer-pairing` (M&A) and
 `fda-event-study` (catalyst price action; research: `docs/20260830_v2_FDA_Catalyst_Research.md`, requirements: `docs/20260830_v1_FDA_Catalyst_Product_Design.md`); `entity-discovery` (Horizon Scanning): `docs/20260830_v1_Horizon_Scanning_Design.md`. Design: see
 `docs/20260831_v5_Ontology_and_Matching_Design.md`; rules:
 `docs/20260831_v5_Design_Principles.md`; state: `docs/PROJECT_STATUS.md`;
-diagrams: current state `docs/20260831_v2_System_Diagram.md`, target state `docs/20260831_v2_System_Diagram_TARGET_STATE.md`; plan and gate ledger: `docs/20260901_v19_Implementation_Plan.md`.
+diagrams: current state `docs/20260831_v2_System_Diagram.md`, target state `docs/20260831_v2_System_Diagram_TARGET_STATE.md`; plan and gate ledger: `docs/20260901_v20_Implementation_Plan.md`.
 
 ## Install (Windows, Python 3.13, venv + pip)
 
@@ -65,6 +65,7 @@ python -m biointel manual load          # 2.10: restore hand-entered tables from
 python -m biointel calendar-forward all  # 1.5a: forward FDA calendar (CT.gov primary completion; FDA AdCom endpoint)
 python -m biointel mine-pdufa run       # 1.5b: SEC full-text miner -> forward PDUFA/readout rows + candidate ledger (~75 min)
 python -m biointel mine-pdufa run --cached  # 1.5b-eval: re-examine captured filings with current rules (~27 min, no network)
+python -m biointel mine-pdufa write-realized  # 1.5c: realized readouts/PDUFA history + delay events from the ledger
 # before any rebuild-from-bronze: python -m biointel manual export  (hand data survives the wipe)
 python -m biointel features
 python -m biointel orangebook-probe

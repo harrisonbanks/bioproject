@@ -618,3 +618,77 @@ def test_cached_rerun_retires_rows_the_current_rules_no_longer_produce(env, monk
         if x["event_id"] == "Mstale0000000001"
     )
     assert got["status"] == "superseded" and "retired_by=" in got["provenance"]
+
+
+FIVE_C_TEXT = (
+    "We delivered positive topline data from the REVEAL trials, which met the primary endpoint. "
+    "Topline data from the Phase 2 study is expected in the third quarter of 2026. "
+    "We no longer anticipate topline data from the HERO trial in the third quarter of 2026. "
+    "The FDA set a PDUFA date of August 4, 2026."
+)
+
+
+def test_write_realized_and_delays_from_ledger(env, monkeypatch, capsys):
+    from biointel import schema as _schema
+
+    for t_, cols in (
+        ("references", _schema.REFERENCE_COLS),
+        ("captures", _schema.CAPTURE_COLS),
+        ("reference_links", _schema.REFERENCE_LINK_COLS),
+    ):
+        store.write_table(t_, [], cols, con=env)
+    r = _seed_ledger_via_run(env, monkeypatch, FIVE_C_TEXT)
+    assert (
+        r["candidates"] == 2 and r["past"] == 1
+    )  # Q3 guidance stays forward; the August PDUFA is past
+    fwd = [
+        x
+        for x in store.read_table("events_table", con=store.connect())
+        if x.get("outcome_subtype") == "guided_readout" and x["status"] == ""
+    ]
+    assert len(fwd) == 1
+    r1 = efts.write_realized(today=TODAY)
+    # one historical readout (dated by the filing, met_primary) + one past exact PDUFA date
+    assert r1["rows"] == 2 and r1["states"] == {"met_primary": 1}
+    evs = store.read_table("events_table", con=store.connect())
+    hist = next(x for x in evs if x["outcome_subtype"] == "topline_readout_disclosed")
+    assert hist["event_class"] == "clinical_readout" and hist["outcome_state"] == "met_primary"
+    assert hist["disclosure_datetime"] == "2026-08-04" and hist["event_date"] == ""
+    pd = next(
+        x
+        for x in evs
+        if x["event_id"].startswith("R") and x["outcome_subtype"] == "pdufa_target_date"
+    )
+    assert pd["event_class"] == "regulatory_decision" and pd["event_date"] == "2026-08-04"
+    r2 = efts.write_delays(today=TODAY)
+    assert r2["rows"] == 1 and r2["withdrawn_superseded"] == 1
+    evs = store.read_table("events_table", con=store.connect())
+    delay = next(x for x in evs if x["event_class"] == "delay_timing")
+    assert delay["scheduled_date"] == "2026-07-01" and delay["outcome_subtype"] == "review_delay"
+    old = next(
+        x
+        for x in evs
+        if x["outcome_subtype"] == "guided_readout" and "withdrawn_by=" in x["provenance"]
+    )
+    assert old["status"] == "superseded"
+    # both writers are idempotent
+    r1b, r2b = efts.write_realized(today=TODAY), efts.write_delays(today=TODAY)
+    assert r1b["inserted"] == 0 and r2b["inserted"] == 0 and r2b["withdrawn_superseded"] == 0
+
+
+def test_recall_reverse_count_ignores_realized_rows(env, monkeypatch, tmp_path, capsys):
+    from biointel import schema as _schema
+
+    for t_, cols in (
+        ("references", _schema.REFERENCE_COLS),
+        ("captures", _schema.CAPTURE_COLS),
+        ("reference_links", _schema.REFERENCE_LINK_COLS),
+    ):
+        store.write_table(t_, [], cols, con=env)
+    _seed_ledger_via_run(env, monkeypatch, FIVE_C_TEXT)
+    efts.write_realized(today=TODAY)  # adds a past exact-day PDUFA row via the realized writer
+    p = tmp_path / "b.ics"
+    p.write_text(ICS, encoding="utf-8")
+    efts.recall(str(p), today=TODAY)
+    out = capsys.readouterr().out
+    assert "0 mined exact-date PDUFA rows not in the benchmark" in out
