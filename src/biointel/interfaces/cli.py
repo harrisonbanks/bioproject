@@ -96,6 +96,14 @@ from biointel import (
 
 
 def main(argv):
+    # Windows consoles default to cp1252; filing text carries bullets and
+    # smart quotes, so unmappable characters are replaced instead of raising
+    # (defect found 2026-09-01: recall/extras printing crashed mid-output).
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
     if len(argv) < 2:
         print(__doc__)

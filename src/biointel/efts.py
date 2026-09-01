@@ -28,6 +28,7 @@ benchmark snapshot for recall measurement.
 
 from __future__ import annotations
 
+import calendar as _cal
 import hashlib
 import html as _html
 import random
@@ -52,7 +53,7 @@ _MONTH = (
 )
 _DATE_PHRASE = re.compile(
     rf"(?P<d>{_MONTH}\s+\d{{1,2}},?\s+\d{{4}}|{_MONTH}\s+(?:of\s+)?\d{{4}}|[Qq][1-4]\s*\d{{4}}|[1-4]Q\s*\d{{4}}|"
-    rf"(?:first|second|third|fourth|1st|2nd|3rd|4th)\s+quarter\s+(?:of\s+)?\d{{4}}|"
+    rf"(?:first|second|third|fourth|last|1st|2nd|3rd|4th)\s+quarter\s+(?:of\s+)?\d{{4}}|"
     rf"[12]H\s*\d{{4}}|H[12]\s*\d{{4}}|(?:first|second)\s+half\s+(?:of\s+)?\d{{4}}|"
     rf"(?:early|mid|late)[-\s]\d{{4}}|\b(?:20\d{{2}})\b)",
     re.I,
@@ -72,11 +73,29 @@ _PAST_TENSE = re.compile(
 )
 _NEGATION = re.compile(r"\b(no longer|not|never|do not|does not|did not|won't|will not)\b", re.I)
 _PDUFA_CONTEXT = re.compile(r"\b(date|dates|goal|action|target|set|assigned|scheduled)\b", re.I)
+_PDUFA_BOILERPLATE = re.compile(
+    r"reauthoriz|re-authoriz|user fee programs?|set to expire|announcement that the FDA has assigned|earlier of \(i\)",
+    re.I,
+)
+_REPORT_OBJECT = re.compile(r"\b(data|results?|readout|topline|top-line|findings)\b", re.I)
 _SEGMENT_BREAK = re.compile(r"[•●○§▪]|\s[o·]\s|(?<=[.;!?])\s+(?=[A-Z\u201c\"])")
 _PERIOD_LABEL = re.compile(
     r"^\s*(financial|results|highlights|earnings|ended|ending|conference)", re.I
 )
-_PERIOD_LEAD = re.compile(r"\b(as of|ended|ending|through|since|during)\s*$", re.I)
+_PERIOD_LEAD = re.compile(
+    r"\b(as of|ended|ending|through|since|during|into|until|runway (?:into|through))(?:\s+the)?\s*$",
+    re.I,
+)
+_PAST_AFTER = re.compile(
+    r"^\s*(?:\w+\s+){0,2}(presented|announced|reported|released|published|were|was)\b", re.I
+)
+_AFTER_PREF = re.compile(
+    r"^\s*(?:[A-Za-z]+\s+){0,3}(expected|anticipated|planned|targeted|projected)\b", re.I
+)
+_META_PDUFA = re.compile(
+    r"clarity on|expected to be assigned|will be assigned|to be determined|date is (?:currently )?expected",
+    re.I,
+)
 
 
 def _now() -> str:
@@ -217,7 +236,7 @@ def capture_document(hit: dict, con) -> tuple[str, str] | None:
             "published_at": hit["file_date"],
             "source_system": "efts",
             "source_key": f"{hit['adsh']}:{hit['doc']}",
-            "note": "captured by mine-pdufa",
+            "note": f"captured by mine-pdufa;form={hit['form']};cik={hit['cik']}",
         },
         con,
     )
@@ -241,13 +260,14 @@ def _range_for(phrase: str) -> tuple[str, str, str] | None:
     m = re.fullmatch(r"([1-4])Q\s*(\d{4})", p, re.I)  # and "3Q 2026"
     if m:
         p = f"Q{m[1]} {m[2]}"
+    p = re.sub(r"^last\s+quarter", "fourth quarter", p, flags=re.I)
     p = re.sub(r"^([A-Za-z]+)\s+of\s+(\d{4})$", r"\1 \2", p)  # "August of 2026"
     p = re.sub(r"^([A-Za-z]+)\.", r"\1", p)  # "Oct. 10, 2026" -> "Oct 10, 2026"
     p = re.sub(r"^Sept\b", "Sep", p)
     return parse_date_range(p)
 
 
-RULE_VERSION = "1.5b-r7"
+RULE_VERSION = "1.5b-r9"
 _HYPOTHETICAL = re.compile(r"\b(if|assuming|subject to|contingent on|should)\b", re.I)
 _APPROX = re.compile(r"\b(approximately|around|about|roughly)\s*$", re.I)
 _OUTCOME_WORDS = re.compile(
@@ -320,6 +340,32 @@ def examine(text: str, file_date: str = "") -> list[dict]:
                 rec["reason"] = "no_date_context"
                 out.append(rec)
                 continue
+            if kind == "pdufa" and _PDUFA_BOILERPLATE.search(segment):
+                rec["reason"] = "boilerplate"  # PDUFA reauthorization text / contract clauses
+                out.append(rec)
+                continue
+            if kind == "pdufa" and _META_PDUFA.search(segment):
+                rec["reason"] = "meta_statement"  # about when the date will be known, not the date
+                out.append(rec)
+                continue
+            if (
+                kind == "readout"
+                and rec["assertion"] == "affirmed"
+                and _PAST_AFTER.match(after[:40])
+            ):
+                rec["assertion"] = "historical"  # "topline data presented at ..."
+            if len(_DATE_PHRASE.findall(segment)) >= 4:
+                rec["reason"] = (
+                    "table_layout"  # timeline headers / slide fragments: attribution ambiguous
+                )
+                out.append(rec)
+                continue
+            # "expect to report ..." is a readout anchor only when what follows is data/results
+            report_verb = bool(re.match(r"expect", am.group(0), re.I))
+            if kind == "readout" and report_verb and not _REPORT_OBJECT.search(after[:60]):
+                rec["reason"] = "not_a_readout"
+                out.append(rec)
+                continue
             a_list = [
                 m for m in _DATE_PHRASE.finditer(after) if _usable_phrase(m, after, m.start())
             ]
@@ -331,7 +377,18 @@ def examine(text: str, file_date: str = "") -> list[dict]:
             a_m = a_list[0] if a_list else None
             b_m = b_list[-1] if b_list else None
             if a_m and b_m:
-                use_after = a_m.start() <= (len(before) - b_m.end())
+                d_after, d_before = a_m.start(), len(before) - b_m.end()
+                if (kind == "readout" and report_verb) or _AFTER_PREF.match(after[:50]):
+                    use_after = (
+                        True  # "expect to report ... in X", "with topline data anticipated in X"
+                    )
+                elif abs(d_after - d_before) <= 3:
+                    rank = {"day": 5, "month": 4, "quarter": 3, "half": 2, "year": 1}
+                    ra = rank.get((_range_for(a_m["d"]) or ("", "", ""))[2], 0)
+                    rb = rank.get((_range_for(b_m["d"]) or ("", "", ""))[2], 0)
+                    use_after = ra >= rb  # near-tie: the more specific phrase wins
+                else:
+                    use_after = d_after <= d_before
             else:
                 use_after = a_m is not None
             dm = a_m if use_after else b_m
@@ -729,6 +786,10 @@ def recall(ics_path: str, today: date | None = None) -> int:
         {"ics": str(p), "benchmark_events": len(events)},
     )
     rc = len(matched) / len(events) if events else 0.0
+    tickers = {t for t in ticker_by_iid.values() if t}
+    member_events = [e for e in events if (e["summary"].split() or [""])[0].upper() in tickers]
+    member_matched = [e for e in matched if (e["summary"].split() or [""])[0].upper() in tickers]
+    rc_members = len(member_matched) / len(member_events) if member_events else 0.0
     for k, v in (
         ("benchmark_events", len(events)),
         ("matched", len(matched)),
@@ -736,17 +797,465 @@ def recall(ics_path: str, today: date | None = None) -> int:
         ("mined_exact_pdufa", len(mined)),
         ("mined_not_in_benchmark", len(reverse)),
         ("recall", rc),
+        ("member_events", len(member_events)),
+        ("member_matched", len(member_matched)),
+        ("recall_members", rc_members),
     ):
         run_.metric("_", k, v)
     run_id = results.finish(run_)
     print(
         f"mine-pdufa recall vs benchmark snapshot: {len(matched)}/{len(events)} upcoming benchmark PDUFA events matched "
-        f"= {rc:.3f}; {len(reverse)} mined exact-date PDUFA rows not in the benchmark (run {run_id} recorded)"
+        f"= {rc:.3f}; members only {len(member_matched)}/{len(member_events)} = {rc_members:.3f}; "
+        f"{len(reverse)} mined exact-date PDUFA rows not in the benchmark (run {run_id} recorded)"
     )
     for e in unmatched[:25]:
         print(f"  MISSED  {e['date']}  {e['summary']}")
+        if e.get("description"):
+            print(f"          benchmark note: {e['description'][:160]}")
     if len(unmatched) > 25:
         print(f"  ... {len(unmatched) - 25} more missed")
+    return 0
+
+
+# ---------------------------------------------------------------- evaluation tooling (1.5b-eval)
+def _wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    if n == 0:
+        return 0.0, 0.0
+    p = k / n
+    d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / d
+    return max(0.0, c - h), min(1.0, c + h)
+
+
+def cached_hits(con) -> dict[str, list[dict]]:
+    """Filing documents already captured by the miner, grouped by CIK, as
+    hit dicts (adsh, doc, form, file_date, url, items) — so a rule change is
+    re-run against the library without EFTS queries or fetching."""
+    if not store.has_table("references", con):
+        return {}
+    links = {}
+    for lk in (
+        store.read_table("reference_links", con=con)
+        if store.has_table("reference_links", con)
+        else []
+    ):
+        if lk["key_type"] == "CIK":
+            links.setdefault(lk["ref_id"], lk["entity_key"])
+    items_by_doc = {}
+    if store.has_table("mined_candidates", con):
+        for r in store.read_table("mined_candidates", con=con):
+            if r.get("items"):
+                items_by_doc.setdefault((r["adsh"], r["doc"]), r["items"].split(";"))
+    out: dict[str, list[dict]] = {}
+    for ref in store.read_table("references", con=con):
+        if ref.get("source_system") != "efts" or ref.get("status") != "active":
+            continue
+        key = ref.get("source_key") or ""
+        if ":" not in key:
+            continue
+        adsh, doc = key.split(":", 1)
+        note = ref.get("note") or ""
+        cik = links.get(ref["ref_id"], "") or next(
+            (p[4:] for p in note.split(";") if p.startswith("cik=")), ""
+        )
+        form = next((p[5:] for p in note.split(";") if p.startswith("form=")), "")
+        if not form:
+            parts = (ref.get("title") or "").split()
+            form = next((p for p in parts if p in ("8-K", "10-Q", "10-K", "6-K", "20-F")), "")
+        out.setdefault(str(int(cik)) if cik.isdigit() else cik, []).append(
+            {
+                "adsh": adsh,
+                "doc": doc,
+                "cik": cik,
+                "name": ref.get("title") or "",
+                "file_date": ref.get("published_at") or "",
+                "form": form,
+                "file_type": "",
+                "items": items_by_doc.get((adsh, doc), []),
+                "url": ref.get("url") or "",
+            }
+        )
+    return out
+
+
+def _retire_stale(examined_docs: set, produced_ids: set, con) -> int:
+    """Rows written by an earlier rule version from a document that the
+    current rules re-examined without re-producing them are superseded
+    (reason recorded in provenance), so a retired rule's rows do not
+    linger. Returns the count."""
+    if not store.has_table("events_table", con) or not examined_docs:
+        return 0
+    from biointel.forward import ALL_COLS
+
+    rows = store.read_table("events_table", con=con)
+    n = 0
+    for r in rows:
+        prov = r.get("provenance") or ""
+        if (
+            not prov.startswith("source=efts")
+            or r.get("status") == "superseded"
+            or r.get("event_date")
+        ):
+            continue
+        adsh = next((p[5:] for p in prov.split(";") if p.startswith("adsh=")), "")
+        doc = next((p[4:] for p in prov.split(";") if p.startswith("doc=")), "")
+        if (adsh, doc) in examined_docs and r["event_id"] not in produced_ids:
+            r["status"] = "superseded"
+            r["provenance"] = prov + f";retired_by={RULE_VERSION}"
+            n += 1
+    if n:
+        store.write_table("events_table", rows, ALL_COLS, con=con)
+    return n
+
+
+def run_cached(today: date | None = None) -> dict:
+    """Re-examine every captured filing document with the current rules; no
+    network. Ledger rows are written under the current RULE_VERSION and
+    forward rows re-derived (idempotent)."""
+    today = today or date.today()
+    con = store.connect()
+    by_cik = cached_hits(con)
+    n_refs = (
+        sum(1 for r in store.read_table("references", con=con) if r.get("source_system") == "efts")
+        if store.has_table("references", con)
+        else 0
+    )
+    companies = [c for c in read_companies() if (c.get("CIK") or "").strip()]
+    examined_docs, produced_ids = set(), set()
+    run_ = results.start(
+        "calendar",
+        "mine-pdufa run --cached",
+        ["references", "captures", "events_table"],
+        {"rule_version": RULE_VERSION, "docs": sum(len(v) for v in by_cik.values())},
+    )
+    all_rows, ledger = [], []
+    stats = {
+        "docs": 0,
+        "missing_text": 0,
+        "examined": 0,
+        "candidates": 0,
+        "past": 0,
+        "no_year_skipped": 0,
+    }
+    counts = {"inserted": 0, "refreshed": 0, "superseded": 0, "total": 0}
+    for n, c in enumerate(companies, 1):
+        for h in by_cik.get(str(int(c["CIK"])), []):
+            got = capture_document(h, con)
+            if not got:
+                stats["missing_text"] += 1
+                continue
+            stats["docs"] += 1
+            sha, text = got
+            recs = examine(text, h["file_date"])
+            cands = [r for r in recs if r["decision"] == "accepted"]
+            stats["examined"] += len(recs)
+            stats["candidates"] += len(cands)
+            stats["no_year_skipped"] += sum(
+                1 for r in recs if r["reason"] in ("no_year_anchored", "no_year")
+            )
+            ledger.extend(_ledger_rows(recs, h, str(c["IID"]), sha, today))
+            rows, past = _rows_from(cands, h, str(c["IID"]), sha, today)
+            stats["past"] += past
+            all_rows.extend(rows)
+            examined_docs.add((h["adsh"], h["doc"]))
+            produced_ids.update(r["event_id"] for r in rows)
+        if n % 100 == 0 and (all_rows or ledger):
+            if all_rows:
+                c_ = _upsert(all_rows, _identity, con)
+                for k in ("inserted", "refreshed", "superseded"):
+                    counts[k] += c_[k]
+                counts["total"] = c_["total"]
+            _write_ledger(ledger, con)
+            all_rows, ledger = [], []
+    if all_rows:
+        c_ = _upsert(all_rows, _identity, con)
+        for k in ("inserted", "refreshed", "superseded"):
+            counts[k] += c_[k]
+        counts["total"] = c_["total"]
+    n_ledger = (
+        _write_ledger(ledger, con)
+        if ledger
+        else (
+            len(store.read_table("mined_candidates", con=con))
+            if store.has_table("mined_candidates", con)
+            else 0
+        )
+    )
+    stats["ledger_rows"] = n_ledger
+    stats["retired"] = _retire_stale(examined_docs, produced_ids, con)
+    stats["efts_references"] = n_refs
+    for k, v in {**stats, **counts}.items():
+        run_.metric("_", k, v)
+    run_id = results.finish(run_)
+    print(
+        f"mine-pdufa run --cached ({RULE_VERSION}): {stats['docs']} cached documents re-examined "
+        f"({stats['missing_text']} without text); {stats['examined']} windows -> ledger now {n_ledger} rows; "
+        f"{stats['candidates']} accepted ({stats['past']} past, {stats['no_year_skipped']} no-year) -> "
+        f"{counts['inserted']} inserted, {counts['refreshed']} refreshed, {counts['superseded']} superseded; "
+        f"{stats['retired']} stale rows retired; events_table now {counts['total']} rows; "
+        f"{n_refs} efts references on file (run {run_id} recorded)"
+    )
+    return {"status": "ok", **stats, **counts, "run_id": run_id}
+
+
+def sample_ledger(n: int = 60, seed: int = 20260901, today: date | None = None) -> int:
+    """Blind, seeded sample of accepted forward statements from the ledger at
+    the current rule version, excluding ones already reviewed."""
+    today = today or date.today()
+    con = store.connect()
+    if not store.has_table("mined_candidates", con):
+        print("mine-pdufa sample: no ledger")
+        return 1
+    reviewed = (
+        {r["candidate_id"] for r in store.read_table("candidate_reviews", con=con)}
+        if store.has_table("candidate_reviews", con)
+        else set()
+    )
+    pool = [
+        r
+        for r in store.read_table("mined_candidates", con=con)
+        if r["rule_version"] == RULE_VERSION
+        and r["decision"] == "accepted"
+        and r["date_end"] >= today.isoformat()
+        and r["candidate_id"] not in reviewed
+    ]
+    if not pool:
+        print(f"mine-pdufa sample: no unreviewed accepted candidates at {RULE_VERSION}")
+        return 1
+    texts = {}
+    caps = (
+        {c["capture_id"]: c for c in store.read_table("captures", con=con)}
+        if store.has_table("captures", con)
+        else {}
+    )
+    pick = random.Random(seed).sample(pool, min(n, len(pool)))
+    print(
+        f"mine-pdufa sample: {len(pick)} of {len(pool)} unreviewed accepted candidates at {RULE_VERSION} (seed {seed}); "
+        f"judge each with: mine-pdufa judge <candidate_id> correct|wrong|unsure [--note ...]"
+    )
+    for i, r in enumerate(pick, 1):
+        cap = caps.get(r["doc_id"])
+        if cap and r["doc_id"] not in texts:
+            p = config.DATA / cap["path"]
+            texts[r["doc_id"]] = (
+                normalize_text(p.read_text(encoding="utf-8", errors="replace"))
+                if p.exists()
+                else ""
+            )
+        t = texts.get(r["doc_id"], "")
+        a, b = int(r["char_start"]), int(r["char_end"])
+        window = t[a:b].strip() if t else "(capture text unavailable)"
+        print(
+            f"\n[{i}] {r['candidate_id']}  IID {r['entity_key']}  {r['anchor_kind']}  {r['date_start']}..{r['date_end']} "
+            f"({r['date_precision']}{' ' + r['date_mod'] if r['date_mod'] else ''})  phrase={r['phrase']!r}  {r['form']} {r['file_date']}"
+        )
+        print(
+            f"    https://www.sec.gov/Archives/edgar/data/{r['entity_key']}/{r['adsh'].replace('-', '')}/{r['doc']}".replace(
+                f"/data/{r['entity_key']}/", "/data/"
+            )
+        )
+        print(f'    "{window[:420]}"')
+    return 0
+
+
+def judge(candidate_id: str, verdict: str, note: str = "") -> int:
+    import getpass
+
+    from biointel import schema as _schema
+
+    if verdict not in _schema.REVIEW_VERDICTS:
+        print(f"verdict must be one of {_schema.REVIEW_VERDICTS}")
+        return 1
+    con = store.connect()
+    led = (
+        {r["candidate_id"]: r for r in store.read_table("mined_candidates", con=con)}
+        if store.has_table("mined_candidates", con)
+        else {}
+    )
+    if candidate_id not in led:
+        print(f"unknown candidate {candidate_id}")
+        return 1
+    rows = (
+        store.read_table("candidate_reviews", con=con)
+        if store.has_table("candidate_reviews", con)
+        else []
+    )
+    rows = [r for r in rows if r["candidate_id"] != candidate_id]
+    rows.append(
+        {
+            "review_id": "V"
+            + hashlib.sha256(
+                f"{candidate_id}|{led[candidate_id]['rule_version']}".encode()
+            ).hexdigest()[:16],
+            "candidate_id": candidate_id,
+            "rule_version": led[candidate_id]["rule_version"],
+            "verdict": verdict,
+            "reviewer": getpass.getuser(),
+            "note": note,
+            "reviewed_at": _now(),
+        }
+    )
+    store.write_table("candidate_reviews", rows, _schema.CANDIDATE_REVIEW_COLS, con=con)
+    print(f"judged {candidate_id} {verdict}")
+    return 0
+
+
+def precision_from_reviews(rule_version: str | None = None) -> int:
+    con = store.connect()
+    rv = rule_version or RULE_VERSION
+    rows = [
+        r
+        for r in (
+            store.read_table("candidate_reviews", con=con)
+            if store.has_table("candidate_reviews", con)
+            else []
+        )
+        if r["rule_version"] == rv and r["verdict"] in ("correct", "wrong")
+    ]
+    k, n = sum(1 for r in rows if r["verdict"] == "correct"), len(rows)
+    lo, hi = _wilson(k, n)
+    run_ = results.start(
+        "calendar",
+        "mine-pdufa precision",
+        ["candidate_reviews"],
+        {"rule_version": rv, "reviews": n},
+    )
+    for kk, vv in (
+        ("precision", k / n if n else 0.0),
+        ("correct", k),
+        ("total", n),
+        ("ci_low", lo),
+        ("ci_high", hi),
+    ):
+        run_.metric("_", kk, vv)
+    run_id = results.finish(run_)
+    print(
+        f"mine-pdufa precision ({rv}): {k}/{n} = {k / n if n else 0:.3f}  95% CI [{lo:.3f}, {hi:.3f}] (run {run_id} recorded)"
+    )
+    return 0
+
+
+def explain(ticker: str, iso_date: str, today: date | None = None, live: bool = False) -> int:
+    """Why a benchmark PDUFA date is missing: not a member / no cached
+    documents / date absent from the documents / seen and rejected (reason)."""
+    con = store.connect()
+    comps = [c for c in read_companies() if (c.get("Ticker") or "").upper() == ticker.upper()]
+    if not comps:
+        print(
+            f"EXPLAIN {ticker} {iso_date}: NOT_A_MEMBER (no company with that ticker in the registry)"
+        )
+        return 0
+    c = comps[0]
+    iid, cik = str(c["IID"]), str(int(c["CIK"])) if (c.get("CIK") or "").strip() else ""
+    docs = cached_hits(con).get(cik, []) if cik else []
+    y, m, d = iso_date.split("-")
+    month = _cal.month_name[int(m)]
+    forms = [
+        f"{month} {int(d)}, {y}",
+        f"{month[:3]}. {int(d)}, {y}",
+        f"{month[:3]} {int(d)}, {y}",
+        f"{int(m)}/{int(d)}/{y}",
+        f"{m}/{d}/{y}",
+    ]
+    found = []
+    for h in docs:
+        got = capture_document(h, con)
+        if not got:
+            continue
+        _sha, text = got
+        for f in forms:
+            i = text.find(f)
+            if i >= 0:
+                found.append((h, f, text[max(0, i - 160) : i + 160]))
+                break
+    led = [
+        r
+        for r in (
+            store.read_table("mined_candidates", con=con)
+            if store.has_table("mined_candidates", con)
+            else []
+        )
+        if r["entity_key"] == iid and r["date_start"] == iso_date
+    ]
+    print(
+        f"EXPLAIN {ticker} {iso_date}: IID {iid} CIK {cik or '-'}; cached documents {len(docs)}; documents containing the date {len(found)}; ledger rows at that date {len(led)}"
+    )
+    if not cik:
+        print("  -> NO_CIK: company has no CIK in the registry; EFTS per-company query impossible")
+    elif not docs:
+        print(
+            "  -> NO_DOCUMENTS: EFTS returned no matching filings in the window, or the company filed under other forms"
+        )
+    elif not found:
+        print(
+            "  -> DATE_NOT_IN_DOCS: none of the cached documents states that date (later filing, or disclosed only in a press release not filed)"
+        )
+    for h, f, snip in found[:3]:
+        print(f"  DOC {h['form']} {h['file_date']} {h['adsh']}:{h['doc']}  form={f!r}")
+        print(f"      ...{snip}...")
+    for r in led[:5]:
+        print(
+            f"  LEDGER {r['candidate_id']} {r['rule_version']} {r['anchor_kind']} {r['decision']} {r['reason'] or '-'} assertion={r['assertion']} phrase={r['phrase']!r}"
+        )
+    if found and not led:
+        print(
+            "  -> SEEN_NOT_EXTRACTED: the date is in a document but no ledger row carries it — anchor vocabulary or window rule gap"
+        )
+    if live and cik:
+        today = today or date.today()
+        since = date(today.year - 2, today.month, today.day).isoformat()
+        probed = False
+        for f in (forms[0], forms[2]):
+            payload = search(f'"{f}"', "8-K,10-Q,10-K,6-K,20-F", since, today.isoformat(), cik=cik)
+            hs = hits_of(payload)
+            print(f"  LIVE EFTS q={f!r}: {len(hs)} filings by this company contain the date string")
+            for h in hs[:4]:
+                print(f"      {h['form']} {h['file_date']} {h['adsh']}:{h['doc']}")
+            if hs:
+                cached_keys = {(d["adsh"], d["doc"]) for d in docs}
+                new = [h for h in hs if (h["adsh"], h["doc"]) not in cached_keys]
+                verdict = (
+                    "VOCABULARY_MISS: filing(s) exist but our query terms did not retrieve them"
+                    if new
+                    else "RETRIEVED_BUT_NOT_IN_TEXT: filing retrieved; date string not found in its normalized text"
+                )
+                print(f"  -> {verdict} ({len(new)} not in cache)")
+                probed = True
+                break
+        if not probed:
+            print(
+                "  -> NOT_IN_EDGAR_FULLTEXT: no filing by this company contains the date string (disclosed outside EDGAR, or after the index lag)"
+            )
+    return 0
+
+
+def extras(ics_path: str, today: date | None = None) -> int:
+    """Mined exact-date PDUFA rows absent from the benchmark, with windows,
+    for inspection (true finds vs false positives)."""
+    today = today or date.today()
+    con = store.connect()
+    events = [
+        e
+        for e in parse_ics(Path(ics_path).read_text(encoding="utf-8", errors="replace"))
+        if e["date"] >= today.isoformat()
+    ]
+    dates = {e["date"] for e in events}
+    mined = [
+        r
+        for r in store.read_table("events_table", con=con)
+        if (r.get("provenance") or "").startswith("source=efts")
+        and r.get("outcome_subtype") == "pdufa_target_date"
+        and r.get("status") == ""
+        and r.get("date_precision") == "day"
+    ]
+    ex = [r for r in mined if r["scheduled_date"] not in dates]
+    print(f"mine-pdufa extras: {len(ex)} exact-date PDUFA rows not in the benchmark snapshot")
+    for r in ex:
+        print(
+            f"\n  {r['event_id']}  IID {r['entity_key']}  {r['scheduled_date']}  {r['source_url']}"
+        )
+        print(f'    "{r["date_raw"][:300]}"')
     return 0
 
 
@@ -760,6 +1269,8 @@ def cli(argv: list[str]) -> int:
             else default
         )
 
+    if sub == "run" and "--cached" in argv:
+        return 0 if run_cached()["status"] == "ok" else 1
     if sub == "run":
         lim = _opt("--limit")
         r = run(
@@ -769,12 +1280,28 @@ def cli(argv: list[str]) -> int:
         )
         return 0 if r["status"] == "ok" else 1
     if sub == "sample":
-        return sample(int(argv[1]) if len(argv) > 1 and argv[1].isdigit() else 20)
-    if sub == "precision":
+        n = int(argv[1]) if len(argv) > 1 and argv[1].isdigit() else 60
+        seed = int(_opt("--seed", "20260901"))
+        return sample_ledger(n, seed)
+    if sub == "judge":
         if len(argv) < 3:
-            print("usage: mine-pdufa precision CORRECT TOTAL")
+            print("usage: mine-pdufa judge CANDIDATE_ID correct|wrong|unsure [--note TEXT]")
             return 1
-        return precision(int(argv[1]), int(argv[2]))
+        return judge(argv[1], argv[2], _opt("--note", "") or "")
+    if sub == "precision":
+        if len(argv) >= 3 and argv[1].isdigit() and argv[2].isdigit():
+            return precision(int(argv[1]), int(argv[2]))  # legacy: typed count
+        return precision_from_reviews(_opt("--rule"))
+    if sub == "explain":
+        if len(argv) < 3:
+            print("usage: mine-pdufa explain TICKER YYYY-MM-DD")
+            return 1
+        return explain(argv[1], argv[2], live="--live" in argv)
+    if sub == "extras":
+        if len(argv) < 2:
+            print("usage: mine-pdufa extras SNAPSHOT.ics")
+            return 1
+        return extras(argv[1])
     if sub == "recall":
         if len(argv) < 2:
             print("usage: mine-pdufa recall PATH_TO_SNAPSHOT.ics")

@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = "0.9"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.10"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -463,6 +463,11 @@ ANCHOR_KINDS = ("pdufa", "readout")
 ASSERTIONS = ("affirmed", "negated", "historical", "hypothetical")
 DATE_MODS = ("", "early", "mid", "late", "approx")
 CANDIDATE_DECISIONS = ("accepted", "rejected")
+# Human verdicts on ledger candidates (gate 1.5b-eval; reused by the L3 review queue).
+CANDIDATE_REVIEW_COLS = (
+    "review_id", "candidate_id", "rule_version", "verdict", "reviewer", "note", "reviewed_at",
+)
+REVIEW_VERDICTS = ("correct", "wrong", "unsure")
 # Planned tables (Ontology §3.4, §3.7); built at gates 2.9, 2.10.
 MANUAL_ENTITY_COLS = (
     "entity_key", "name", "aliases", "type", "listed", "has_prices", "cik", "ticker", "hq",
@@ -1035,6 +1040,14 @@ TABLES: tuple[Table, ...] = (
             "assertion": ASSERTIONS,
             "decision": CANDIDATE_DECISIONS,
         },
+    ),
+    Table(
+        "silver/candidate_reviews.csv",
+        CANDIDATE_REVIEW_COLS,
+        "mine-pdufa judge (1.5b-eval); L3 review queue",
+        key=("review_id",),
+        types={"reviewed_at": "datetime", "verdict": "enum"},
+        enums={"verdict": REVIEW_VERDICTS},
     ),
     # ---- planned (declared by design; no writer yet) ----------------
     Table(

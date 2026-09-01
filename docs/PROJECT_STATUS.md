@@ -2,7 +2,29 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 1.05. Supersedes v1.04. Gate 1.5b DONE (0.8a): SEC EDGAR full-text
+Version 1.06. Supersedes v1.05. Gate 1.5b-eval DONE (0.8a): measured
+improvement loop over the miner. New: `candidate_reviews` (SCHEMA_VERSION
+0.10, 49 declared) storing blind human verdicts per candidate and rule
+version; `mine-pdufa run --cached` (re-examines all 2,404 captured filing
+documents with the current rules, no network, ~27 min); `sample`/`judge`/
+`precision` (Wilson 95% interval from stored verdicts, per rule version);
+`explain TICKER DATE [--live]` (classifies each benchmark miss:
+NOT_A_MEMBER / NO_CIK / NO_DOCUMENTS / DATE_NOT_IN_DOCS /
+SEEN_NOT_EXTRACTED, with a live EFTS probe separating VOCABULARY_MISS from
+NOT_IN_EDGAR_FULLTEXT); `extras` (mined dates absent from the benchmark);
+`_retire_stale` (rows a retired rule produced are superseded on re-run,
+provenance +retired_by). Rules iterated r7→r8→r9, each failure window a
+unit test. Numbers of record (r9): precision 56/60 = 0.933 [0.841, 0.974];
+recall 55/65 = 0.846 raw, 54/59 = 0.915 members-only; all ten misses
+classified — five non-members, five press-release-only (dates in no EDGAR
+filing; the benchmark's notes cite Business Wire) — zero extraction
+failures; five true finds the benchmark lacks (Gilead, BridgeBio,
+Nuvation, IID 1210, Inhibrx). Coverage ceiling documented: an EDGAR-only
+miner cannot see unfiled press releases — the case for a later IR-polling
+gate. r10 rules named for 1.5c: readout clause guard, through-the-data
+runway, 1H:YYYY colon form. Windows console output made encoding-safe.
+Next gate: 1.5c.
+v1.05. Supersedes v1.04. Gate 1.5b DONE (0.8a): SEC EDGAR full-text
 miner (`mine-pdufa`, 66th command) — per-company EFTS queries (ciks filter,
 forms 8-K/10-Q/10-K/6-K/20-F), 2,653 filing documents captured into the
 library, rule-based extraction of PDUFA target dates and readout guidance
@@ -116,7 +138,7 @@ standing rules, and the open queue.
 - Repository: https://github.com/harrisonbanks/bioproject (public as of 2026-08-31 — to be set private; key rotation pending). Branch `jason/refactor` holds all work since 2026-08-29 (commits 76a3ba3 … 93c2194); `main` is at the pre-refactor commit b52de01.
 - Operator machines: Harrison `C:\Users\bocchirock\Documents\dev\bioindustry\` (pre-refactor layout until merge); Jason `C:\Users\JB\Documents\dev\bioindustry\` (current layout; data regenerated 2026-08-29: 1,379 universe members; migrated to DuckDB 2026-08-30; frozen 2026-08-31 as the snapshot of record, 0.5). Windows, Python 3.13, venv at `<root>\.venv`, venv + pip (no uv, P9).
 - Repository layout: `src/biointel/` package (modules below) · `scripts/` diagnostics and `scripts/refactor/` gate tooling · `docs/` · `tests/unit/` (65 tests) · `pyproject.toml` (dependencies: numpy, scikit-learn, scipy, requests, openpyxl, duckdb>=1.3,<2; dev: ruff, mypy, pytest) · `requirements.lock` (UTF-8) · `.env` (git-ignored; template `.env.example`).
-- Data layout (P16; all git-ignored under `data\`): `bronze\` raw API responses and documents with manifests, never edited · `biointel.duckdb` every silver, gold and ledger table (48 declared in `schema.py` at SCHEMA_VERSION 0.9: 46 live incl. 4 ledger, the L1 library tables, 1.4 events_table, the L2 dossier/attribute tables and the 2.10 manual tables, 1 planned) · `exports\` reports and CSV exports, disposable, regenerated per check · `snapshots\<date>\` `freeze` copies of the database file · `silver_frozen_20260830\`, `gold_frozen_20260830\` pre-migration CSVs, read only by LEGACY code, never written.
+- Data layout (P16; all git-ignored under `data\`): `bronze\` raw API responses and documents with manifests, never edited · `biointel.duckdb` every silver, gold and ledger table (49 declared in `schema.py` at SCHEMA_VERSION 0.10: 46 live incl. 4 ledger, the L1 library tables, 1.4 events_table, the L2 dossier/attribute tables and the 2.10 manual tables, 1 planned) · `exports\` reports and CSV exports, disposable, regenerated per check · `snapshots\<date>\` `freeze` copies of the database file · `silver_frozen_20260830\`, `gold_frozen_20260830\` pre-migration CSVs, read only by LEGACY code, never written.
 - Install: `python -m venv .venv` → `.venv\Scripts\python.exe -m pip install -e ".[dev]"`; optional `".[ner]"` for spacy.
 - Credentials: `BIOINTEL_USER_AGENT`, `BIOINTEL_ALPHA_VANTAGE_KEY` in `.env`; read via `config.require()` at the HTTP call sites; nothing in code.
 - Run form: `& "<root>\.venv\Scripts\python.exe" -m biointel <command>`.
@@ -130,7 +152,7 @@ Per gate: scope message → go → dry-run on a container copy → single files 
 | __init__.py | 51 | re-exports of pipeline entry points |
 | __main__.py | 8 | entry point: python -m biointel |
 | config.py | 89 | paths (P16 layout), all HTTP endpoints, windows; .env loader; require() |
-| schema.py | 1228 | schema as code: entity types, attribute groups, relationship types (incl. v4 typed-edge names), event classes (incl. the v4 classes since 1.4), ASPECTS vocabulary, 47-table map with types/keys/enums; validate (CSV and database) |
+| schema.py | 1241 | schema as code: entity types, attribute groups, relationship types (incl. v4 typed-edge names), event classes (incl. the v4 classes since 1.4), ASPECTS vocabulary, 47-table map with types/keys/enums; validate (CSV and database) |
 | store.py | 516 | bronze fetch/cache and manifests; DuckDB store layer (single point of table access: connect, read_table, write_table, append_rows, export_csv, write_export); input enforcement (enforce, InputViolation, trace) |
 | migrate.py | 109 | one-time CSV → DuckDB migration (refuses if the database exists; freezes the CSV folders) |
 | results.py | 423 | run ledger (P17): start/finish, render-from-record dispatch, run_type, ledger views, data/exports/ledger.csv |
@@ -151,8 +173,8 @@ Per gate: scope message → go → dry-run on a container copy → single files 
 | pairs.py | 455 | acquirer-pairing/mass-exact: pairs-exact, pairs-full-exact (record + render), build_pair_feature |
 | baselines.py | 654 | LEGACY: rejected pairing engines (cosine, supervised, protocol, substrates); paper baselines; not maintained |
 | study.py | 263 | fda-event-study/daily-bars: CAR vs XBI by outcome class |
-| interfaces/cli.py | 823 | dispatch for 66 commands (1.5b); configures logging |
-| efts.py | 799 | gate 1.5b: EFTS adapter, document capture with backoff, examine()/extract() with ledger records, forward-row writer, precision sample/record, ICS recall benchmark |
+| interfaces/cli.py | 831 | dispatch for 66 commands (1.5b); configures logging |
+| efts.py | 1326 | gate 1.5b: EFTS adapter, document capture with backoff, examine()/extract() with ledger records, forward-row writer, precision sample/record, ICS recall benchmark |
 | forward.py | 477 | gate 1.5a: forward calendar writers — date-range parser, trials transform, FDA AdCom JSON-endpoint writer, supersession upsert |
 | manual.py | 319 | gate 2.10: manual layer — DB-only store, schema-validated overrides, visible precedence (merged_rows), export/load rebuild path for all hand tables |
 | dossier.py | 427 | gate L2: Tempus–Personalis seed rows + span-verified loader (accession→capture resolution, doc_id stamped at load, propose→report→load) |
@@ -165,7 +187,7 @@ Removed in the refactor (26133aa): fossil tree, Excel workbook, duplicate script
 - Layers: fin(-all), trials(-all), events(-all), deals(-all), cparty(-all), partners, relationships, snapshot.
 - Labels/QA: harvest, verify-fill, qa, qa-corroborate, qa-wiki, labels.
 - Models (all routed through the registry harness under input enforcement): features, predict [QUARTER], robust, improve, develop [tune|textsweep], pairs-exact, pairs-full-exact, study-all, backtest; `models` (the registry), `run MODEL [--impl N] [--eval N] [--as-of D]`.
-- Reporting and ledger: report MODEL [DATE], report ledger, report runs MODEL, ledger-seed (once), validate, freeze, migrate (once), events-migrate (once; gate 1.4), dossier-seed [--report] (L2; idempotent; LEGACY as a store since 2.10), manual SUB (2.10: add-entity, add-attribute, add-note, list, validate, export, load), calendar-forward [trials|adcom|all] [--file RESPONSE.json] (1.5a; idempotent), mine-pdufa run|sample|precision|recall (1.5b; run idempotent, flushes every 50 companies).
+- Reporting and ledger: report MODEL [DATE], report ledger, report runs MODEL, ledger-seed (once), validate, freeze, migrate (once), events-migrate (once; gate 1.4), dossier-seed [--report] (L2; idempotent; LEGACY as a store since 2.10), manual SUB (2.10: add-entity, add-attribute, add-note, list, validate, export, load), calendar-forward [trials|adcom|all] [--file RESPONSE.json] (1.5a; idempotent), mine-pdufa run|run --cached|sample|judge|precision|recall|explain|extras (1.5b + eval; run idempotent, flushes every 50 companies).
 - Data adapters: patents-sql, patents-import, orangebook-probe, chembl-probe, chembl-ingest.
 - Lookups: list, coverage, calendar IID, window, study, tags, sponsors, deals-of, partners-of.
 - LEGACY (P7; kept, not maintained, not re-run): fit, holdout (both accesses spent), pairs, pairs-fit, pairs-protocol, pairs-substrate.
@@ -209,6 +231,7 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 - Gate 0.3 DONE 2026-08-30 (29b8701): run ledger (runs, run_params, run_metrics, run_artefacts), render-from-record for seven reports and predict, ledger-seed (7 legacy rows), report views.
 - Gate 0.4 DONE 2026-08-31 (93c2194): models/ registry (target-screen: scorecard, fitted; acquirer-pairing: mass-exact; fda-event-study: daily-bars; six evaluations), declared inputs enforced at run time, run_type, models/run commands; first real run caught one undeclared legitimate read, fixed by declaration.
 - DOC gate DONE 2026-08-31: this PART 0 regenerated; current-state diagram v2 (docs/20260831_v2_System_Diagram.md); target-state diagram v2 after Ontology v4 (docs/20260831_v2_System_Diagram_TARGET_STATE.md) and research-process diagram (docs/20260831_v1_Research_Process_Diagram.md), both Mermaid, 2026-08-31.
+- Gate 1.5b-eval DONE 2026-09-01: candidate_reviews + eval loop; r9 of record — precision 0.933 [0.841, 0.974] (60 blind verdicts), recall 0.846/0.915, misses fully classified, five true finds; runbook docs/20260901_v1_GATE15B_EVAL_INSTALL.md.
 - Gate 1.5b DONE 2026-09-01: EFTS miner + candidate ledger — 2,653 documents, 14,002 ledger rows (r6), 701 forward events tier B; precision 8/10 (judged sample), recall 0.846 (FDA Tracker snapshot, benchmark only); pytest 140; validate 39/0/8/1 of 48; thirteen fingerprints MATCH; runbook docs/20260901_v2_GATE15B_INSTALL.md.
 - Gate 1.5a DONE 2026-08-31: forward FDA calendar live — schema forward columns (0.8); calendar-forward: 16,112 CT.gov primary-completion rows + FDA AdCom JSON-endpoint writer (194 records, 2 upcoming, 4 rows, dated snapshot in the library); supersession history; events-migrate preserves forward rows; manifest self-listing fixed; events_table 20,398; validate 38/0/8/1; pytest 122; thirteen fingerprints MATCH; runbook docs/20260831_v2_GATE15A_INSTALL.md.
 - Gate 2.10 DONE 2026-08-31: manual layer live (SCHEMA_VERSION 0.7; 64th command; schema-validated overrides; visible precedence, no consumer until L3); storage ruling applied — DB sole store, no row content in git, snapshot sole reconciliation, export/load rebuild path (17 rows / 6 tables round trip proven); dossier SEED marked LEGACY; validate 38/0/8/1; pytest 103; thirteen fingerprints MATCH; runbook docs/20260831_v1_GATE210_INSTALL.md.
@@ -222,7 +245,7 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 3. Rotate the Alpha Vantage key; set the repository private (Harrison).
 4. Pull request jason/refactor → main; Harrison's post-merge steps (install, migrate, ledger-seed) in the handoff.
 5. Harrison to confirm the corrected MASS-exact figure (0.310) on his snapshot and retire the v0.81 "SUSPENDED" text in PART 5+.
-6. Next gate: 1.5c — realized readouts and PDUFA outcomes as events with event_date and disclosure_datetime, delay_timing events from negated guidance, outcome_state from outcome words, all written from the `mined_candidates` ledger (no re-fetching; re-mine with r7 and re-measure precision/recall). Then 2.9′ → L3 → L4 (order of record L1 → 1.4 → L2 → 2.10 → 1.5a → 1.5b → 1.5c → 2.9′ → L3 → L4). Standing, no gate needed: pending seed rows re-admitted by captures — equity_value_usd (Tempus PR via `library add <file> --for Rf573315b3de`), the three Merck rows (merger-agreement exhibit or §9 news URLs), later timeline/comparables rows (remaining §9 URLs); before any rebuild-from-bronze, run `manual export` first and `manual load` after.
+6. Next gate: 1.5c (opens with the r10 rules: readout clause guard, through-the-data runway, 1H:YYYY colon form; re-mine and re-measure there) — realized readouts and PDUFA outcomes as events with event_date and disclosure_datetime, delay_timing events from negated guidance, outcome_state from outcome words, all written from the `mined_candidates` ledger (no re-fetching; re-mine with r7 and re-measure precision/recall). Then 2.9′ → L3 → L4 (order of record L1 → 1.4 → L2 → 2.10 → 1.5a → 1.5b → 1.5c → 2.9′ → L3 → L4). Standing, no gate needed: pending seed rows re-admitted by captures — equity_value_usd (Tempus PR via `library add <file> --for Rf573315b3de`), the three Merck rows (merger-agreement exhibit or §9 news URLs), later timeline/comparables rows (remaining §9 URLs); before any rebuild-from-bronze, run `manual export` first and `manual load` after.
 7. Universe check before 2.9′: are Tempus AI and Personalis among the 1,379 members (one query; Ontology v4 §8 Q9).
 8. `predict` composition (item 2) is subordinate to the dossier track: `aspect-match` results (gate L4) inform it; the buyer-agnostic checklist-versus-fitted test remains available as a cheap evaluation.
 
@@ -1490,6 +1513,7 @@ collaborations work, deal counterparties do not.
 
 ## Changelog
 
+| 1.06 | 2026-09-01 | Gate 1.5b-eval DONE: candidate_reviews (0.10, 49 declared); cached re-runs; per-version precision with Wilson CI; explain --live; stale-row retirement; encoding-safe console. r9 of record: precision 56/60 = 0.933 [0.841, 0.974]; recall 0.846 raw / 0.915 members; ten misses classified (5 non-member, 5 press-release-only, 0 extraction failures); 5 true finds vs the benchmark; r10 rules deferred to 1.5c. |
 | 1.05 | 2026-09-01 | Gate 1.5b DONE: SEC EDGAR full-text miner (mine-pdufa, 66th command) with `mined_candidates` ledger (SCHEMA_VERSION 0.9, 48 declared): 2,653 documents captured, 14,002 windows ledgered (r6), 701 forward events tier B; precision 8/10 judged sample; recall 0.846 vs FDA Tracker snapshot (benchmark only per their terms); fetch backoff and periodic flush after an SEC 503/timeout abort; research-based design (TimeML, ConText, Dolphin et al. 2026); r7 rules ship, re-measured at 1.5c; pytest 140; validate 39/0/8/1; thirteen fingerprints MATCH; runbook docs/20260901_v2_GATE15B_INSTALL.md. |
 | 1.04 | 2026-08-31 | Gate 1.5a DONE: forward FDA calendar — events_table optional forward columns (SCHEMA_VERSION 0.8); calendar-forward (65th command) trials writer 16,112 rows idempotent with supersession; AdCom writer rebuilt on the calendar's JSON endpoint after the page proved a client-side shell (194 records, 2 upcoming, 4 rows, dated snapshot captured); events-migrate preserves forward rows; L1 manifest self-listing defect fixed; testing standard: real-capture fixtures; regression runtime of record ~3–4 min; events_table 20,398; validate 38/0/8/1; pytest 122; thirteen fingerprints MATCH, PROBLEMS 0; runbook docs/20260831_v2_GATE15A_INSTALL.md. |
 | 1.03 | 2026-08-31 | Gate 2.10 DONE: manual layer (SCHEMA_VERSION 0.7; manual trio live; 64th command add-entity/add-attribute/add-note/list/validate/export/load; schema-validated targets; visible precedence via merged_rows, first consumer L3) under the storage ruling — DB sole store, no row content in git, snapshot sole reconciliation; export/load rebuild path for all 11 hand tables (17 rows/6 tables round trip, run-recorded); dossier SEED marked LEGACY; first manual attribute ma_events.deal_id=TEM-PSNL-20260720; validate 38/0/8/1 of 47; pytest 103; thirteen fingerprints MATCH, PROBLEMS 0; runbook docs/20260831_v1_GATE210_INSTALL.md. |
