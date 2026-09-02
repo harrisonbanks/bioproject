@@ -2,7 +2,45 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 1.09. Supersedes v1.08. Gate L3 DONE (0.8a): the deal analyser.
+Version 1.10. Supersedes v1.09. Gate L4 DONE (0.8a): `aspect-match`, the
+second acquirer-pairing implementation (module aspects.py; `pairs-aspect
+[forward]`, 68th command), and the forward hit/false-alarm test (Ontology
+v5 §5.5–§5.6). Rules-first methodology: eight analyst-stated presence
+rules (equal weights, the naive prior) derived from the Tempus record and
+the literature, never fitted to deals; the four Tempus-sequence deals
+(Ambry, Deep 6, Paige, Personalis) excluded from both evaluations as the
+rules' source (P19). Paired beside MASS-exact on 129 shared events and
+shared samples: aspect-match HR@5 0.108 (±0.005) vs MASS-exact 0.335
+(±0.014) — the pre-registered pass mark (HR@5 > 0.334 + 2× pooled sd
+0.0107) fires NOT ADOPTED; mass-exact stands, the number ships as the
+finding. Forward test (85 buyers, 1,389 buyer-years, 613 degenerate,
+123 evaluable deals, median pool 660): hits@5 8 vs chance 0.88, hits@10
+11 vs 1.76, hits@25 17 vs 4.39; 5,921 top-10 false alarms; the pool
+definition (members with ≥8 trial tokens at the year-end, minus
+acquirer-side and the buyer; chance = k/pool) rides verbatim in the run
+note. Per-aspect coverage recorded as ledger run metrics (binding
+amendment): three derived aspects (TA overlap, prior relationship,
+financing capacity) carried both evaluations; patent_cliff_pressure
+(Orange Book zip absent) and every stated aspect (attribute tables empty
+before the cutoffs) evaluable 0 — the sparsity is a queryable fact of
+each run, and the paper's interpretation is that the aspect matcher
+cannot beat the trial-text engine until the stated-aspect substrate
+exists (a3 analyser rules and 13D/13G ingestion, future gates).
+Untouched-surface proof: empty diff over pairs/labels/forward/efts/
+analyser at 3124814; thirteen fingerprints MATCH. Incident R1, recorded:
+the closing block re-ran `robust` and `improve` outside the five-command
+regeneration set of record, overwriting two at-rest reports; both were
+restored byte-exact by rendering their original 2026-08-31 ledger records
+(P17 render-from-record; disposable script, deleted after use, evidence
+in the gate commit). Regression facts restated as settled: regeneration
+set = predict, pairs-full-exact, pairs-exact, develop, develop tune; the
+six legacy files hash from data\gold_frozen_20260830\, all other baseline
+names from data\exports\; fixed-list routing, no fallback. Deferred,
+named: `report pairs-aspect` RENDERERS entry (lands with the next
+results.py gate); aspect weights beyond equal (own pre-registration);
+a3 aspect-extraction rules. Order of record L1 → 1.4 → L2 → 2.10 → 1.5 →
+2.9′ → L3 → L4 complete.
+v1.09. Supersedes v1.08. Gate L3 DONE (0.8a): the deal analyser.
 `dossier-analyse DEAL_ID [--collect] [--consume]` (67th command; module
 analyser.py, rule version L3-a2). Collect: per-party EFTS full-text
 queries (merger vocabulary, forms 8-K/425/DEFM14A/PREM14A/S-4/6-K/10-Q/
@@ -229,7 +267,7 @@ Per gate: scope message → go → dry-run on a container copy → single files 
 | results.py | 423 | run ledger (P17): start/finish, render-from-record dispatch, run_type, ledger views, data/exports/ledger.csv |
 | legacy_ledger.py | 428 | transcribed legacy report rows with quoted source lines; `ledger-seed` |
 | models/base.py | 50 | Entry contract: model, name, run_type, declared inputs, outputs, func |
-| models/registry.py | 305 | three models by question, five implementations, six evaluations, declared tables and columns; COMMAND_TO_ENTRY |
+| models/registry.py | 340 | three models by question, six implementations, seven evaluations (L4: aspect-match, aspect-paired), declared tables and columns; COMMAND_TO_ENTRY |
 | models/harness.py | 47 | run an entry: enforcement on, run_type set, call, enforcement off |
 | models/adapters.py | 107 | adapters from entries to the existing functions |
 | pipeline.py | 1204 | company registry, per-layer getters, ingest, text_ingest (10-K Item 1); events_table migration (preserves forward rows since 1.5a) + calendar view (1.4); table access via store |
@@ -242,9 +280,10 @@ Per gate: scope message → go → dry-run on a container copy → single files 
 | improve.py | 848 | target-screen/fitted: engineered features, develop, tune, textsweep (record + render); `holdout` LEGACY (spent) |
 | fit.py | 676 | target-screen evaluations robust, improve (record + render); gen-1 `fit` LEGACY |
 | pairs.py | 455 | acquirer-pairing/mass-exact: pairs-exact, pairs-full-exact (record + render), build_pair_feature |
+| aspects.py | 642 | gate L4: acquirer-pairing/aspect-match — analyst-stated presence rules over aspects, paired protocol beside mass-exact, forward hit/false-alarm test; per-aspect coverage as run metrics |
 | baselines.py | 654 | LEGACY: rejected pairing engines (cosine, supervised, protocol, substrates); paper baselines; not maintained |
 | study.py | 263 | fda-event-study/daily-bars: CAR vs XBI by outcome class |
-| interfaces/cli.py | 831 | dispatch for 66 commands (1.5b); configures logging |
+| interfaces/cli.py | 858 | dispatch for 68 commands (L4); configures logging |
 | efts.py | 1563 | gate 1.5b: EFTS adapter, document capture with backoff, examine()/extract() with ledger records, forward-row writer, precision sample/record, ICS recall benchmark |
 | forward.py | 477 | gate 1.5a: forward calendar writers — date-range parser, trials transform, FDA AdCom JSON-endpoint writer, supersession upsert |
 | manual.py | 319 | gate 2.10: manual layer — DB-only store, schema-validated overrides, visible precedence (merged_rows), export/load rebuild path for all hand tables |
@@ -253,12 +292,12 @@ Per gate: scope message → go → dry-run on a container copy → single files 
 
 Removed in the refactor (26133aa): fossil tree, Excel workbook, duplicate scripts, `crsp_import`, `ner_status`, `_pair_by_date`, dead USPTO route (−2,750 lines).
 
-## 0.4 CLI commands (66, all live; `python -m biointel` prints the list)
+## 0.4 CLI commands (68, all live; `python -m biointel` prints the list)
 - Universe/ingest: universe-probe, universe, ingest N, text-ingest N, add, backfill.
 - Layers: fin(-all), trials(-all), events(-all), deals(-all), cparty(-all), partners, relationships, snapshot.
 - Labels/QA: harvest, verify-fill, qa, qa-corroborate, qa-wiki, labels.
-- Models (all routed through the registry harness under input enforcement): features, predict [QUARTER], robust, improve, develop [tune|textsweep], pairs-exact, pairs-full-exact, study-all, backtest; `models` (the registry), `run MODEL [--impl N] [--eval N] [--as-of D]`.
-- Reporting and ledger: report MODEL [DATE], report ledger, report runs MODEL, ledger-seed (once), validate, freeze, migrate (once), events-migrate (once; gate 1.4), dossier-seed [--report] (L2; idempotent; LEGACY as a store since 2.10), manual SUB (2.10: add-entity, add-attribute, add-note, list, validate, export, load), calendar-forward [trials|adcom|all] [--file RESPONSE.json] (1.5a; idempotent), mine-pdufa run|run --cached|write-realized|sample|judge|precision|recall|explain|extras (1.5b/1.5c; run idempotent, flushes every 50 companies).
+- Models (all routed through the registry harness under input enforcement): features, predict [QUARTER], robust, improve, develop [tune|textsweep], pairs-exact, pairs-full-exact, pairs-aspect [forward] (L4), study-all, backtest; `models` (the registry), `run MODEL [--impl N] [--eval N] [--as-of D]`.
+- Reporting and ledger: report MODEL [DATE], report ledger, report runs MODEL, ledger-seed (once), validate, freeze, migrate (once), events-migrate (once; gate 1.4), dossier-seed [--report] (L2; idempotent; LEGACY as a store since 2.10), manual SUB (2.10: add-entity, add-attribute, add-note, list, validate, export, load), calendar-forward [trials|adcom|all] [--file RESPONSE.json] (1.5a; idempotent), mine-pdufa run|run --cached|write-realized|sample|judge|precision|recall|explain|extras (1.5b/1.5c; run idempotent, flushes every 50 companies), dossier-analyse DEAL_ID [--collect] [--consume] (L3).
 - Data adapters: patents-sql, patents-import, orangebook-probe, chembl-probe, chembl-ingest.
 - Lookups: list, coverage, calendar IID, window, study, tags, sponsors, deals-of, partners-of.
 - LEGACY (P7; kept, not maintained, not re-run): fit, holdout (both accesses spent), pairs, pairs-fit, pairs-protocol, pairs-substrate.
@@ -273,6 +312,7 @@ Removed in the refactor (26133aa): fossil tree, Excel workbook, duplicate script
 | target-screen / gen-1 (LEGACY) | test AUC-PR / lift / ROC | 0.204 / 6.7× / 0.915 (price-inclusive; retracted as headline, leak) | — | closed |
 | acquirer-pairing / mass-exact | paired HR@5 vs MASS-inspired | 0.310 vs 0.222 (corrected engine, midpoint tie-ranking) | 0.334 vs 0.224 (129 events; ledger run pairs-exact) | adopted |
 | acquirer-pairing / mass-exact | full-universe re-rank | — | 124 events; median rank 80 / pool 862; hit@10 0.27; hit@25 0.39 (regression fingerprint) | current |
+| acquirer-pairing / aspect-match (L4) | paired HR@5 vs mass-exact; forward hits@10 vs chance | — | 0.108 vs 0.335 (129 events, shared samples; pass mark NOT ADOPTED, mass-exact stands); forward 11 hits vs 1.76 chance, 5,921 false alarms (runs pairs-aspect / pairs-aspect-forward 2026-09-02) | recorded finding |
 | acquirer-pairing / legacy engines | protocol HR@5 | cosine 0.216, MASS-inspired 0.222, latent-SVD 0.143, hybrid 0.186 | — | closed |
 | substrates (LEGACY) | paired HR@5 | patents 0.055 vs trials 0.237 (42 events); targets 0.120 vs trials 0.206 (67 events); both REJECTED | — | closed; paper finding: diseases > mechanisms > patents |
 | fda-event-study / daily-bars | events; mean CAR[-1,+1] | 1,350 events; approvals +0.31; CRLs −7.1 / −21.1 (N=53/36) | 1,165 events in event_study (no re-run yet under the ledger) | current |
@@ -302,6 +342,7 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 - Gate 0.3 DONE 2026-08-30 (29b8701): run ledger (runs, run_params, run_metrics, run_artefacts), render-from-record for seven reports and predict, ledger-seed (7 legacy rows), report views.
 - Gate 0.4 DONE 2026-08-31 (93c2194): models/ registry (target-screen: scorecard, fitted; acquirer-pairing: mass-exact; fda-event-study: daily-bars; six evaluations), declared inputs enforced at run time, run_type, models/run commands; first real run caught one undeclared legitimate read, fixed by declaration.
 - DOC gate DONE 2026-08-31: this PART 0 regenerated; current-state diagram v2 (docs/20260831_v2_System_Diagram.md); target-state diagram v2 after Ontology v4 (docs/20260831_v2_System_Diagram_TARGET_STATE.md) and research-process diagram (docs/20260831_v1_Research_Process_Diagram.md), both Mermaid, 2026-08-31.
+- Gate L4 DONE 2026-09-02: aspect-match + forward test (rules-first, Tempus-sequence deals excluded; equal weights); paired 0.108 vs 0.335 → pass mark NOT ADOPTED, recorded finding; forward 8/11/17 hits at k=5/10/25 vs chance 0.88/1.76/4.39, 5,921 false alarms; coverage metrics show three derived aspects carrying everything; incident R1 (out-of-record re-runs restored byte-exact via render-from-record); pytest 171; thirteen fingerprints MATCH; runbook docs/20260902_v2_GATEL4_INSTALL.md.
 - Gate L3 DONE 2026-09-02: deal analyser (collect/propose/judge/consume, span-grounded, conflict-hold, verdict-gated); yardstick 0.625 raw + 8 consumed rows; ten-deal batch probe 0 fetch failures, 100% span-verified, spot-check 0.456 raw; runbook docs/20260902_v2_GATEL3_INSTALL.md.
 - Gate 2.9′ DONE 2026-09-02: widening rule + TEM/PSNL members; index row with deal_id; measured no-movement on the frozen protocol (pool 862→863); diagnostics-mine finding; baselines re-hashed explicitly; runbook docs/20260901_v1_GATE29P_INSTALL.md (v2).
 - Gate 1.5c DONE 2026-09-01: realized + delay writers over the ledger; r10 fresh-sample precision 0.933 [0.841, 0.974]; 2,053 realized rows with outcome states, 9 delays, 1 withdrawal supersession; runbook docs/20260901_v1_GATE15C_INSTALL.md.
@@ -319,7 +360,7 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 3. Rotate the Alpha Vantage key; set the repository private (Harrison).
 4. Pull request jason/refactor → main; Harrison's post-merge steps (install, migrate, ledger-seed) in the handoff.
 5. Harrison to confirm the corrected MASS-exact figure (0.310) on his snapshot and retire the v0.81 "SUSPENDED" text in PART 5+.
-6. Next gate: L4 — aspect-match: the acquirer-pairing implementation that scores hypothetical pairs from company aspects (dossier-derived vocabulary, typed relationships, stated priorities) and tests them forward against verified deals. Previously: L3 — realized readouts and PDUFA outcomes as events with event_date and disclosure_datetime, delay_timing events from negated guidance, outcome_state from outcome words, all written from the `mined_candidates` ledger (no re-fetching; re-mine with r7 and re-measure precision/recall). Then 2.9′ → L3 → L4 (order of record L1 → 1.4 → L2 → 2.10 → 1.5a → 1.5b → 1.5c → 2.9′ → L3 → L4). Standing, no gate needed: pending seed rows re-admitted by captures — equity_value_usd (Tempus PR via `library add <file> --for Rf573315b3de`), the three Merck rows (merger-agreement exhibit or §9 news URLs), later timeline/comparables rows (remaining §9 URLs); before any rebuild-from-bronze, run `manual export` first and `manual load` after.
+6. Order of record complete (L4 DONE 2026-09-02). Open next, each its own decision or gate: (a) the a3 analyser rule agenda incl. aspect-extraction rules to populate stated_priorities/assets/deal_aspects — the coverage metrics show the aspect matcher is substrate-starved, not rule-starved; (b) 13D/13G ingestion for equity_stakes at scale; (c) aspect weights beyond the equal-weight prior (own pre-registration, weights never set on test deals); (d) `report pairs-aspect` RENDERERS entry with the next results.py gate; (e) gate L1 vs Phase 1 gate 1.4 sequencing question (Ontology §8 Q8) is moot — both done. Previously: L4 — aspect-match: the acquirer-pairing implementation that scores hypothetical pairs from company aspects (dossier-derived vocabulary, typed relationships, stated priorities) and tests them forward against verified deals. Previously: L3 — realized readouts and PDUFA outcomes as events with event_date and disclosure_datetime, delay_timing events from negated guidance, outcome_state from outcome words, all written from the `mined_candidates` ledger (no re-fetching; re-mine with r7 and re-measure precision/recall). Then 2.9′ → L3 → L4 (order of record L1 → 1.4 → L2 → 2.10 → 1.5a → 1.5b → 1.5c → 2.9′ → L3 → L4). Standing, no gate needed: pending seed rows re-admitted by captures — equity_value_usd (Tempus PR via `library add <file> --for Rf573315b3de`), the three Merck rows (merger-agreement exhibit or §9 news URLs), later timeline/comparables rows (remaining §9 URLs); before any rebuild-from-bronze, run `manual export` first and `manual load` after.
 7. Universe check before 2.9′: are Tempus AI and Personalis among the 1,379 members (one query; Ontology v4 §8 Q9).
 8. `predict` composition (item 2) is subordinate to the dossier track: `aspect-match` results (gate L4) inform it; the buyer-agnostic checklist-versus-fitted test remains available as a cheap evaluation.
 

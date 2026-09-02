@@ -133,6 +133,21 @@ MASS_EXACT_INPUTS: Inputs = {
     "ma_events": _MA_EVENTS_TARGETS,
 }
 
+ASPECT_MATCH_INPUTS: Inputs = {
+    "trials": _TRIALS_TEXT,
+    "feature_panel": _FEATURE_PANEL_SIZE,
+    "companies": ("IID", "Name", "CIK", "Ticker"),
+    "ma_events": _MA_EVENTS_TARGETS + ("FilerTicker", "Filer"),
+    "relationships": ("IID", "PartnerIID", "FirstDate"),
+    "equity_stakes": ("holder_key", "issuer_key", "percent", "as_of"),
+    "stated_priorities": ("entity_key", "stated_at", "category"),
+    "assets": ("entity_key", "category", "continuum_step"),
+    "events": ("IID", "AppNo", "Outcome"),
+    # the Orange Book zip is a bronze artifact (LOE horizon); declared for
+    # the record like bronze:prices
+    "bronze:orangebook": None,
+}
+
 DAILY_BARS_INPUTS: Inputs = {
     "events": None,
     "companies": None,
@@ -144,6 +159,7 @@ DAILY_BARS_INPUTS: Inputs = {
 
 # ---------------------------------------------------------------- entries
 def _entries() -> list[Entry]:
+    from biointel import aspects as _asp
     from biointel.models import adapters as a
 
     return [
@@ -231,6 +247,23 @@ def _entries() -> list[Entry]:
             note="paired MASS-exact vs incumbent test (200 negatives, 20 repeats)",
         ),
         Entry(
+            "acquirer-pairing",
+            "aspect-match",
+            "predict",
+            ASPECT_MATCH_INPUTS,
+            _asp.run_forward,
+            note="hand-built aspect matcher (gate L4); forward hit/false-alarm test (Ontology s5.5-s5.6)",
+        ),
+        Entry(
+            "acquirer-pairing",
+            "aspect-paired",
+            "evaluation",
+            ASPECT_MATCH_INPUTS,
+            _asp.run_paired,
+            of_impl="aspect-match",
+            note="paired aspect-match vs mass-exact (shared events and samples; Tempus-sequence deals excluded)",
+        ),
+        Entry(
             "fda-event-study",
             "daily-bars",
             "predict",
@@ -300,6 +333,8 @@ COMMAND_TO_ENTRY = {
     "robust": ("target-screen", None, "robust"),
     "improve": ("target-screen", None, "improve"),
     "pairs-full-exact": ("acquirer-pairing", "mass-exact", None),
+    "pairs-aspect": ("acquirer-pairing", None, "aspect-paired"),
+    "pairs-aspect forward": ("acquirer-pairing", "aspect-match", None),
     "pairs-exact": ("acquirer-pairing", None, "pairs-exact"),
     "study-all": ("fda-event-study", "daily-bars", None),
 }

@@ -38,6 +38,7 @@ python -m biointel chembl-probe               CHM: test ChEMBL download route (r
 python -m biointel chembl-ingest              CHM: download+build table drug_targets
 python -m biointel pairs-exact                paired MASS-exact vs incumbent engine test
 python -m biointel pairs-full-exact           full-universe re-rank with the adopted engine
+python -m biointel pairs-aspect [forward]     L4: aspect-match paired vs mass-exact; `forward` runs the per-buyer-year hit/false-alarm test
 python -m biointel orangebook-probe           OB: test Orange Book download (run FIRST)
 python -m biointel universe                   P1a: build rule-defined table universe
 python -m biointel harvest                    L: propose acquisition events for whole universe
@@ -449,6 +450,15 @@ def main(argv):
         from biointel.models.harness import run_command
 
         r = run_command("pairs-exact")
+        if r["status"] != "ok":
+            print(r["message"])
+            return 1
+
+    elif cmd == "pairs-aspect":
+        from biointel.models.harness import run_command
+
+        sub = argv[2] if len(argv) > 2 else ""
+        r = run_command("pairs-aspect forward" if sub == "forward" else "pairs-aspect")
         if r["status"] != "ok":
             print(r["message"])
             return 1

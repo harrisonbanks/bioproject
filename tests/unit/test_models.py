@@ -35,7 +35,13 @@ def test_registry_shape():
         "robust",
         "improve",
     }
-    assert registry.get("acquirer-pairing").name == "mass-exact"
+    assert registry.get("acquirer-pairing", "mass-exact").name == "mass-exact"
+    assert {e.name for e in registry.implementations("acquirer-pairing")} == {
+        "mass-exact",
+        "aspect-match",
+    }
+    with pytest.raises(KeyError):
+        registry.get("acquirer-pairing")  # two implementations since gate L4: --impl required
     with pytest.raises(KeyError):
         registry.get("target-screen")  # two implementations: --impl required
     with pytest.raises(KeyError):
@@ -170,5 +176,13 @@ def test_run_type_migration_of_existing_ledger(db):
 
 def test_describe_lists_everything():
     text = "\n".join(describe())
-    for name in ("scorecard", "fitted", "mass-exact", "daily-bars", "robust", "tune"):
+    for name in (
+        "scorecard",
+        "fitted",
+        "mass-exact",
+        "aspect-match",
+        "daily-bars",
+        "robust",
+        "tune",
+    ):
         assert name in text
