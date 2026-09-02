@@ -2,7 +2,30 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 1.07. Supersedes v1.06. Gate 1.5c DONE (0.8a): realized events,
+Version 1.08. Supersedes v1.07. Gate 2.9′ DONE (0.8a): universe widening.
+The rule of record (universe.py docstring, cited in the paper): beyond the
+SIC 2834/2836 core, a diagnostics, tools or data company is admitted as a
+member when it is a plausible party to biopharma M&A or FDA-adjacent
+events; admission by instance — `add TICKER` (listed, any SIC) or
+`add --stub NAME [--cik C]` (private; Exchange="private" marks the stub) —
+dated by the registry's Created column. First instances: Tempus AI
+(TEM, IID 1379) and Personalis (PSNL, IID 1380). The seed dossier's
+ma_events index row is attached: FilerIID 1380, CounterpartyIID 1379,
+AnnounceDate 2026-07-20, Verified yes, deal_id TEM-PSNL-20260720 —
+closing the L2 deferral. Manual-layer attributes ma_events.<Column>
+(entity_key FilerTicker|AnnounceDate) are applied at every labels rebuild;
+the write carries the optional deal_id column (a dropped-column and a
+list/tuple defect were found by round-trip evidence and fixed; the test
+now reads the written table through the CLI's own import). Measured
+effect of the widening on the frozen protocol: ranked universe 1,357 →
+1,359; candidate pool 862 → 863; median true-target rank 80, hit@10
+0.27, hit@25 0.39 all unchanged. Targeted-mine finding: 2 companies,
+2 queries, 0 hits — diagnostics filings contain no PDUFA/readout
+language; the widened class contributes M&A structure, not FDA
+catalysts. The seven live regression baselines are re-hashed explicitly
+in the gate commit (the six legacy frozen files are untouched).
+Next gate: L3.
+v1.07. Supersedes v1.06. Gate 1.5c DONE (0.8a): realized events,
 delays and outcome states written from the `mined_candidates` ledger, no
 re-fetching. r10 rules (RULE_VERSION 1.5c-r10): readout contract-clause
 guard, cash-runway guard with an expectation-verb exception, `1H:2026`
@@ -252,6 +275,7 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 - Gate 0.3 DONE 2026-08-30 (29b8701): run ledger (runs, run_params, run_metrics, run_artefacts), render-from-record for seven reports and predict, ledger-seed (7 legacy rows), report views.
 - Gate 0.4 DONE 2026-08-31 (93c2194): models/ registry (target-screen: scorecard, fitted; acquirer-pairing: mass-exact; fda-event-study: daily-bars; six evaluations), declared inputs enforced at run time, run_type, models/run commands; first real run caught one undeclared legitimate read, fixed by declaration.
 - DOC gate DONE 2026-08-31: this PART 0 regenerated; current-state diagram v2 (docs/20260831_v2_System_Diagram.md); target-state diagram v2 after Ontology v4 (docs/20260831_v2_System_Diagram_TARGET_STATE.md) and research-process diagram (docs/20260831_v1_Research_Process_Diagram.md), both Mermaid, 2026-08-31.
+- Gate 2.9′ DONE 2026-09-02: widening rule + TEM/PSNL members; index row with deal_id; measured no-movement on the frozen protocol (pool 862→863); diagnostics-mine finding; baselines re-hashed explicitly; runbook docs/20260901_v1_GATE29P_INSTALL.md (v2).
 - Gate 1.5c DONE 2026-09-01: realized + delay writers over the ledger; r10 fresh-sample precision 0.933 [0.841, 0.974]; 2,053 realized rows with outcome states, 9 delays, 1 withdrawal supersession; runbook docs/20260901_v1_GATE15C_INSTALL.md.
 - Gate 1.5b-eval DONE 2026-09-01: candidate_reviews + eval loop; r9 of record — precision 0.933 [0.841, 0.974] (60 blind verdicts), recall 0.846/0.915, misses fully classified, five true finds; runbook docs/20260901_v1_GATE15B_EVAL_INSTALL.md.
 - Gate 1.5b DONE 2026-09-01: EFTS miner + candidate ledger — 2,653 documents, 14,002 ledger rows (r6), 701 forward events tier B; precision 8/10 (judged sample), recall 0.846 (FDA Tracker snapshot, benchmark only); pytest 140; validate 39/0/8/1 of 48; thirteen fingerprints MATCH; runbook docs/20260901_v2_GATE15B_INSTALL.md.
@@ -267,7 +291,7 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 3. Rotate the Alpha Vantage key; set the repository private (Harrison).
 4. Pull request jason/refactor → main; Harrison's post-merge steps (install, migrate, ledger-seed) in the handoff.
 5. Harrison to confirm the corrected MASS-exact figure (0.310) on his snapshot and retire the v0.81 "SUSPENDED" text in PART 5+.
-6. Next gate: 2.9′ — Tempus and Personalis into the universe (diagnostics/tools widening per gates 2.9′/L-series plan); the dossier's ma_events index row attaches. Then L3 (deal analyser; reuses the EFTS adapter, span machinery and candidate_reviews queue) and L4 (aspect-match). Previously: 1.5c — realized readouts and PDUFA outcomes as events with event_date and disclosure_datetime, delay_timing events from negated guidance, outcome_state from outcome words, all written from the `mined_candidates` ledger (no re-fetching; re-mine with r7 and re-measure precision/recall). Then 2.9′ → L3 → L4 (order of record L1 → 1.4 → L2 → 2.10 → 1.5a → 1.5b → 1.5c → 2.9′ → L3 → L4). Standing, no gate needed: pending seed rows re-admitted by captures — equity_value_usd (Tempus PR via `library add <file> --for Rf573315b3de`), the three Merck rows (merger-agreement exhibit or §9 news URLs), later timeline/comparables rows (remaining §9 URLs); before any rebuild-from-bronze, run `manual export` first and `manual load` after.
+6. Next gate: L3 — the deal analyser: dossier tables populated by code from filings (EFTS adapter, span machinery, candidate_reviews queue reused); human spot-checks a sample for precision per the established pattern. Then L4 (aspect-match). Previously: 2.9′ — realized readouts and PDUFA outcomes as events with event_date and disclosure_datetime, delay_timing events from negated guidance, outcome_state from outcome words, all written from the `mined_candidates` ledger (no re-fetching; re-mine with r7 and re-measure precision/recall). Then 2.9′ → L3 → L4 (order of record L1 → 1.4 → L2 → 2.10 → 1.5a → 1.5b → 1.5c → 2.9′ → L3 → L4). Standing, no gate needed: pending seed rows re-admitted by captures — equity_value_usd (Tempus PR via `library add <file> --for Rf573315b3de`), the three Merck rows (merger-agreement exhibit or §9 news URLs), later timeline/comparables rows (remaining §9 URLs); before any rebuild-from-bronze, run `manual export` first and `manual load` after.
 7. Universe check before 2.9′: are Tempus AI and Personalis among the 1,379 members (one query; Ontology v4 §8 Q9).
 8. `predict` composition (item 2) is subordinate to the dossier track: `aspect-match` results (gate L4) inform it; the buyer-agnostic checklist-versus-fitted test remains available as a cheap evaluation.
 
@@ -1535,6 +1559,7 @@ collaborations work, deal counterparties do not.
 
 ## Changelog
 
+| 1.08 | 2026-09-02 | Gate 2.9′ DONE: widening rule of record; add --stub for private parties; TEM IID 1379, PSNL IID 1380; ma_events index row with deal_id TEM-PSNL-20260720 (manual overrides applied at labels rebuild; dropped-optional-column and list/tuple defects fixed with a round-trip test); measured effect nil (1,357→1,359 ranked, pool 862→863, hit@10 0.27 / hit@25 0.39 unchanged); diagnostics-mine 0-hits finding; live baselines re-hashed explicitly. |
 | 1.07 | 2026-09-01 | Gate 1.5c DONE: r10 rules + write-realized/write-delays from the ledger; fresh-sample precision 56/60 = 0.933 [0.841, 0.974]; recall stable 0.846/0.915 (stopping rule satisfied); 2,053 realized rows (outcome states mapped conservatively), 9 delay rows, 1 withdrawn guidance superseded; reverse benchmark count fixed to forward rows only; r11 candidates documented. |
 | 1.06 | 2026-09-01 | Gate 1.5b-eval DONE: candidate_reviews (0.10, 49 declared); cached re-runs; per-version precision with Wilson CI; explain --live; stale-row retirement; encoding-safe console. r9 of record: precision 56/60 = 0.933 [0.841, 0.974]; recall 0.846 raw / 0.915 members; ten misses classified (5 non-member, 5 press-release-only, 0 extraction failures); 5 true finds vs the benchmark; r10 rules deferred to 1.5c. |
 | 1.05 | 2026-09-01 | Gate 1.5b DONE: SEC EDGAR full-text miner (mine-pdufa, 66th command) with `mined_candidates` ledger (SCHEMA_VERSION 0.9, 48 declared): 2,653 documents captured, 14,002 windows ledgered (r6), 701 forward events tier B; precision 8/10 judged sample; recall 0.846 vs FDA Tracker snapshot (benchmark only per their terms); fetch backoff and periodic flush after an SEC 503/timeout abort; research-based design (TimeML, ConText, Dolphin et al. 2026); r7 rules ship, re-measured at 1.5c; pytest 140; validate 39/0/8/1; thirteen fingerprints MATCH; runbook docs/20260901_v2_GATE15B_INSTALL.md. |

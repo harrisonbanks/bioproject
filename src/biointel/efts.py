@@ -604,11 +604,15 @@ def run(
     query: str = DEFAULT_QUERY,
     docs_per_company: int = 20,
     today: date | None = None,
+    only: str = "",
 ) -> dict:
     today = today or date.today()
     since = since or date(today.year - 1, today.month, today.day).isoformat()
     con = store.connect()
     companies = [c for c in read_companies() if (c.get("CIK") or "").strip()]
+    if only:
+        wanted = {t.strip().upper() for t in only.split(",") if t.strip()}
+        companies = [c for c in companies if (c.get("Ticker") or "").strip().upper() in wanted]
     if limit:
         companies = companies[:limit]
     run_ = results.start(
@@ -1510,6 +1514,7 @@ def cli(argv: list[str]) -> int:
             limit=int(lim) if lim else None,
             since=_opt("--since"),
             forms=_opt("--forms", DEFAULT_FORMS),
+            only=_opt("--only", "") or "",
         )
         return 0 if r["status"] == "ok" else 1
     if sub == "sample":

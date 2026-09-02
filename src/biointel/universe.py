@@ -15,6 +15,19 @@ THE RULE (stated once, applied mechanically, cited in the paper):
   ingestion (a floor at ingestion would re-introduce survivorship on
   size).
 
+WIDENING RULE (gate 2.9\u2032, 2026-09-01; stated as the general case,
+cited in the paper): beyond the SIC 2834/2836 core, a company is
+admitted as a member when it is a diagnostics, tools or data company
+that is a plausible party to biopharma M&A or FDA-adjacent events
+(acquirer, target, or named deal counterparty); admission is by
+instance under this rule via `add-company` (listed; any SIC) or
+`add-company --stub` (private; Exchange="private" marks the stub), each
+admission dated by the registry's Created column. First instances:
+Tempus AI (TEM, diagnostics/data) and Personalis (PSNL), the parties to
+the seed dossier's deal. Every published number states the universe it
+was computed on; the target screen's frozen protocol is re-run and the
+before/after recorded whenever membership changes.
+
 SOURCE ENDPOINTS.
   Candidate list: EDGAR company browse by SIC, atom output, paginated:
     https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany

@@ -692,3 +692,19 @@ def test_recall_reverse_count_ignores_realized_rows(env, monkeypatch, tmp_path, 
     efts.recall(str(p), today=TODAY)
     out = capsys.readouterr().out
     assert "0 mined exact-date PDUFA rows not in the benchmark" in out
+
+
+def test_run_only_filter_restricts_to_named_tickers(env, monkeypatch):
+    companies = [{c: "" for c in schema.COMPANY_COLS} for _ in range(3)]
+    for i, (t_, cik) in enumerate((("HRMY", "1802665"), ("TEM", "2000000"), ("PSNL", "1527753"))):
+        companies[i].update({"IID": str(200 + i), "Name": t_, "Ticker": t_, "CIK": cik})
+    store.write_table("companies", companies, schema.COMPANY_COLS, con=env)
+    seen = []
+
+    def fake_search(q, forms, since, until, cik=None):
+        seen.append(cik)
+        return {"hits": {"hits": []}}
+
+    monkeypatch.setattr(efts, "search", fake_search)
+    efts.run(today=TODAY, only="TEM,PSNL")
+    assert sorted(seen) == ["1527753", "2000000"]

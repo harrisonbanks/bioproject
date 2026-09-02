@@ -264,7 +264,7 @@ def build_ma_events(read_companies, read_deals, read_cparty) -> list[dict]:
                 "FilerTicker": c.get("Ticker", ""),
                 "Role": "target",
                 "Counterparty": v.get("Acquirer", ""),
-                "CounterpartyIID": "",
+                "CounterpartyIID": key_to_iid.get(network._norm(v.get("Acquirer", "")), ""),
                 "AnnounceDate": v["AnnounceDate"],
                 "CompletionDate": "",
                 "Status": v.get("Status", "announced/pending"),
@@ -281,6 +281,35 @@ def build_ma_events(read_companies, read_deals, read_cparty) -> list[dict]:
             }
         )
     return proposals
+
+
+def apply_manual_overrides(events: list[dict]) -> int:
+    """Manual-layer attributes targeted at ma_events (2.10's general override,
+    applied here since the labels rebuild owns this table): an attribute
+    "ma_events.<Column>" with entity_key "FilerTicker|AnnounceDate" sets that
+    column on the matching rows; later entries win. Returns rows touched."""
+    from biointel import store as _store
+
+    if not _store.has_table("manual_attributes", _store.connect()):
+        return 0
+    touched = 0
+    for a in _store.read_table("manual_attributes", con=_store.connect()):
+        attr = str(a.get("attribute", ""))
+        if not attr.startswith("ma_events."):
+            continue
+        col = attr.split(".", 1)[1]
+        key = str(a.get("entity_key", ""))
+        if "|" not in key:
+            continue
+        tick, announce = key.split("|", 1)
+        for e in events:
+            if (
+                str(e.get("FilerTicker", "")).strip().upper() == tick.strip().upper()
+                and str(e.get("AnnounceDate", ""))[:10] == announce.strip()
+            ):
+                e[col] = a.get("value", "")
+                touched += 1
+    return touched
 
 
 def _assemble(co, iid, key, name, announce, rs, completions_by_key, key_to_iid, s1: bool) -> dict:
@@ -687,7 +716,11 @@ def merged_events(read_companies, read_deals, read_cparty) -> list[dict]:
     acq = [e for e in base if e["Role"] != "target"]
     if n_skip:
         log.info(f"  note: {n_skip} harvest events skipped (CIK not ingested)")
-    return list(out.values()) + acq
+    events = list(out.values()) + acq
+    n_manual = apply_manual_overrides(events)
+    if n_manual:
+        log.info(f"  manual overrides applied to {n_manual} ma_events cell(s)")
+    return events
 
 
 # ----------------------------------------------------------- QA pass

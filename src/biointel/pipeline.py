@@ -139,6 +139,46 @@ def add_company(ticker: str) -> dict:
     }
 
 
+def add_company_stub(name: str, cik: str = "", description: str = "") -> dict:
+    """Private or unlisted company as a registry stub (gate 2.9\u2032): IID
+    assigned like any member, Ticker empty, Exchange "private" as the stub
+    marker, so deals, relationships and dossiers can reference the party.
+    The widening rule lives in universe.py's docstring; stubs are instances."""
+    nm = name.strip()
+    rows = read_companies()
+    for r in rows:
+        if str(r.get("Name", "")).strip().lower() == nm.lower():
+            return {
+                "status": "duplicate",
+                "iid": int(r["IID"]),
+                "message": f"{nm} is already IID {r['IID']}.",
+            }
+    next_iid = (
+        max((int(r["IID"]) for r in rows if str(r.get("IID", "")).strip().isdigit()), default=-1)
+        + 1
+    )
+    row = {c: "" for c in COMPANY_COLS}
+    row.update(
+        {
+            "IID": next_iid,
+            "Name": nm,
+            "Ticker": "",
+            "Created": date.today().isoformat(),
+            "Description": description,
+            "CIK": cik.strip(),
+            "Exchange": "private",
+        }
+    )
+    rows.append(row)
+    _write("companies", COMPANY_COLS, rows)
+    return {
+        "status": "added",
+        "iid": next_iid,
+        "name": nm,
+        "message": f"Added {nm} (private stub) as IID {next_iid}.",
+    }
+
+
 # ----------------------------------------------------------------- get_events
 def get_events(iid: int) -> dict:
     """Port of GetEvents. Appends to events.csv, deduping on

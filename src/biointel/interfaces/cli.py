@@ -112,7 +112,17 @@ def main(argv):
 
     if cmd == "add":
         for t in argv[2:]:
-            print(add_company(t)["message"])
+            if t == "--stub":
+                from biointel.pipeline import add_company_stub
+
+                name = argv[3] if len(argv) > 3 else ""
+                cik = argv[argv.index("--cik") + 1] if "--cik" in argv else ""
+                if not name:
+                    print("usage: add-company --stub NAME [--cik CIK]")
+                    return 1
+                print(add_company_stub(name, cik)["message"])
+            else:
+                print(add_company(t)["message"])
 
     elif cmd == "events":
         print(get_events(int(argv[2]))["message"])
@@ -354,7 +364,9 @@ def main(argv):
 
         events = merged_events(read_companies, read_deals, read_counterparties)
         out = "ma_events"
-        store.write_table(out, events, MA_COLS)
+        # deal_id is optional on the declaration; the write must carry it or the
+        # manual override applied in memory is dropped (defect found 2026-09-02)
+        store.write_table(out, events, [*MA_COLS, "deal_id"])
         panel = build_label_panel(read_companies, events)
         out2 = "label_panel"
         store.write_table(out2, panel, PANEL_COLS)
