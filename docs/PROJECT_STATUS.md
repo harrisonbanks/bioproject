@@ -2,7 +2,34 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 1.08. Supersedes v1.07. Gate 2.9′ DONE (0.8a): universe widening.
+Version 1.09. Supersedes v1.08. Gate L3 DONE (0.8a): the deal analyser.
+`dossier-analyse DEAL_ID [--collect] [--consume]` (67th command; module
+analyser.py, rule version L3-a2). Collect: per-party EFTS full-text
+queries (merger vocabulary, forms 8-K/425/DEFM14A/PREM14A/S-4/6-K/10-Q/
+10-K) over announce−30..+150d, every hit captured. Propose: span-grounded
+rules over party-scoped normalized captures — price per share (par-value
+guard), exchange-ratio cap, termination fee, outside date and its
+extended variant, announce date, prior stake, enterprise value,
+consideration form, agreement date, expected close, rationale sentences
+(statement-level dedup) — each proposal carrying capture id + verbatim
+span, machine-verified by dossier.span_pattern. Review: proposals queue
+into candidate_reviews (ids "A…"); conflicting values for one field are
+held and consumed only when a verdict makes one value uniquely correct;
+judged-wrong and unsure never write; seed rows never overwritten;
+consume idempotent. Yardstick (TEM-PSNL): raw precision 20/32 = 0.625
+[0.453, 0.771]; 8 verdict-gated rows consumed, including two facts the
+hand-built seed lacked (termination fee $76,806,179; outside date
+extended 2028-04-20); dossier now 12 terms / 2 timeline / 5 rationale.
+Batch probe (ten never-seen historical deals, review-only): ~100
+documents, 0 fetch failures, 100% span verification; five-deal
+spot-check (74 proposals) 26/31/17 correct/wrong/unsure = 0.456 raw —
+accuracy concentrates in deal 8-Ks and proxies, noise in 10-K risk
+boilerplate. a3 agenda recorded, not built: doc-type guards for
+rationale/price rules, two-tier and reverse termination-fee fields,
+termination-floor rule, ticker-less deal_id naming. Known cosmetic
+issue: harvest rows without FilerTicker produce deal_ids like
+"-20260501". Next gate: L4.
+v1.08. Supersedes v1.07. Gate 2.9′ DONE (0.8a): universe widening.
 The rule of record (universe.py docstring, cited in the paper): beyond the
 SIC 2834/2836 core, a diagnostics, tools or data company is admitted as a
 member when it is a plausible party to biopharma M&A or FDA-adjacent
@@ -275,6 +302,7 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 - Gate 0.3 DONE 2026-08-30 (29b8701): run ledger (runs, run_params, run_metrics, run_artefacts), render-from-record for seven reports and predict, ledger-seed (7 legacy rows), report views.
 - Gate 0.4 DONE 2026-08-31 (93c2194): models/ registry (target-screen: scorecard, fitted; acquirer-pairing: mass-exact; fda-event-study: daily-bars; six evaluations), declared inputs enforced at run time, run_type, models/run commands; first real run caught one undeclared legitimate read, fixed by declaration.
 - DOC gate DONE 2026-08-31: this PART 0 regenerated; current-state diagram v2 (docs/20260831_v2_System_Diagram.md); target-state diagram v2 after Ontology v4 (docs/20260831_v2_System_Diagram_TARGET_STATE.md) and research-process diagram (docs/20260831_v1_Research_Process_Diagram.md), both Mermaid, 2026-08-31.
+- Gate L3 DONE 2026-09-02: deal analyser (collect/propose/judge/consume, span-grounded, conflict-hold, verdict-gated); yardstick 0.625 raw + 8 consumed rows; ten-deal batch probe 0 fetch failures, 100% span-verified, spot-check 0.456 raw; runbook docs/20260902_v2_GATEL3_INSTALL.md.
 - Gate 2.9′ DONE 2026-09-02: widening rule + TEM/PSNL members; index row with deal_id; measured no-movement on the frozen protocol (pool 862→863); diagnostics-mine finding; baselines re-hashed explicitly; runbook docs/20260901_v1_GATE29P_INSTALL.md (v2).
 - Gate 1.5c DONE 2026-09-01: realized + delay writers over the ledger; r10 fresh-sample precision 0.933 [0.841, 0.974]; 2,053 realized rows with outcome states, 9 delays, 1 withdrawal supersession; runbook docs/20260901_v1_GATE15C_INSTALL.md.
 - Gate 1.5b-eval DONE 2026-09-01: candidate_reviews + eval loop; r9 of record — precision 0.933 [0.841, 0.974] (60 blind verdicts), recall 0.846/0.915, misses fully classified, five true finds; runbook docs/20260901_v1_GATE15B_EVAL_INSTALL.md.
@@ -291,7 +319,7 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 3. Rotate the Alpha Vantage key; set the repository private (Harrison).
 4. Pull request jason/refactor → main; Harrison's post-merge steps (install, migrate, ledger-seed) in the handoff.
 5. Harrison to confirm the corrected MASS-exact figure (0.310) on his snapshot and retire the v0.81 "SUSPENDED" text in PART 5+.
-6. Next gate: L3 — the deal analyser: dossier tables populated by code from filings (EFTS adapter, span machinery, candidate_reviews queue reused); human spot-checks a sample for precision per the established pattern. Then L4 (aspect-match). Previously: 2.9′ — realized readouts and PDUFA outcomes as events with event_date and disclosure_datetime, delay_timing events from negated guidance, outcome_state from outcome words, all written from the `mined_candidates` ledger (no re-fetching; re-mine with r7 and re-measure precision/recall). Then 2.9′ → L3 → L4 (order of record L1 → 1.4 → L2 → 2.10 → 1.5a → 1.5b → 1.5c → 2.9′ → L3 → L4). Standing, no gate needed: pending seed rows re-admitted by captures — equity_value_usd (Tempus PR via `library add <file> --for Rf573315b3de`), the three Merck rows (merger-agreement exhibit or §9 news URLs), later timeline/comparables rows (remaining §9 URLs); before any rebuild-from-bronze, run `manual export` first and `manual load` after.
+6. Next gate: L4 — aspect-match: the acquirer-pairing implementation that scores hypothetical pairs from company aspects (dossier-derived vocabulary, typed relationships, stated priorities) and tests them forward against verified deals. Previously: L3 — realized readouts and PDUFA outcomes as events with event_date and disclosure_datetime, delay_timing events from negated guidance, outcome_state from outcome words, all written from the `mined_candidates` ledger (no re-fetching; re-mine with r7 and re-measure precision/recall). Then 2.9′ → L3 → L4 (order of record L1 → 1.4 → L2 → 2.10 → 1.5a → 1.5b → 1.5c → 2.9′ → L3 → L4). Standing, no gate needed: pending seed rows re-admitted by captures — equity_value_usd (Tempus PR via `library add <file> --for Rf573315b3de`), the three Merck rows (merger-agreement exhibit or §9 news URLs), later timeline/comparables rows (remaining §9 URLs); before any rebuild-from-bronze, run `manual export` first and `manual load` after.
 7. Universe check before 2.9′: are Tempus AI and Personalis among the 1,379 members (one query; Ontology v4 §8 Q9).
 8. `predict` composition (item 2) is subordinate to the dossier track: `aspect-match` results (gate L4) inform it; the buyer-agnostic checklist-versus-fitted test remains available as a cheap evaluation.
 
@@ -1559,6 +1587,7 @@ collaborations work, deal counterparties do not.
 
 ## Changelog
 
+| 1.09 | 2026-09-02 | Gate L3 DONE: analyser.py (L3-a2); span-grounded propose/judge/consume with conflict-hold and verdict gating; TEM-PSNL yardstick 20/32 = 0.625 raw, 8 rows consumed (two facts beyond the seed); ten-deal batch, ~100 docs, 0 fetch failures, 100% span-verified, five-deal spot-check 26/57 = 0.456 raw; a3 agenda documented. |
 | 1.08 | 2026-09-02 | Gate 2.9′ DONE: widening rule of record; add --stub for private parties; TEM IID 1379, PSNL IID 1380; ma_events index row with deal_id TEM-PSNL-20260720 (manual overrides applied at labels rebuild; dropped-optional-column and list/tuple defects fixed with a round-trip test); measured effect nil (1,357→1,359 ranked, pool 862→863, hit@10 0.27 / hit@25 0.39 unchanged); diagnostics-mine 0-hits finding; live baselines re-hashed explicitly. |
 | 1.07 | 2026-09-01 | Gate 1.5c DONE: r10 rules + write-realized/write-delays from the ledger; fresh-sample precision 56/60 = 0.933 [0.841, 0.974]; recall stable 0.846/0.915 (stopping rule satisfied); 2,053 realized rows (outcome states mapped conservatively), 9 delay rows, 1 withdrawn guidance superseded; reverse benchmark count fixed to forward rows only; r11 candidates documented. |
 | 1.06 | 2026-09-01 | Gate 1.5b-eval DONE: candidate_reviews (0.10, 49 declared); cached re-runs; per-version precision with Wilson CI; explain --live; stale-row retirement; encoding-safe console. r9 of record: precision 56/60 = 0.933 [0.841, 0.974]; recall 0.846 raw / 0.915 members; ten misses classified (5 non-member, 5 press-release-only, 0 extraction failures); 5 true finds vs the benchmark; r10 rules deferred to 1.5c. |

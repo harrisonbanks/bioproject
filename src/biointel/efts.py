@@ -1102,6 +1102,10 @@ def judge(candidate_id: str, verdict: str, note: str = "") -> int:
         if store.has_table("mined_candidates", con)
         else {}
     )
+    if candidate_id not in led and candidate_id.startswith("A"):
+        from biointel import analyser as _an
+
+        led[candidate_id] = {"rule_version": _an.RULE_VERSION}  # L3 proposal ids
     if candidate_id not in led:
         print(f"unknown candidate {candidate_id}")
         return 1

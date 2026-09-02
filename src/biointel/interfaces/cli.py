@@ -64,6 +64,7 @@ python -m biointel run MODEL [--impl N] [--eval N] [--as-of D]  run a registered
 python -m biointel library SUB ...            research library / file room (gate L1): add, import, import-zotero, index, find, show, open, list, view, site, manifest, merge, verify, dedupe, retire-capture
 python -m biointel dossier-seed [--report]    L2: span-verified Tempus-Personalis seed dossier into the dossier tables (LEGACY once manual load carries hand data)
 python -m biointel manual SUB ...             manual layer (2.10): add-entity, add-attribute, add-note, list, validate, export, load
+python -m biointel dossier-analyse DEAL_ID [--collect] [--consume]  L3: deal analyser — collect the paper trail, propose span-grounded dossier rows, yardstick vs the seed, consume verified rows
 """
 
 import csv
@@ -806,6 +807,10 @@ def main(argv):
 
         return _dossier.cli(argv[2:])
 
+    elif cmd == "dossier-analyse":
+        from biointel import analyser as _an
+
+        return _an.cli(argv[2:])
     elif cmd == "manual":
         from biointel import manual as _manual
 
