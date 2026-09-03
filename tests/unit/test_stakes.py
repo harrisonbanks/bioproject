@@ -605,3 +605,74 @@ def test_backfill_enriches_preexisting_capture_notes(db, monkeypatch):
     stakes._capture(hit, con)  # second pass: note already carries ciks=
     assert stakes.flush_note_backfill(con) == 0
     assert [str(r["note"]) for r in store.read_table("references", con=con)] == after
+
+
+def test_sample_prints_the_exact_captured_document_url(db, monkeypatch, capsys):
+    """The judging list must link to the document the row was parsed from.
+    An accession directory listing under the subject's CIK is wrong for a
+    13D/13G: EDGAR indexes the filing under the FILER's CIK, which is the
+    owner, not the subject the row is keyed on."""
+    _companies((1, "AAA", "100"))
+    monkeypatch.setattr(stakes, "_fetch", lambda url: (b"<html>x</html>", ".htm", "text/html"))
+    doc_url = "https://www.sec.gov/Archives/edgar/data/999777/000115000001/d.htm"
+    hit = {
+        "url": doc_url,
+        "adsh": "0001-15-000001",
+        "doc": "d.htm",
+        "cik": "100",
+        "ciks": ["100", "999777"],
+        "name": "N1",
+        "form": "SC 13D/A",
+        "file_date": "2015-04-07",
+    }
+    con = store.connect()
+    sha, _ext, _ct = stakes._capture(hit, con)
+
+    cols = list(schema.EQUITY_STAKE_COLS) + list(schema.EQUITY_STAKE_F1_COLS)
+    row = {
+        "holder_key": "CIK:999777",
+        "issuer_key": "CIK:100",
+        "percent": "15.32",
+        "as_of": "2015-04-06",
+        "doc_id": sha,
+        "span": "15.32%",
+        "form": "SC 13D/A",
+        "filing_date": "2015-04-07",
+        "shares": "75000000",
+        "owner_name": "Abbott",
+        "accession": "0001-15-000001",
+        "cusip": "N59465109",
+        "item4_text": "",
+    }
+    store.write_table("equity_stakes", [row], cols, con=con)
+
+    assert stakes.sample(1) == 0
+    out = capsys.readouterr().out
+    assert doc_url in out  # the document itself, not a directory listing
+    assert "WARNING" not in out
+    assert "re-run `stakes run` after any rule change" in out
+
+
+def test_sample_warns_when_a_document_url_cannot_be_resolved(db, capsys):
+    _companies((1, "AAA", "100"))
+    cols = list(schema.EQUITY_STAKE_COLS) + list(schema.EQUITY_STAKE_F1_COLS)
+    row = {
+        "holder_key": "CIK:999777",
+        "issuer_key": "CIK:100",
+        "percent": "9.9",
+        "as_of": "2015-04-06",
+        "doc_id": "z" * 64,
+        "span": "9.9%",
+        "form": "SC 13G",
+        "filing_date": "2015-04-07",
+        "shares": "1",
+        "owner_name": "O",
+        "accession": "0002-15-000002",
+        "cusip": "",
+        "item4_text": "",
+    }
+    store.write_table("equity_stakes", [row], cols)
+    assert stakes.sample(1) == 0
+    out = capsys.readouterr().out
+    assert "WARNING: 1 of 1 rows have no resolvable document URL." in out
+    assert "(no url)" in out

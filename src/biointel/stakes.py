@@ -845,30 +845,56 @@ def sample(n: int = 60, seed: int = 20260903) -> int:
     owner, subject, percent and event date all match the filing (Q5)."""
     import random as _r
 
-    rows = [r for r in store.read_table("equity_stakes") if r.get("doc_id")]
+    con = store.connect()
+    rows = [r for r in store.read_table("equity_stakes", con=con) if r.get("doc_id")]
     if not rows:
         print("no parsed rows to sample")
         return 1
     _r.seed(seed)
     picked = _r.sample(rows, min(n, len(rows)))
+    urls = _doc_urls({str(r["doc_id"]) for r in picked}, con)
+    missing = sum(1 for r in picked if not urls.get(str(r["doc_id"])))
     print(
-        f"STAKES BLIND SAMPLE ({len(picked)} rows, rule {RULE_VERSION}). For each: open the "
-        "filing URL, check owner, subject, percent, event date; then "
+        f"STAKES BLIND SAMPLE ({len(picked)} rows, rule {RULE_VERSION}, seed {seed}). "
+        "For each: open the filing URL, check owner, subject, percent, event date; then "
         "`judge F<id> correct|wrong|unsure`. A row passes only if ALL FOUR match."
     )
+    print(
+        "Rows must have been parsed at this rule version: re-run `stakes run` after any "
+        "rule change, or the verdicts are filed against rules that did not produce them."
+    )
+    if missing:
+        print(f"WARNING: {missing} of {len(picked)} rows have no resolvable document URL.")
     for r in picked:
-        acc = str(r.get("accession") or "").replace("-", "")
-        url = (
-            f"https://www.sec.gov/Archives/edgar/data/{str(r['issuer_key'])[4:]}/{acc}/"
-            if acc
-            else ""
-        )
         print(
             f"F{str(r['doc_id'])[:12]}  {r.get('owner_name') or r['holder_key']} -> "
             f"{r['issuer_key']}  {r['percent']}%  as_of {str(r['as_of'])[:10]}  "
-            f"{r.get('form', '')}  {url}"
+            f"{r.get('form', '')}  {urls.get(str(r['doc_id']), '(no url)')}"
         )
     return 0
+
+
+def _doc_urls(doc_ids: set[str], con) -> dict[str, str]:
+    """capture_id -> the exact document URL it was fetched from. The captured
+    URL is the document itself; an accession directory listing is a fallback
+    only, because EDGAR indexes a filing under the filer's CIK, which for a
+    13D/13G is the OWNER, not the subject we key rows on."""
+    if not store.has_table("captures", con) or not store.has_table("references", con):
+        return {}
+    ref_of = {
+        str(c["capture_id"]): str(c["ref_id"])
+        for c in store.read_table("captures", con=con)
+        if str(c["capture_id"]) in doc_ids
+    }
+    if not ref_of:
+        return {}
+    wanted = set(ref_of.values())
+    url_of = {
+        str(r["ref_id"]): str(r.get("url") or "")
+        for r in store.read_table("references", con=con)
+        if str(r["ref_id"]) in wanted
+    }
+    return {d: url_of.get(ref, "") for d, ref in ref_of.items() if url_of.get(ref)}
 
 
 def precision() -> int:
