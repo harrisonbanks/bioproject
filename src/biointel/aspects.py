@@ -24,13 +24,15 @@ which were effectively absent is a queryable fact of the run.
 PRESENCE RULES (analyst-stated constants; equal weights, the naive prior
 — any weight scheme is a later gate under its own pre-registration):
   therapeutic_area_overlap    Jaccard of trial condition/intervention token
-                              sets >= TA_JACCARD_MIN (both firms have docs)
+                              sets >= TA_JACCARD_MIN (both firms have docs;
+                              threshold UNSOURCED, see constants below)
   prior_commercial_relationship  a relationships edge between the pair with
                               FirstDate on or before the cutoff (undated
                               edges cannot be proven as-of and do not count)
   patent_cliff_pressure       the buyer has >= 1 Orange Book-matched
                               approval whose protection ends within
-                              LOE_HORIZON_YEARS of the cutoff
+                              LOE_HORIZON_YEARS of the cutoff (horizon
+                              UNSOURCED, see constants below)
   buyer_financing_capacity    buyer annualized revenue > $2B as of the
                               cutoff (the project's acquirer-side rule)
   prior_equity_stake          an equity_stakes row, holder = buyer,
@@ -73,6 +75,25 @@ from biointel import results, store
 
 log = logging.getLogger(__name__)
 
+# UNSOURCED CONSTANTS (recorded 2026-09-03, audit of invented numbers).
+# Neither value is derived, measured, or taken from a source; both were
+# chosen by the assistant when this module was written at gate L4 and were
+# not labelled as arbitrary at the time. Research findings:
+#   TA_JACCARD_MIN: no canonical Jaccard threshold exists. The literature is
+#     explicit that thresholds are task-specific and must be tested on
+#     representative data (deduplication work uses ~0.5; recommendation
+#     contexts 0.3-0.5; one published benchmark found 0.2 optimal for its
+#     task). Nothing supports 0.05 for therapeutic-area overlap.
+#   LOE_HORIZON_YEARS: no empirical optimum found. Industry commentary frames
+#     current dealmaking on a three-to-five-year horizon and uses 2025-2030/
+#     2032 loss-of-exclusivity windows, which is consistent with 5 but is
+#     commentary, not measurement.
+# NOT CHANGED HERE, deliberately: these constants produced the committed L4
+# results (paired HR@5 0.108, NOT ADOPTED, commit 3f3c7a0). Re-tuning them
+# now against the same historical deals would fit parameters on the test set,
+# the leak class this project has already retracted once. Both are swept
+# under the aspect-match v2 pre-registration (roadmap), on deals not used to
+# set them, with the swept values recorded as run parameters.
 TA_JACCARD_MIN = 0.05
 LOE_HORIZON_YEARS = 5
 TEMPUS_EXCLUDED_DEALS = ("Ambry Genetics", "Deep 6 AI", "Paige", "Personalis")
