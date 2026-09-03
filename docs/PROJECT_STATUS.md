@@ -2,7 +2,29 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 1.10. Supersedes v1.09. Gate L4 DONE (0.8a): `aspect-match`, the
+Version 1.11. Supersedes v1.10. CORRECTION (2026-09-03), recorded on the
+gate it affects: two constants inside `aspect-match` — TA_JACCARD_MIN 0.05
+(therapeutic-area overlap threshold) and LOE_HORIZON_YEARS 5 (patent-cliff
+window) — are UNSOURCED. Neither was derived, measured, or taken from a
+source; both were chosen by the assistant when aspects.py was written and
+were not labelled arbitrary at the time. Research 2026-09-03 confirms no
+canonical Jaccard threshold exists (thresholds are task-specific and must be
+tested on representative data; published values range 0.2-0.5 for other
+tasks) and no empirical LOE-horizon optimum was found (industry commentary
+frames three-to-five-year windows, which is consistent with 5 but is
+commentary, not measurement). The L4 results stand as run — paired HR@5
+0.108, NOT ADOPTED, commit 3f3c7a0 — and are not re-run: re-tuning these
+constants against the same historical deals would fit parameters on the test
+set, the leak class retracted once already (the 6.2x ROC result). Both are
+swept under the aspect-match v2 pre-registration, on deals not used to set
+them, with swept values recorded as run parameters. The constants are marked
+UNSOURCED in aspects.py at the point of definition. Related standing rule
+adopted the same day: no numeric constant enters a scope, rule, or document
+without a source line (paper, measurement on our own data, or operator
+instruction); absent one, the parameter is stated as unset and the design
+does not depend on it.
+
+v1.10. Supersedes v1.09. Gate L4 DONE (0.8a): `aspect-match`, the
 second acquirer-pairing implementation (module aspects.py; `pairs-aspect
 [forward]`, 68th command), and the forward hit/false-alarm test (Ontology
 v5 §5.5–§5.6). Rules-first methodology: eight analyst-stated presence
