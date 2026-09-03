@@ -1,4 +1,4 @@
-# docs/20260903_v1_Constants_Audit.md
+# docs/20260903_v1_Constants_Audit.md  (v2: +§1a re-derivation)
 
 # Numeric constants audit — every parameter in the codebase, its effect, its provenance
 
@@ -40,6 +40,27 @@ baseline the project reports.
 | 219 | `negatives=200, repeats=20, seed=7` | Paired-protocol sampling | **protocol** (pre-registered v0.69, in the ledger) | None |
 | 164–181 | MASS formula, Eqs 6–10 | The scoring function itself | **sourced** — Straccamore & Zaccaria, PLOS One 2026 | None |
 | 229 | `-12-31` year-end | Cutoff is the fiscal year-end preceding announcement | **protocol** | None |
+
+### 1a. Independent re-derivation of the MASS engine (2026-09-03)
+Implemented Eqs 6–10 from the paper text (Albora, Straccamore & Zaccaria,
+arXiv 2404.07179 / PLoS One 21(2):e0341010) in plain Python with a
+different structure, without reference to `pairs.py`, and compared against
+`_mass_exact_scores` on a 12-firm random weighted corpus: 110 non-degenerate
+pairs, maximum absolute difference 7.4e-15. **The engine matches the published
+formula.**
+
+**Unpublished convention found.** Eq 8 divides by zero when
+max(Λ) − max(Λ^(T)) = 0 (the candidate holds the pool's largest column
+maximum) or when max(Λ_(A))·(1 − max(Λ_(A))/max(Λ)) = 0 (the acquirer holds
+the global maximum). The paper does not address either case. The code
+assigns those pairs a score of **0** (`pairs.py`, the `denom <= eps or
+(mN - mT) <= eps` guard). On the test corpus this fired on 22 of 132 pairs.
+It is a deterministic penalty on the most central firms in a pool, chosen by
+the implementer, not by the paper. Provenance: **UNSOURCED convention.**
+Disposition: document at the code line; record the count of degenerate pairs
+as a run metric in every pairing evaluation so its frequency in the live
+pool is known rather than assumed; consider whether 0 is the right value
+(the paper's limit as the denominator → 0 is not 0).
 
 ## 2. `score.py` — `scorecard`, hand-built target rating and pairing fit
 
@@ -158,6 +179,7 @@ unsourced numbers whose sum is a ranking.
 4. `score.py` — thirteen hand-set weights and two cut-off bands.
 5. `study.py` fast(3)/slow(7) drift statistic — non-standard, no basis.
 6. `improve.py` positive-count floors (10 / 3) and untracked hyperparameter provenance.
+7. `pairs.py` zero-score convention on Eq 8's undefined case — an implementer's choice the paper never specified (§1a).
 
 **Inconsistencies between models of record:** three different definitions of "acquirer-side" (`$2B` revenue in `pairs.py`; `$10B` revenue or `$100B` cap for exclusion and `$5B`/`$50B` for pairing in `score.py`), and two different financial-staleness windows (450 days in `pairs.py`, 400 in `features.py`) for the same purpose.
 
