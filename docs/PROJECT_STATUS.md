@@ -2,7 +2,39 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 1.11. Supersedes v1.10. CORRECTION (2026-09-03), recorded on the
+Version 1.12. Supersedes v1.11. Gate L4-P DONE (0.8a): the two unsourced
+constants inside `aspect-match` are ELIMINATED, not re-tuned.
+TA_JACCARD_MIN is gone — therapeutic_area_overlap contributes its raw
+Jaccard value as the aspect's strength, so there is no threshold to source
+and the matcher keeps information the cut discarded; the aspect score is now
+an equal-weight sum of strengths rather than a count of yes/no aspects (the
+equal-weight prior is unchanged, per the standing decision). LOE_HORIZON_YEARS
+is gone — the paired evaluation runs at every value in LOE_HORIZONS (3, 5, 7,
+10) and reports all four side by side, with the pre-registered mark applied at
+each and the horizon that beats it named; nothing is selected after the fact.
+Re-tuning either value against the same historical deals was refused: that is
+fitting on the test set, the leak class already retracted once (the 6.2x ROC
+result). 191 tests; two of them assert that neither constant can return
+(`TA_JACCARD_MIN` and `LOE_HORIZON_YEARS` must not exist, and LOE_HORIZONS
+must hold more than one value, since a single value would be a choice). The
+L4 results of record stand as run and are NOT re-run here; the re-run happens
+under the aspect-match v2 pre-registration after the feeders.
+
+Research finding recorded the same day, from the M&A prediction literature:
+irrational threshold setting and sample selection bias are the named,
+documented flaws that discredited early takeover-prediction models, and the
+strongest current framing of the buyer-target problem is link prediction on a
+temporal industry network (peer effects between firms), which produces
+deal-level predictions without ad-hoc feature engineering. Published work in
+that line excludes target edges as features to eliminate leakage, the same
+discipline this project enforces. Direction of record for aspect-match v2:
+after F1 and F2 supply dated edges (stakes, relationships, priorities, prior
+deals), v2 is scoped as a temporal-graph link-prediction model evaluated
+against the frozen protocol beside mass-exact, replacing hand-set aspect
+rules with learned structure. It is a gate with its own pre-registration and
+is not started early.
+
+v1.11. Supersedes v1.10. CORRECTION (2026-09-03), recorded on the
 gate it affects: two constants inside `aspect-match` — TA_JACCARD_MIN 0.05
 (therapeutic-area overlap threshold) and LOE_HORIZON_YEARS 5 (patent-cliff
 window) — are UNSOURCED. Neither was derived, measured, or taken from a

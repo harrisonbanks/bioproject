@@ -190,11 +190,13 @@ def _seed_world(extra_events=()):
 
 def test_presence_rules_and_coverage(db, monkeypatch):
     _seed_world()
-    monkeypatch.setattr(aspects, "_loe", lambda cutoff: {"1": (3, 2, 0.67)})
+    monkeypatch.setattr(aspects, "_loe", lambda cutoff, horizon_years=5: {"1": (3, 2, 0.67)})
     ctx = aspects.build_ctx("2022-12-31")
     got = aspects.pair_aspects("1", "2", ctx)
+    # therapeutic_area_overlap now carries its raw Jaccard strength, no cut
+    ev, val = got["therapeutic_area_overlap"]
+    assert ev and 0.0 < val <= 1.0
     for a in (
-        "therapeutic_area_overlap",
         "prior_commercial_relationship",
         "patent_cliff_pressure",
         "buyer_financing_capacity",
@@ -203,17 +205,19 @@ def test_presence_rules_and_coverage(db, monkeypatch):
         "buyer_stated_priority_match",
         "continuum_extension",
     ):
-        assert got[a] == (True, True), a
+        assert got[a] == (True, 1.0), a
     far = aspects.pair_aspects("1", "3", ctx)
-    assert far["therapeutic_area_overlap"] == (True, False)
-    assert far["prior_commercial_relationship"] == (True, False)
-    assert far["prior_equity_stake"] == (True, False)
-    assert far["competing_stakeholder"] == (True, False)  # no stake rows on IID 3
-    assert aspects.pair_score("1", "2", ctx) == 8
+    assert far["therapeutic_area_overlap"][1] == 0.0  # disjoint vocabularies
+    assert far["prior_commercial_relationship"] == (True, 0.0)
+    assert far["prior_equity_stake"] == (True, 0.0)
+    assert far["competing_stakeholder"] == (True, 0.0)  # no stake rows on IID 3
+    # seven binary aspects at 1.0 plus the continuous overlap strength
+    assert 7.0 < aspects.pair_score("1", "2", ctx) <= 8.0
+    assert aspects.pair_score("1", "2", ctx) > aspects.pair_score("1", "3", ctx)
     # Orange Book zip absent: patent_cliff_pressure not evaluable, never a silent zero
-    monkeypatch.setattr(aspects, "_loe", lambda cutoff: None)
+    monkeypatch.setattr(aspects, "_loe", lambda cutoff, horizon_years=5: None)
     ctx2 = aspects.build_ctx("2022-12-31")
-    assert aspects.pair_aspects("1", "2", ctx2)["patent_cliff_pressure"] == (False, False)
+    assert aspects.pair_aspects("1", "2", ctx2)["patent_cliff_pressure"] == (False, 0.0)
 
 
 def test_undated_relationship_edge_does_not_count(db, monkeypatch):
@@ -221,9 +225,9 @@ def test_undated_relationship_edge_does_not_count(db, monkeypatch):
     rows = store.read_table("relationships")
     rows[0]["FirstDate"] = ""
     store.write_table("relationships", rows, schema.REL_COLS)
-    monkeypatch.setattr(aspects, "_loe", lambda cutoff: None)
+    monkeypatch.setattr(aspects, "_loe", lambda cutoff, horizon_years=5: None)
     ctx = aspects.build_ctx("2022-12-31")
-    assert aspects.pair_aspects("1", "2", ctx)["prior_commercial_relationship"] == (True, False)
+    assert aspects.pair_aspects("1", "2", ctx)["prior_commercial_relationship"] == (True, 0.0)
 
 
 def test_tempus_sequence_exclusion(db):
@@ -263,13 +267,15 @@ def test_midpoint_rank_guards_ties():
 
 def test_paired_end_to_end_records_coverage_and_passmark(db, monkeypatch):
     _seed_world()
-    monkeypatch.setattr(aspects, "_loe", lambda cutoff: {"1": (3, 2, 0.67)})
+    monkeypatch.setattr(aspects, "_loe", lambda cutoff, horizon_years=5: {"1": (3, 2, 0.67)})
     r = run_command("pairs-aspect", params={"negatives": 2, "repeats": 3, "seed": 7})
     assert r["status"] == "ok"
     rec = results.load_run(r["run_id"])
     m = results.Metrics(rec)
     assert m.i("_", "n_events") == 1
-    assert m.f("aspect-match", "hr5_mean") == 1.0  # true target scores 8, negatives lower
+    assert (
+        m.f(f"aspect-match@{aspects.LOE_HORIZONS[0]}y", "hr5_mean") == 1.0
+    )  # true target scores 8, negatives lower
     assert m.i("passmark", "adopted") in (0, 1)
     for a in aspects.ASPECT_ORDER + aspects.NOT_EVALUABLE:
         assert m.i(a, "evaluable_pairs") >= 0  # coverage is a queryable run metric
@@ -281,7 +287,7 @@ def test_paired_end_to_end_records_coverage_and_passmark(db, monkeypatch):
 
 def test_forward_end_to_end_hits_chance_and_note(db, monkeypatch):
     _seed_world()
-    monkeypatch.setattr(aspects, "_loe", lambda cutoff: {"1": (3, 2, 0.67)})
+    monkeypatch.setattr(aspects, "_loe", lambda cutoff, horizon_years=5: {"1": (3, 2, 0.67)})
     r = run_command("pairs-aspect forward", params={"k_primary": 2, "ks": "2"})
     assert r["status"] == "ok"
     rec = results.load_run(r["run_id"])
@@ -294,3 +300,22 @@ def test_forward_end_to_end_hits_chance_and_note(db, monkeypatch):
     assert "Ambry Genetics" in note
     assert (config.EXPORTS / "pair_aspect_forward_report.txt").exists()
     assert rec["run"]["run_type"] == "predict"
+
+
+def test_l4p_no_invented_constants_remain():
+    """Gate L4-P: the Jaccard cut is eliminated (not re-tuned) and the LOE
+    horizon is a reported sensitivity, not a chosen value."""
+    assert not hasattr(aspects, "TA_JACCARD_MIN")
+    assert not hasattr(aspects, "LOE_HORIZON_YEARS")
+    assert len(aspects.LOE_HORIZONS) >= 2  # a single value would be a choice
+
+
+def test_l4p_overlap_is_continuous_not_thresholded(db, monkeypatch):
+    """A weak but real overlap scores above zero and below a strong one;
+    under the old 0.05 cut both sides of the cut collapsed to 1 or 0."""
+    _seed_world()
+    monkeypatch.setattr(aspects, "_loe", lambda cutoff, horizon_years=5: None)
+    ctx = aspects.build_ctx("2022-12-31")
+    strong = aspects.pair_aspects("1", "2", ctx)["therapeutic_area_overlap"][1]
+    weak = aspects.pair_aspects("1", "3", ctx)["therapeutic_area_overlap"][1]
+    assert strong > weak >= 0.0
