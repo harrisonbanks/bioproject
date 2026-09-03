@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = "0.11"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.12"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -497,6 +497,26 @@ EQUITY_STAKE_F1_COLS = (
     "form", "filing_date", "shares", "owner_name", "accession", "cusip", "item4_text",
 )
 STATED_PRIORITY_COLS = ("entity_key", "stated_at", "category", "statement", "doc_id", "span")
+# Expert-hypothesis store (decisions of record: docs/20260903_v1_Hypothesis_
+# Store_Decisions.md). One table holds past and future entries alike; they
+# differ only in `as_of`, which is the ARTIFACT date when one exists and the
+# entry date otherwise — never the date a recalled call was typed in. That is
+# the leak guard: a hypothesis may inform only predictions made after its
+# as_of. `evidence_class` decides scoring, not storage: recollected calls are
+# kept and flagged, never scored, and upgrade to documented if an artifact
+# appears. There is no expiry: a call with a stated horizon is scored against
+# that horizon, one without stays open until an event resolves it.
+HYPOTHESIS_COLS = (
+    "hypothesis_id", "expert", "subject_key", "predicate", "object_kind", "object_value",
+    "horizon", "confidence", "statement", "source_kind", "evidence_class",
+    "as_of", "entered_by", "entered_on", "doc_id", "span", "outcome", "resolved_on",
+    "resolution_note",
+)
+HYPOTHESIS_PREDICATES = ("wants", "in_play", "theme")
+HYPOTHESIS_OBJECT_KINDS = ("company", "category", "theme")
+HYPOTHESIS_SOURCE_KINDS = ("direct", "article", "report", "transcript", "social")
+EVIDENCE_CLASSES = ("documented", "recollected")
+HYPOTHESIS_OUTCOMES = ("open", "hit", "miss", "withdrawn")
 ASSET_COLS = (
     "entity_key", "product", "category", "continuum_step", "modality", "indications",
     "regulatory_status", "reimbursement_status", "doc_id", "span",
@@ -1003,6 +1023,20 @@ TABLES: tuple[Table, ...] = (
         optional=EQUITY_STAKE_F1_COLS,  # gate F1 (Q2): analyst-standard context
         key=("holder_key", "issuer_key", "as_of"),
         types={"percent": "float", "as_of": "date"},
+    ),
+    Table(
+        "silver/analyst_hypotheses.csv",
+        HYPOTHESIS_COLS,
+        "hypothesis add / resolve (manual layer, P5)",
+        key=("hypothesis_id",),
+        types={"as_of": "date", "entered_on": "date", "resolved_on": "date"},
+        enums={
+            "predicate": HYPOTHESIS_PREDICATES,
+            "object_kind": HYPOTHESIS_OBJECT_KINDS,
+            "source_kind": HYPOTHESIS_SOURCE_KINDS,
+            "evidence_class": EVIDENCE_CLASSES,
+            "outcome": HYPOTHESIS_OUTCOMES,
+        },
     ),
     Table(
         "silver/stated_priorities.csv",
