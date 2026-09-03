@@ -28,6 +28,7 @@ from collections import defaultdict
 from datetime import date
 
 from biointel import results, store
+from biointel import schema as _schema
 
 log = logging.getLogger(__name__)
 
@@ -60,6 +61,10 @@ _STOP = {
 }
 
 
+MIN_FIRM_TOKENS = 8  # UNSOURCED; see _firm_docs
+MIN_TOKEN_CHARS = 3  # conventional stop-word heuristic
+
+
 def _firm_docs(cutoff: str) -> dict[str, str]:
     docs = defaultdict(list)
     for t in store.read_table("trials"):
@@ -70,10 +75,14 @@ def _firm_docs(cutoff: str) -> dict[str, str]:
         toks = [
             w
             for w in re.sub(r"[^a-z0-9 ]", " ", blob.lower()).split()
-            if len(w) > 3 and w not in _STOP
+            if len(w) > MIN_TOKEN_CHARS and w not in _STOP
         ]
         docs[t["IID"]].extend(toks)
-    return {iid: " ".join(ws) for iid, ws in docs.items() if len(ws) >= 8}
+    # MIN_FIRM_TOKENS is UNSOURCED (constants audit 2026-09-03): it defines
+    # the candidate pool and therefore chance = k/pool in every forward
+    # test. Sensitivity-report or eliminate at the next pairing gate; the
+    # value is unchanged here because changing it moves recorded results.
+    return {iid: " ".join(ws) for iid, ws in docs.items() if len(ws) >= MIN_FIRM_TOKENS}
 
 
 def _acquirer_side_iids(cutoff: str) -> set[str]:
@@ -89,8 +98,9 @@ def _acquirer_side_iids(cutoff: str) -> set[str]:
         basis = r.get("TTMBasis") or ""
         mult = {"annualized-Q1": 4.0, "annualized-Q2": 2.0, "annualized-Q3": 4 / 3}.get(basis, 1.0)
         if (
-            rev * mult > 2e9
-            and (date.fromisoformat(cutoff) - date.fromisoformat(r["QuarterEnd"])).days <= 450
+            rev * mult > _schema.PAIRS_ACQUIRER_SIDE_REVENUE
+            and (date.fromisoformat(cutoff) - date.fromisoformat(r["QuarterEnd"])).days
+            <= _schema.PAIRS_FINANCIALS_STALENESS_DAYS
         ):
             out.add(str(r["IID"]))
     return out

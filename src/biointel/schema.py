@@ -1,4 +1,4 @@
-# C:\Users\JB\Documents\dev\bioindustry\src\biointel\schema.py
+# src/biointel/schema.py
 # src/biointel/schema.py
 """Schema as code: the written ontology (Ontology and Matching Design v3 §3.5).
 
@@ -30,6 +30,36 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
+
+# ---------------------------------------------------------------- size thresholds
+# Constants audit 2026-09-03: "acquirer-side" was defined three different ways
+# in two models of record, none sourced. They are collected here so the
+# inconsistency is visible in one place and single-sourced; the VALUES ARE
+# UNCHANGED, because changing them changes what `predict` and the pairing
+# reports output, which is a pre-registered change requiring a re-run and a
+# fresh fingerprint baseline. Unifying them is a one-line edit here plus that
+# re-run.
+#   PAIRS_ACQUIRER_SIDE_REVENUE  pairs.py: annualized revenue above this is
+#                                acquirer-side, excluded from candidate pools
+#                                (UNSOURCED)
+#   SCORE_ACQUIRER_SIDE_REVENUE  score.py: revenue above this excludes a firm
+#                                from the target list (UNSOURCED)
+#   SCORE_ACQUIRER_SIDE_MARKETCAP  score.py: market cap above this does the
+#                                same. NOTE: score.py's docstring says $100B;
+#                                the code has always used $75B. The code is
+#                                what runs (UNSOURCED)
+#   SCORE_TARGET_CAP_BAND        score.py: the "acquirable band" scoring +15
+#                                (UNSOURCED)
+#   FINANCIALS_STALENESS_DAYS    features.py ignores financials older than
+#                                400 days; pairs.py uses 450 for the same
+#                                purpose. Both UNSOURCED, both kept until the
+#                                re-run.
+PAIRS_ACQUIRER_SIDE_REVENUE = 2e9
+PAIRS_FINANCIALS_STALENESS_DAYS = 450
+SCORE_ACQUIRER_SIDE_REVENUE = 1e10
+SCORE_ACQUIRER_SIDE_MARKETCAP = 7.5e10
+SCORE_TARGET_CAP_BAND = (3e8, 4e10)
+FEATURES_FINANCIALS_STALENESS_DAYS = 400
 
 SCHEMA_VERSION = "0.12"  # bumped when TABLES or a table declaration changes
 

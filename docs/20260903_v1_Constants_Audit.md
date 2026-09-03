@@ -84,6 +84,31 @@ unsourced numbers whose sum is a ranking.
 | Pairing fit weights | 50 overlap / 30 relationship / 20 headroom | **UNSOURCED** | Document as analyst-set |
 | Size headroom | acquirer cap ≥ 4× target cap | **UNSOURCED** | Document |
 
+### 2a. Corrections to §2 (2026-09-03, found while annotating)
+The first pass of this audit read `score.py`'s docstring as if it described
+running code. Two of its claims are false, and the audit repeated them:
+
+1. **Market cap threshold.** The docstring said acquirer-side exclusion at
+   cap > $100B; the code has always used **$75B** (`7.5e10`). The code is what
+   runs. Docstring corrected in place.
+2. **The pairing fit.** The docstring described a hand-weighted fit
+   (50 × overlap + 30 × relationship + 20 × size headroom) with eligibility at
+   $5B revenue or $50B cap. **That engine has not run since v0.81**;
+   `predict` pairs with MASS-exact × 100. So §2's "$5B/$50B" row and the
+   "50/30/20" weights were describing dead text, not live constants — there
+   are **two** buyer-threshold definitions in running code, not three
+   ($2B revenue in pairs.py; $10B revenue or $75B cap in score.py).
+   Docstring marked as superseded, with the live behaviour stated.
+3. **Corroborating remnant.** `score.py` still computes
+   `toks = _condition_tokens()` and never uses it — one of the three
+   long-standing ruff findings. It is the retired engine's Jaccard input,
+   scanning the whole trials table on every `predict` for nothing. Left in
+   place (it is a model of record); removal belongs to the same
+   pre-registered change that reconciles the thresholds.
+
+**Lesson recorded:** an audit that reads docstrings inherits their errors.
+Provenance claims must be checked against the executing line.
+
 ## 3. `improve.py` — `fitted`, the target-screen implementation (validated 2.2× lift)
 
 | Line | Value | What it does | Provenance | Disposition |
@@ -180,6 +205,16 @@ unsourced numbers whose sum is a ranking.
 5. `study.py` fast(3)/slow(7) drift statistic — non-standard, no basis.
 6. `improve.py` positive-count floors (10 / 3) and untracked hyperparameter provenance.
 7. `pairs.py` zero-score convention on Eq 8's undefined case — an implementer's choice the paper never specified (§1a).
+
+**Annotation pass completed 2026-09-03** (no behaviour change): every
+constant above is now marked with its provenance class at its point of
+definition, and the size thresholds and staleness windows are declared once
+in `schema.py` (`PAIRS_ACQUIRER_SIDE_REVENUE`, `SCORE_ACQUIRER_SIDE_REVENUE`,
+`SCORE_ACQUIRER_SIDE_MARKETCAP`, `SCORE_TARGET_CAP_BAND`,
+`PAIRS_FINANCIALS_STALENESS_DAYS`, `FEATURES_FINANCIALS_STALENESS_DAYS`) so
+the disagreement is visible in one place. **Values are unchanged**: unifying
+them changes what `predict` and the pairing reports output, which is a
+pre-registered change requiring a re-run and a fresh fingerprint baseline.
 
 **Inconsistencies between models of record:** three different definitions of "acquirer-side" (`$2B` revenue in `pairs.py`; `$10B` revenue or `$100B` cap for exclusion and `$5B`/`$50B` for pairing in `score.py`), and two different financial-staleness windows (450 days in `pairs.py`, 400 in `features.py`) for the same purpose.
 

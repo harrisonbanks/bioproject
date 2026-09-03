@@ -1,3 +1,4 @@
+# src/biointel/study.py
 """Event-study metrics around FDA action dates.
 
 Standard market-model event study (Brown & Warner 1980/1985): expected
@@ -34,7 +35,9 @@ from biointel import config
 from biointel.sources import prices
 
 BENCHMARK = "XBI"  # SPDR S&P Biotech; SPY available as check
-EST_DAYS = 120  # estimation window length (trading days), ends at RelDay -11
+EST_DAYS = 120  # estimation window (trading days), ends at RelDay -11.
+# CONVENTIONAL: market-model estimation windows of 100-250 trading days are
+# standard since Brown & Warner (1980, 1985), cited in the module docstring.
 
 
 def _rets(bars: list[dict]) -> list[float | None]:
@@ -156,6 +159,10 @@ def event_metrics(ticker: str, event_date: date) -> dict:
     ]
     drift = None
     if len(post) >= 8:
+        # UNSOURCED (constants audit 2026-09-03): a fast(3)/slow(7) moving
+        # average pair is not a standard event-study statistic and has no
+        # cited basis. Replacing it with post-event CAR is a pre-registered
+        # change with a re-run, not an edit here.
         fast = sum(post[-3:]) / 3
         slow = sum(post[-7:]) / 7
         drift = (fast / slow - 1) * 100

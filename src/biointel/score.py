@@ -24,15 +24,24 @@ TARGET SCORE (0-100, per firm-quarter, from model_panel.csv):
                        +5  five or more deal relationships
   Exit pressure        +10 runway under 24 months (USD filers only)
 Companies on the acquirer side of the ledger (revenue > $10B or market
-cap > $100B) are excluded from the target list.
+cap > $75B) are excluded from the target list. (Corrected 2026-09-03: this
+said $100B; the code has always used $75B, and the code is what runs. Every
+weight and cut-off in this file is analyst-set and UNSOURCED — see
+docs/20260903_v1_Constants_Audit.md. The measured yardstick is the M5
+backtest rank of known acquisitions, not a derivation. The revenue cut also
+disagrees with pairs.py, which calls a firm acquirer-side above $2B;
+reconciling them changes `predict` output and so is a pre-registered change
+with a re-run, not an edit.)
 
 ACQUIRER PAIRING (per top target):
-  eligible acquirers = universe companies with revenue > $5B or market
-  cap > $50B. Fit = 50 * therapeutic-area overlap (Jaccard on trial
-  condition tokens) + 30 * prior relationship (any relationships.csv
-  edge between the pair) + 20 * size headroom (acquirer cap >= 4x
-  target cap, or unknown). The modal acquirer is an existing partner;
-  the pairing makes that measurable.
+  SUPERSEDED TEXT, kept for the record and corrected 2026-09-03: this
+  described a hand-weighted fit (50 overlap / 30 relationship / 20 size
+  headroom, eligibility at $5B revenue or $50B cap). That engine has not
+  run since v0.81. `predict` pairs with MASS-exact x 100 (paper Eqs 6-10,
+  adopted by pre-registered rule, paired HR@5 0.318 vs 0.222) over the
+  acquirer-side set defined by `_is_acquirer_side` above. The stale text
+  was carried into the first constants audit as if live; the audit is
+  corrected too.
 
 BACKTEST (M5): score every company at a quarter end using only data as
 of that date, and report where the verified acquisitions ranked. The
@@ -46,6 +55,7 @@ import re
 from collections import defaultdict
 
 from biointel import config, results, store
+from biointel import schema as _schema
 
 PRED_COLS = [
     "Rank",
@@ -141,7 +151,8 @@ def target_score(r: dict) -> tuple[float, str]:
         why.append("positive event CAR +5")
 
     mcap = _num(r.get("MarketCap"))
-    if mcap is not None and 3e8 <= mcap <= 4e10:
+    lo, hi = _schema.SCORE_TARGET_CAP_BAND  # UNSOURCED band; sharpest cut in this file
+    if mcap is not None and lo <= mcap <= hi:
         pts += 15
         why.append("acquirable size +15")
 
@@ -172,7 +183,13 @@ def _annualized_revenue(r: dict):
 def _is_acquirer_side(r: dict) -> bool:
     rev = _annualized_revenue(r)
     mcap = _num(r.get("MarketCap"))
-    return (rev is not None and rev > 1e10) or (mcap is not None and mcap > 7.5e10)
+    # UNSOURCED, and inconsistent with pairs.py, which calls a firm
+    # acquirer-side above $2B revenue (constants audit 2026-09-03).
+    # Reconciling the two changes what `predict` outputs, so it is a
+    # pre-registered change with a re-run, not an edit here.
+    return (rev is not None and rev > _schema.SCORE_ACQUIRER_SIDE_REVENUE) or (
+        mcap is not None and mcap > _schema.SCORE_ACQUIRER_SIDE_MARKETCAP
+    )
 
 
 def predict(quarter: str | None = None) -> dict:

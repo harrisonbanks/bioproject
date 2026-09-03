@@ -340,6 +340,9 @@ def _models():
             (
                 "hist-gbm",
                 lambda: HistGradientBoostingClassifier(
+                    # CONVENTIONAL hyperparameters for a small tabular
+                    # problem; no tuning record exists. The purged
+                    # walk-forward makes them defensible, not derived.
                     max_depth=3,
                     learning_rate=0.06,
                     max_iter=300,
@@ -394,6 +397,9 @@ def develop() -> dict:
                     te_hi = min(_quarters_after(o, PURGE_Q + 4), DEV_END)
                     Xtr, ytr = _xy(rows, events, feats, "0000", o)
                     Xte, yte = _xy(rows, events, feats, te_lo, te_hi)
+                    # UNSOURCED stability floors (constants audit
+                    # 2026-09-03): origins with too few positives are
+                    # skipped; the skip count is not currently reported.
                     if sum(ytr) < 10 or sum(yte) < 3:
                         continue
                     ranks = []

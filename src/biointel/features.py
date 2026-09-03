@@ -43,6 +43,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date, timedelta
 
+from biointel import schema as _schema
 from biointel import store
 
 FEATURE_COLS = [
@@ -193,7 +194,9 @@ def build_features(read_companies, start: str = "2010-01-01") -> list[dict]:
                 if f["PeriodEnd"] > q:
                     continue
                 if shares_ff is None and _num(f.get("SharesOutstanding")):
-                    if (qd - date.fromisoformat(f["PeriodEnd"])).days <= 400:
+                    if (
+                        qd - date.fromisoformat(f["PeriodEnd"])
+                    ).days <= _schema.FEATURES_FINANCIALS_STALENESS_DAYS:
                         shares_ff = _num(f["SharesOutstanding"])
                 if fin is None and any(
                     _num(f.get(k)) is not None for k in ("Cash", "TotalAssets", "Revenue")
@@ -201,7 +204,11 @@ def build_features(read_companies, start: str = "2010-01-01") -> list[dict]:
                     fin = f
                 if fin is not None and shares_ff is not None:
                     break
-            if fin and (qd - date.fromisoformat(fin["PeriodEnd"])).days <= 400:
+            if (
+                fin
+                and (qd - date.fromisoformat(fin["PeriodEnd"])).days
+                <= _schema.FEATURES_FINANCIALS_STALENESS_DAYS
+            ):
                 cash = _num(fin.get("Cash"))
                 sti = _num(fin.get("ShortTermInvestments"))
                 r["FinPeriodEnd"] = fin["PeriodEnd"]
