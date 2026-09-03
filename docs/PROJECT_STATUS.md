@@ -2,7 +2,48 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 1.12. Supersedes v1.11. Gate L4-P DONE (0.8a): the two unsourced
+Version 1.13. Supersedes v1.12. Session 2026-09-03 (afternoon), all
+committed on jason/refactor (fea4bfd … 8449877):
+- F1 in progress: collector running (~45% of 1,379 members, ~23k rows at
+  last check), interruption-safe; parser at rule F1-r6, coverage 0.881 →
+  0.992 measured five times on the live library (development record
+  docs/20260903_v1_Stakes_Parser_Development_Record.md); capture notes now
+  carry the search CIK list with backfill for existing captures (eab75eb),
+  routed through the store layer. The r6 re-parse of record is re-running
+  `stakes run` after the collector finishes (documents cached, no
+  re-download). Then: blind 60, precision, stub list, fingerprints, close.
+- Constants audit (docs/20260903_v1_Constants_Audit.md, v2 at c7f0b43):
+  every numeric parameter classified. UNSOURCED inside models of record:
+  pairs.py `>= 8` token pool floor (defines every chance baseline), `> $2B`
+  buyer cut, `<= 450`-day staleness; score.py's thirteen hand-set weights;
+  study.py's fast(3)/slow(7) drift; improve.py positive floors. Three
+  inconsistent buyer thresholds across pairs.py and score.py; two staleness
+  windows. Remediation is a named gate, not done.
+- MASS engine independently re-derived from the paper (arXiv 2404.07179,
+  Eqs 6–10): matches pairs.py to 7e-15 on 110 pairs. Unpublished convention
+  found: score 0 on Eq 8's undefined case (most central firm) — recorded as
+  unsourced item 7.
+- LEGACY commands guarded (26c5d07): fit, pairs, pairs-fit, pairs-protocol,
+  pairs-substrate refuse to run; each would have overwritten a frozen
+  baseline file. Six tests.
+- F2 scope of record (docs/20260903_v1_GATEF2_SCOPE.md, 8449877): five
+  decisions closed; build blocked on F1 close and explicit go.
+- Hypothesis-store decisions recorded
+  (docs/20260903_v1_Hypothesis_Store_Decisions.md).
+- Standing rules adopted today: no numeric constant without a source line
+  (1.11); no hand-written SQL — every table access through `store` (P18
+  enforced; a reserved-word collision on `references` was the symptom);
+  every delivered file carries a unique dated download name and every doc
+  block ends with a verify line before the commit (two stale-copy commits
+  were caught and repaired today); specimens go into tests verbatim.
+- Gates parked for after F1, each its own scope: `store` extension
+  (`update_rows`, `add_columns`, identifiers from schema.py); `references`
+  table rename (migration; sequenced after the store gate); constants
+  remediation (annotate, reconcile thresholds, sensitivity-report `>= 8`,
+  replace drift SMA); hypothesis store; order of hypothesis store vs F2.
+- Tests: 199.
+
+v1.12. Supersedes v1.11. Gate L4-P DONE (0.8a): the two unsourced
 constants inside `aspect-match` are ELIMINATED, not re-tuned.
 TA_JACCARD_MIN is gone — therapeutic_area_overlap contributes its raw
 Jaccard value as the aspect's strength, so there is no threshold to source
@@ -408,7 +449,7 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 - Gate 1.4 DONE 2026-08-31: `events_table` live (4,282 rows migrated 1:1 from `events`, deterministic event_id, ledger run recorded); `event_date` column added per the approved amendment; v4 event classes declared (vocabulary complete from birth, writers at their own gates); `calendar IID` a view over trials + events_table with forward rows empty until 1.5/1.6; pytest 85; validate 27/0/8/4 (39 declared); thirteen fingerprints MATCH; runbook docs/20260831_v1_GATE14_INSTALL.md.
 - Regression baseline: thirteen fingerprints (docs/regression_baseline.txt, ffbbf20), reproduced at every gate since.
 
-## 0.9 Open queue (2026-08-31; detail in docs/20260831_v18_Session_Handoff.md §5)
+## 0.9 Open queue (2026-09-03; detail in docs/20260903_v30_Session_Handoff.md)
 1. Snapshot of record decided (0.5); remaining action: after the merge, hand `data\snapshots\20260831\` to Harrison on USB; he places `biointel.duckdb` at `<his root>\data\biointel.duckdb`, verifies the SHA-256 in 0.5 and runs `validate`.
 2. `predict` composition (M1-P): `target-screen/fitted` has no fit/predict path; `scorecard` drives `predict`; decide fitted-ranks/scorecard-explains or keep.
 3. Rotate the Alpha Vantage key; set the repository private (Harrison).
@@ -416,6 +457,8 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 5. Harrison to confirm the corrected MASS-exact figure (0.310) on his snapshot and retire the v0.81 "SUSPENDED" text in PART 5+.
 6. Order of record complete (L4 DONE 2026-09-02). Open next, each its own decision or gate: (a) the a3 analyser rule agenda incl. aspect-extraction rules to populate stated_priorities/assets/deal_aspects — the coverage metrics show the aspect matcher is substrate-starved, not rule-starved; (b) 13D/13G ingestion for equity_stakes at scale; (c) aspect weights beyond the equal-weight prior (own pre-registration, weights never set on test deals); (d) `report pairs-aspect` RENDERERS entry with the next results.py gate; (e) gate L1 vs Phase 1 gate 1.4 sequencing question (Ontology §8 Q8) is moot — both done. Previously: L4 — aspect-match: the acquirer-pairing implementation that scores hypothetical pairs from company aspects (dossier-derived vocabulary, typed relationships, stated priorities) and tests them forward against verified deals. Previously: L3 — realized readouts and PDUFA outcomes as events with event_date and disclosure_datetime, delay_timing events from negated guidance, outcome_state from outcome words, all written from the `mined_candidates` ledger (no re-fetching; re-mine with r7 and re-measure precision/recall). Then 2.9′ → L3 → L4 (order of record L1 → 1.4 → L2 → 2.10 → 1.5a → 1.5b → 1.5c → 2.9′ → L3 → L4). Standing, no gate needed: pending seed rows re-admitted by captures — equity_value_usd (Tempus PR via `library add <file> --for Rf573315b3de`), the three Merck rows (merger-agreement exhibit or §9 news URLs), later timeline/comparables rows (remaining §9 URLs); before any rebuild-from-bronze, run `manual export` first and `manual load` after.
 7. Universe check before 2.9′: are Tempus AI and Personalis among the 1,379 members (one query; Ontology v4 §8 Q9).
+9. F1 close (collector → `stakes run` re-run as the r6 re-parse → blind 60 → precision → stub list → thirteen fingerprints → docs → commit).
+10. Post-F1 gates, order to decide: store extension; references rename; constants remediation; hypothesis store; F2 (scoped, 8449877).
 8. `predict` composition (item 2) is subordinate to the dossier track: `aspect-match` results (gate L4) inform it; the buyer-agnostic checklist-versus-fitted test remains available as a cheap evaluation.
 
 ---
