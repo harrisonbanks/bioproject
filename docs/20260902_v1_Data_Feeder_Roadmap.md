@@ -51,6 +51,23 @@ then re-test. Do not re-run or fit weights before the tables are fed.
    metrics); deal_aspects populated across the historical batch; precision
    recorded; fingerprints MATCH; evidence per rule 4.21.
 
+## Amendment (2026-09-03, gate L4-P and research finding)
+1. The two unsourced constants in `aspect-match` are eliminated, not re-tuned:
+   therapeutic-area overlap carries its raw Jaccard strength (no threshold),
+   and the LOE horizon is reported as a sensitivity across 3/5/7/10 years.
+   Standing rule: no numeric constant enters a rule without a source line; if
+   none exists the parameter is eliminated or reported as a sensitivity.
+2. Direction of record for v2, from the M&A-prediction literature (irrational
+   threshold setting and sample selection bias are the named flaws that
+   discredited early takeover models; the current framing is link prediction
+   on a temporal industry network capturing peer effects, giving deal-level
+   predictions without ad-hoc feature engineering, with target edges excluded
+   as features to eliminate leakage): v2 is scoped as temporal-graph link
+   prediction over the dated edges F1 and F2 supply — equity stakes, typed
+   relationships, stated priorities, prior deals — replacing hand-set aspect
+   rules with learned structure. Same frozen protocol, same benchmark, same
+   exclusion, its own pre-registration. Still blocked on F1 + F2.
+
 ## Then: aspect-match v2 (blocked on F1 + F2 — do not start early)
 1. Fresh pre-registration BEFORE looking at results: same adoption mark
    (paired HR@5 must beat 0.335 by > 2x pooled repeat SD on shared events and
