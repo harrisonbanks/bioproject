@@ -97,6 +97,28 @@ from biointel import (
     store,
 )
 
+# LEGACY commands (P7 amendment 2026-08-30): finished measurements whose code
+# will not run in the target design. Their reports are frozen legacy files in
+# the fingerprint baseline; re-running any of them would overwrite one. They
+# refuse to run until the named cleanup gate removes them (constants audit,
+# item 4, 2026-09-03).
+_LEGACY_COMMANDS = {
+    "fit": "fit_report.txt / fit_scores.csv",
+    "pairs": "pair_report.txt",
+    "pairs-fit": "pair_supervised_report.txt",
+    "pairs-protocol": "pair_protocol_report.txt",
+    "pairs-substrate": "pair_substrate_report.txt",
+}
+
+
+def _refuse_legacy(cmd: str) -> int:
+    print(
+        f"{cmd}: LEGACY command (P7). Its report ({_LEGACY_COMMANDS[cmd]}) is a frozen "
+        "baseline file; re-running would overwrite it. Refusing. Removal is a named "
+        "cleanup gate."
+    )
+    return 2
+
 
 def main(argv):
     # Windows consoles default to cp1252; filing text carries bullets and
@@ -112,6 +134,9 @@ def main(argv):
         print(__doc__)
         return 1
     cmd = argv[1]
+
+    if cmd in _LEGACY_COMMANDS:
+        return _refuse_legacy(cmd)
 
     if cmd == "add":
         for t in argv[2:]:
