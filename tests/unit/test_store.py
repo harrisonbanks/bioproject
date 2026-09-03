@@ -164,3 +164,62 @@ def test_migrate_aborts_on_violation_and_removes_db(db, tmp_path):
     assert r["status"] == "fail" and "Withdrawal" in r["message"]
     assert not config.DUCKDB.exists()
     assert (tmp_path / "silver").exists()  # nothing renamed
+
+
+# ---- store extension gate (2026-09-03): row updates and column adds ----
+def test_update_rows_matches_by_declared_key_on_a_reserved_word_table(db):
+    """`references` is a DuckDB reserved word. Identifiers come from the
+    schema declaration and are quoted here, so the collision that produced a
+    hand-written-SQL bug cannot recur."""
+    rows = []
+    for i in (1, 2, 3):
+        r = dict.fromkeys(schema.REFERENCE_COLS, "")
+        r.update(
+            {
+                "ref_id": f"R{i}",
+                "ref_type": "sec_filing",
+                "url": f"u{i}",
+                "note": "before",
+                "status": "active",
+            }
+        )
+        rows.append(r)
+    store.write_table("references", rows, schema.REFERENCE_COLS)
+
+    n = store.update_rows("references", [{"ref_id": "R2", "note": "after"}])
+    assert n == 1
+    got = {r["ref_id"]: r["note"] for r in store.read_table("references")}
+    assert got == {"R1": "before", "R2": "after", "R3": "before"}
+
+
+def test_update_rows_refuses_bad_input(db):
+    r = dict.fromkeys(schema.REFERENCE_COLS, "")
+    r.update({"ref_id": "R1", "ref_type": "sec_filing", "status": "active"})
+    store.write_table("references", [r], schema.REFERENCE_COLS)
+
+    with pytest.raises(ValueError):
+        store.update_rows("references", [{"note": "no key given"}])
+    with pytest.raises(ValueError):
+        store.update_rows("references", [{"ref_id": "R1", "not_a_column": "x"}])
+    with pytest.raises(ValueError):
+        store.update_rows("no_such_table", [{"ref_id": "R1", "note": "x"}])
+    # a change touching no non-key column is a no-op, not an error
+    assert store.update_rows("references", [{"ref_id": "R1"}]) == 0
+    # an unmatched key changes nothing
+    assert store.update_rows("references", [{"ref_id": "MISSING", "note": "x"}]) == 0
+
+
+def test_add_columns_is_idempotent_and_rejects_undeclared(db):
+    base = list(schema.EQUITY_STAKE_COLS)
+    row = dict.fromkeys(base, "")
+    row.update(
+        {"holder_key": "CIK:1", "issuer_key": "CIK:2", "percent": "5", "as_of": "2020-01-01"}
+    )
+    store.write_table("equity_stakes", [row], base)
+
+    optional = list(schema.EQUITY_STAKE_F1_COLS)
+    added = store.add_columns("equity_stakes", base + optional)
+    assert added == optional  # only the missing ones
+    assert store.add_columns("equity_stakes", base + optional) == []  # idempotent
+    with pytest.raises(ValueError):
+        store.add_columns("equity_stakes", ["invented_column"])

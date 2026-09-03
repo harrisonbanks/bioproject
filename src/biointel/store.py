@@ -393,6 +393,83 @@ def _cell(v) -> str:
     return str(v)
 
 
+def update_rows(name: str, changes: list[dict], con=None) -> int:
+    """Update declared tables row-by-key, without hand-written SQL.
+
+    `changes` is a list of dicts, each carrying the table's declared key
+    columns (to match) plus the columns to set. Identifiers are taken from
+    the schema declaration and quoted here, so a table or column whose name
+    is a reserved word (e.g. `references`) cannot break the statement — the
+    defect this function exists to prevent.
+
+    Rules, all raising ValueError rather than silently doing nothing:
+      * the table must be declared in schema.py and must declare a key;
+      * every change must carry every key column;
+      * every column set must be declared for the table;
+      * a change may not set a key column (that is a delete plus an insert,
+        not an update).
+    Returns the number of rows actually changed.
+    """
+    con = con or connect()
+    t = _TABLES.get(name)
+    if t is None:
+        raise ValueError(f"{name}: not a declared table")
+    if not t.key:
+        raise ValueError(f"{name}: no declared key; update_rows needs one")
+    if not has_table(name, con):
+        raise ValueError(f"{name}: table does not exist")
+    declared = set(t.columns) | set(t.optional)
+    stored = set(table_columns(name, con))
+    keys = list(t.key)
+    n = 0
+    for ch in changes:
+        missing = [k for k in keys if k not in ch]
+        if missing:
+            raise ValueError(f"{name}: change missing key column(s) {missing}")
+        sets = {c: v for c, v in ch.items() if c not in keys}
+        if not sets:
+            continue
+        bad = [c for c in sets if c not in declared]
+        if bad:
+            raise ValueError(f"{name}: undeclared column(s) {bad}")
+        absent = [c for c in sets if c not in stored]
+        if absent:
+            raise ValueError(f"{name}: column(s) {absent} declared but not in the stored table")
+        assign = ", ".join(f"{_q(c)} = ?" for c in sets)
+        where = " AND ".join(f"{_q(k)} = ?" for k in keys)
+        params = [_cell(v) for v in sets.values()] + [_cell(ch[k]) for k in keys]
+        before = con.execute(
+            f"SELECT count(*) FROM {_q(name)} WHERE {where}", [_cell(ch[k]) for k in keys]
+        ).fetchone()[0]
+        con.execute(f"UPDATE {_q(name)} SET {assign} WHERE {where}", params)
+        n += int(before)
+    return n
+
+
+def add_columns(name: str, columns: list[str] | tuple[str, ...], con=None) -> list[str]:
+    """Add declared optional columns to a stored table. Columns already
+    present are skipped (idempotent); undeclared columns raise. Returns the
+    columns actually added. Replaces hand-written ALTER TABLE in callers."""
+    con = con or connect()
+    t = _TABLES.get(name)
+    if t is None:
+        raise ValueError(f"{name}: not a declared table")
+    if not has_table(name, con):
+        raise ValueError(f"{name}: table does not exist")
+    declared = set(t.columns) | set(t.optional)
+    bad = [c for c in columns if c not in declared]
+    if bad:
+        raise ValueError(f"{name}: undeclared column(s) {bad}")
+    stored = set(table_columns(name, con))
+    added = []
+    for c in columns:
+        if c in stored:
+            continue
+        con.execute(f"ALTER TABLE {_q(name)} ADD COLUMN {_q(c)} VARCHAR DEFAULT ''")
+        added.append(c)
+    return added
+
+
 def write_table(name: str, rows: list[dict], columns: list[str] | tuple[str, ...], con=None) -> int:
     """Replace a table's contents with rows (dicts; missing keys -> '',
     extra keys ignored — csv.DictWriter(extrasaction='ignore') semantics).

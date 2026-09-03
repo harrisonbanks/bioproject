@@ -127,21 +127,15 @@ def _backfill_note(ref_row: dict, hit: dict) -> bool:
 
 
 def flush_note_backfill(con=None) -> int:
-    """Apply queued note repairs through the store layer. Returns the number
-    of rows changed."""
+    """Apply queued note repairs through `store.update_rows` (P18). Row-level
+    update by declared key; no table or column name is written into SQL here,
+    so the reserved-word collision on `references` cannot recur. Returns the
+    number of rows changed."""
     if not _PENDING_NOTES:
         return 0
     con = con or store.connect()
-    rows = store.read_table("references", con=con)
-    cols = store.table_columns("references", con)
-    changed = 0
-    for r in rows:
-        new_note = _PENDING_NOTES.get(str(r["ref_id"]))
-        if new_note and str(r.get("note") or "") != new_note:
-            r["note"] = new_note
-            changed += 1
-    if changed:
-        store.write_table("references", rows, cols, con=con)
+    changes = [{"ref_id": rid, "note": note} for rid, note in _PENDING_NOTES.items()]
+    changed = store.update_rows("references", changes, con=con)
     _PENDING_NOTES.clear()
     return changed
 
@@ -733,11 +727,8 @@ def run(since: str = "2001-01-01") -> int:
     )
     existing = set()
     if store.has_table("equity_stakes", con):
-        stored = store.table_columns("equity_stakes", con)
-        if stored != cols and len(stored) < len(cols):
-            # widen the stored header once with the new optional columns
-            for c in cols[len(stored) :]:
-                con.execute(f"ALTER TABLE equity_stakes ADD COLUMN \"{c}\" VARCHAR DEFAULT ''")
+        # widen the stored header with any declared optional columns it lacks
+        store.add_columns("equity_stakes", cols, con=con)
         for r in store.read_table("equity_stakes", con=con):
             existing.add((r["holder_key"], r["issuer_key"], str(r["as_of"])[:10]))
     counters = {
