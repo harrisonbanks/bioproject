@@ -1106,6 +1106,10 @@ def judge(candidate_id: str, verdict: str, note: str = "") -> int:
         from biointel import analyser as _an
 
         led[candidate_id] = {"rule_version": _an.RULE_VERSION}  # L3 proposal ids
+    if candidate_id not in led and candidate_id.startswith("F"):
+        from biointel import stakes as _st
+
+        led[candidate_id] = {"rule_version": _st.RULE_VERSION}  # F1 stake-row ids
     if candidate_id not in led:
         print(f"unknown candidate {candidate_id}")
         return 1

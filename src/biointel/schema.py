@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = "0.10"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.11"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -491,6 +491,11 @@ DEAL_ASPECT_COLS = ("deal_id", "aspect", "value", "method", "confidence", "doc_i
 DEAL_COMPARABLE_COLS = ("deal_id", "comparable_deal_id", "basis", "doc_id", "span")
 # Entity attributes v4 (Ontology v5 §3.2; gate L2).
 EQUITY_STAKE_COLS = ("holder_key", "issuer_key", "percent", "as_of", "doc_id", "span")
+# Gate F1 (Q2, approved 2026-09-02): everything cheap to take from the cover
+# page, recorded to the analyst's standard; raw filings stay in the library.
+EQUITY_STAKE_F1_COLS = (
+    "form", "filing_date", "shares", "owner_name", "accession", "cusip", "item4_text",
+)
 STATED_PRIORITY_COLS = ("entity_key", "stated_at", "category", "statement", "doc_id", "span")
 ASSET_COLS = (
     "entity_key", "product", "category", "continuum_step", "modality", "indications",
@@ -994,7 +999,8 @@ TABLES: tuple[Table, ...] = (
     Table(
         "silver/equity_stakes.csv",
         EQUITY_STAKE_COLS,
-        "dossier-seed (L2); stakes adapter (L3)",
+        "dossier-seed (L2); stakes adapter (L3); stakes run (F1)",
+        optional=EQUITY_STAKE_F1_COLS,  # gate F1 (Q2): analyst-standard context
         key=("holder_key", "issuer_key", "as_of"),
         types={"percent": "float", "as_of": "date"},
     ),

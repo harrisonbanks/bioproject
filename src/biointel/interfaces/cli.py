@@ -39,6 +39,7 @@ python -m biointel chembl-ingest              CHM: download+build table drug_tar
 python -m biointel pairs-exact                paired MASS-exact vs incumbent engine test
 python -m biointel pairs-full-exact           full-universe re-rank with the adopted engine
 python -m biointel pairs-aspect [forward]     L4: aspect-match paired vs mass-exact; `forward` runs the per-buyer-year hit/false-alarm test
+python -m biointel stakes SUB ...             F1: equity stakes from 13D/13G - probe (capture-first), run [SINCE] (collector), sample [N] (blind sample), precision (Wilson CI, retires judged-wrong rows)
 python -m biointel orangebook-probe           OB: test Orange Book download (run FIRST)
 python -m biointel universe                   P1a: build rule-defined table universe
 python -m biointel harvest                    L: propose acquisition events for whole universe
@@ -825,6 +826,11 @@ def main(argv):
         from biointel import manual as _manual
 
         return _manual.cli(argv[2:])
+
+    elif cmd == "stakes":
+        from biointel import stakes as _stakes
+
+        return _stakes.cli(argv[2:])
 
     elif cmd == "calendar-forward":
         from biointel import forward as _forward

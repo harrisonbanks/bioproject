@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?><edgarSubmission xmlns="http://www.sec.gov/edgar/schedule13D" xmlns:com="http://www.sec.gov/edgar/common">
+<headerData>
+<submissionType>SCHEDULE 13D/A</submissionType>
+<previousAccessionNumber>0000899140-20-000160</previousAccessionNumber>
+<filerInfo>
+<filer>
+<filerCredentials>
+<cik>0001080014</cik>
+<ccc>XXXXXXXX</ccc>
+</filerCredentials>
+</filer>
+<liveTestFlag>LIVE</liveTestFlag>
+
+
+
+</filerInfo>
+</headerData>
+<formData>
+<coverPageHeader>
+<amendmentNo>12</amendmentNo>
+<securitiesClassTitle>Common Stock, $0.01 par value</securitiesClassTitle>
+<dateOfEvent>03/12/2025</dateOfEvent>
+<previouslyFiledFlag>false</previouslyFiledFlag>
+<issuerInfo>
+<issuerCIK>0000921114</issuerCIK>
+<issuerCUSIP>04216R102</issuerCUSIP>
+<issuerName>Armata Pharmaceuticals, Inc.</issuerName>
+<address>
+<com:street1>5005 MCCONNELL AVE</com:street1>
+<com:city>LOS ANGELES</com:city>
+<com:stateOrCountry>CA</com:stateOrCountry>
+<com:zipCode>90066</com:zipCode>
+</address>
+</issuerInfo>
+<authorizedPersons>
+<notificationInfo>
+<personName>Innoviva, Inc.</personName>
+<personPhoneNum>877-202-1097</personPhoneNum>
+<personAddress>
+<com:street1>1350 Old Bayshore Highway Suite 400</com:street1>
+<com:city>Burlingame</com:city>
+<com:stateOrCountry>CA</com:stateOrCountry>
+<com:zipCode>94010</com:zipCode>
+</personAddress>
+</notificationInfo>
+</authorizedPersons>
+</coverPageHeader>
+<reportingPersons>
+<reportingPersonInfo>
+<reportingPersonCIK>0001080014</reportingPersonCIK>
+<reportingPersonName>Innoviva, Inc.</reportingPersonName>
+<memberOfGroup>a</memberOfGroup>
+<fundType>WC</fundType>
+<citizenshipOrOrganization>DE</citizenshipOrOrganization>
+<soleVotingPower>17421600</soleVotingPower>
+<sharedVotingPower>46756659</sharedVotingPower>
+<soleDispositivePower>17421600</soleDispositivePower>
+<sharedDispositivePower>46756659</sharedDispositivePower>
+<aggregateAmountOwned>64178259</aggregateAmountOwned>
+<isAggregateExcludeShares>N</isAggregateExcludeShares>
+<percentOfClass>85.2</percentOfClass>
+<typeOfReportingPerson>CO</typeOfReportingPerson>
+<commentContent>(1) Includes 8,710,800 shares of Common Stock owned by the Reporting Persons and 8,710,800 shares of Common Stock issuable upon exercise of the warrants to purchase Common Stock beneficially owned by the Reporting Persons.&#13;
+(2) Includes 16,365,969 shares of Common Stock owned by the Reporting Persons, 10,653,847 shares of Common Stock issuable upon exercise of the warrants to purchase Common Stock beneficially owned by the Reporting Persons, and 19,736,843 shares of Common Stock issuable upon the conversion of a certain convertible loan held by the Reporting Persons (excluding any accrued interest) beneficially owned by the Reporting Persons.&#13;
+(3) See Item 5.&#13;
+(4) Based on 36,183,067 shares of Common Stock outstanding as of November 8, 2024, as set forth on the Issuer's Quarterly Report on Form 10-Q filed with the SEC on November 13, 2024, plus 19,736,843 shares of Common Stock issuable upon the conversion of a certain convertible loan held by the Reporting Persons, excluding any accrued interest, and shares of Common Stock issuable upon exercise of the warrants to purchase Common Stock beneficially owned by the Reporting Persons.</commentContent>
+</reportingPersonInfo>
+<reportingPersonInfo>
+<reportingPersonNoCIK>Y</reportingPersonNoCIK>
+<reportingPersonName>Innoviva Strategic Opportunities LLC</reportingPersonName>
+<memberOfGroup>a</memberOfGroup>
+<fundType>WC</fundType>
+<citizenshipOrOrganization>DE</citizenshipOrOrganization>
+<soleVotingPower>0</soleVotingPower>
+<sharedVotingPower>46756659</sharedVotingPower>
+<soleDispositivePower>0</soleDispositivePower>
+<sharedDispositivePower>46756659</sharedDispositivePower>
+<aggregateAmountOwned>46756659</aggregateAmountOwned>
+<isAggregateExcludeShares>N</isAggregateExcludeShares>
+<percentOfClass>62.1</percentOfClass>
+<typeOfReportingPerson>OO</typeOfReportingPerson>
+<commentContent>(1) Includes 16,365,969 shares of Common Stock owned by the Reporting Persons, 10,653,847 shares of Common Stock issuable upon exercise of the warrants to purchase Common Stock beneficially owned by the Reporting Persons, and 19,736,843 shares of Common Stock issuable upon the conversion of a certain convertible loan held by the Reporting Persons (excluding any accrued interest) beneficially owned by the Reporting Persons.&#13;
+(2) See Item 5.&#13;
+(3) Based on 36,183,067 shares of Common Stock outstanding as of November 8, 2024, as set forth on the Issuer's Quarterly Report on Form 10-Q filed with the SEC on November 13, 2024, plus 19,736,843 shares of Common Stock issuable upon the conversion of a certain convertible loan held by the Reporting Persons, excluding any accrued interest, and shares of Common Stock issuable upon exercise of the warrants to purchase Common Stock beneficially owned by the Reporting Persons.</commentContent>
+</reportingPersonInfo>
+</reportingPersons>
+<items1To7>
+<item1>
+<securityTitle>Common Stock, $0.01 par value</securityTitle>
+<issuerName>Armata Pharmaceuticals, Inc.</issuerName>
+<issuerPrincipalAddress>
+<com:street1>5005 MCCONNELL AVE</com:street1>
+<com:city>LOS ANGELES</com:city>
+<com:stateOrCountry>CA</com:stateOrCountry>
+<com:zipCode>90066</com:zipCode>
+</issuerPrincipalAddress>
+<commentText>This Amendment No. 12 to Schedule 13D ("Amendment No. 12") amends and supplements the initial Statement of Beneficial Ownership on Schedule 13D, as filed with the U.S. Securities and Exchange Commission (the "SEC") by Innoviva, Inc. ("Innoviva") on February 14, 2020, as amended and supplemented by Amendment No. 1 filed with the SEC on March 31, 2020 by Innoviva, as further amended and supplemented by Amendment No. 2 filed with the SEC on January 26, 2021 by Innoviva and Innoviva Strategic Opportunities LLC, a wholly-owned subsidiary of Innoviva ("Innoviva Sub"), as further amended and supplemented by Amendment No. 3 filed with the SEC on March 17, 2021 by Innoviva and Innoviva Sub, as further amended and supplemented by Amendment No. 4 filed with the SEC on April 1, 2021 by Innoviva and Innoviva Sub, as further amended and supplemented by Amendment No. 5 filed with the SEC on November 1, 2021 by Innoviva and Innoviva Sub, as further amended and supplemented by Amendment No. 6 filed with the SEC on February 11, 2022 by Innoviva and Innoviva Sub, as further amended and supplemented by Amendment No. 7 filed with the SEC on April 1, 2022, as further amended and supplemented by Amendment No. 8 filed with the SEC on January 10, 2023, as further amended and supplemented by Amendment No. 9 filed with the SEC on July 11, 2023, as further amended and supplemented by Amendment No. 10 filed with the SEC on March 4, 2024, as further amended and supplemented by Amendment No. 11 filed with the SEC on November 14, 2024 (the "Schedule 13D"), with respect to shares of common stock, $0.01 par value per share ("Common Stock") of Armata Pharmaceuticals, Inc., a Washington corporation (the "Issuer"), warrants to acquire additional shares of Common Stock of the Issuer ("Warrants"), and secured convertible debt convertible into Common Stock of the Issuer. Innoviva and Innoviva Sub (collectively, the "Reporting Persons") are filing this amendment to reflect (i) the acquisition by Innoviva Sub of secured debt of the Issuer pursuant to the March 2025 Credit Agreement (as defined below) and (ii) the extension of the maturity date of each of the July 2023 Credit Agreement (as defined below), the March 2024 Credit Agreement (as defined below) and the Convertible Credit Agreement (as defined below).  &#13;
+&#13;
+Except as specifically amended and supplemented by this Amendment No. 12, the Schedule 13D (as amended) remains in full force and effect.</commentText>
+</item1>
+<item4>
+<transactionPurpose>Item 4 in Schedule 13D is hereby supplemented as follows:&#13;
+&#13;
+On March 12, 2025, the Issuer entered into, as borrower, a credit and security agreement (the "March 2025 Credit Agreement") with Innoviva Sub, as lender, pursuant to which the Issuer borrowed from Innoviva Sub $10,000,000 on terms and conditions similar to those set forth in the credit and security agreement between the parties dated as of March 4, 2024 (as amended, the "March 2024 Credit Agreement"). On March 12, 2025, the Issuer and Innoviva Sub entered into an amendment to each of (i) the secured convertible credit and security agreement, dated January 10, 2023, by and among the Issuer, Innoviva Sub and the other parties thereto (as amended, the "Convertible Credit Agreement" and such amendment, the "Fourth Amendment to Convertible Credit Agreement"), which Fourth Amendment to Convertible Credit Agreement extended the maturity date of the Convertible Credit Agreement to March 12, 2026; (ii) the credit and security agreement, dated as of July 10, 2023, by and among the Issuer, Innoviva Sub and the other parties thereto (as amended, the "July 2023 Credit Agreement" and such amendment, the "Third Amendment to July 2023 Credit Agreement"), which Third Amendment to July 2023 Credit Agreement extended the maturity date of the July 2023 Credit Agreement to March 12, 2026; and (iii) the March 2024 Credit Agreement (such amendment, the "First Amendment to March 2024 Credit Agreement"), which First Amendment to March 2024 Credit Agreement extended the maturity date of the March 2024 Credit Agreement to March 12, 2026. &#13;
+&#13;
+On the date of this Amendment No. 12, the Reporting Persons collectively own 25,076,769 shares of Common Stock of the Issuer, warrants to acquire an additional 19,364,647 shares of Common Stock of the Issuer, and the right to acquire an additional 19,736,843 shares of Common Stock of the Issuer upon conversion of the convertible loan (excluding any accrued interest).</transactionPurpose>
+</item4>
+<item5>
+<percentageOfClassSecurities>Item 5 in Schedule 13D is hereby supplemented as follows:&#13;
+ &#13;
+As of the date of this filing of Amendment No. 12, the Reporting Persons collectively may be deemed to have beneficial ownership of 64,178,259 shares of Common Stock, representing approximately 85.2% of the outstanding shares of Common Stock of the Issuer as of the date of this Amendment No. 12 to Schedule 13D, based on 36,183,067 shares of Common Stock outstanding as of November 8, 2024, as set forth on the Issuer's Quarterly Report on Form 10-Q filed with the SEC on November 13, 2024, plus 19,736,843 shares of Common Stock issuable upon the conversion of a certain convertible loan held by the Reporting Persons (excluding any accrued interest) and shares of Common Stock issuable upon exercise of the warrants to purchase Common Stock beneficially owned by the Reporting Persons.&#13;
+ &#13;
+Except as set forth in this Schedule 13D (as amended), the Reporting Persons did not acquire or sell any shares of Common Stock or other securities of the Issuer during the last 60 days.</percentageOfClassSecurities>
+</item5>
+<item6>
+<contractDescription>Item 6 in Schedule 13D is hereby supplemented as follows:&#13;
+&#13;
+On March 12, 2025, the Issuer and Innoviva Sub entered into the March 2025 Credit Agreement, which provides for a secured term loan facility in an aggregate amount of $10,000,000 at an interest rate of 14.0% per annum, and a maturity date of March 12, 2026, and which is not convertible into securities of the Issuer or into any other securities. On March 12, 2025, the Issuer and Innoviva Sub also entered into the Fourth Amendment to Convertible Credit Agreement, the Third Amendment to July 2023 Credit Agreement and the First Amendment to March 2024 Credit Agreement, pursuant to which the maturity dates of the Convertible Credit Agreement, the July 2023 Credit Agreement and the March 2024 Credit Agreement, respectively, were extended to March 12, 2026.&#13;
+&#13;
+The foregoing descriptions of the terms of the March 2025 Credit Agreement, First Amendment to March 2024 Credit Agreement, Third Amendment to July 2023 Credit Agreement and Fourth Amendment to Convertible Credit Agreement do not purport to be complete and are qualified in their entirety by the full texts of such agreements, copies of which are filed as Exhibits 10.1, 10.2, 10.3 and 10.4, respectively, to the Form 8-K of the Issuer filed with the SEC on March 12, 2025.</contractDescription>
+</item6>
+</items1To7>
+<signatureInfo>
+<signaturePerson>
+<signatureReportingPerson>Innoviva, Inc.</signatureReportingPerson>
+<signatureDetails>
+<signature>/s/ Pavel Raifeld</signature>
+<title>Pavel Raifeld, Chief Executive Officer</title>
+<date>03/12/2025</date>
+</signatureDetails>
+</signaturePerson>
+<signaturePerson>
+<signatureReportingPerson>Innoviva Strategic Opportunities LLC</signatureReportingPerson>
+<signatureDetails>
+<signature>/s/ Pavel Raifeld</signature>
+<title>Pavel Raifeld, Chief Executive Officer</title>
+<date>03/12/2025</date>
+</signatureDetails>
+</signaturePerson>
+</signatureInfo>
+</formData>
+</edgarSubmission>
