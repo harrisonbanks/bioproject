@@ -17,6 +17,7 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA", tmp_path)
     monkeypatch.setattr(config, "DUCKDB", tmp_path / "t.duckdb")
     monkeypatch.setattr(config, "EXPORTS", tmp_path / "exports")
+    monkeypatch.setattr(config, "BRONZE", tmp_path / "bronze")
     store.close()
     yield store.connect(tmp_path / "t.duckdb")
     store.close()
@@ -543,3 +544,64 @@ def test_r6_long_explanation_and_value_inside_label():
         )[0]
         is None
     )
+
+
+def test_capture_note_persists_search_cik_list(db, monkeypatch):
+    """The owner of a 13D/13G is identified by search metadata, not by the
+    document text, for the HTML eras. The note must carry that CIK list so a
+    later rule version can re-parse from the library without re-searching."""
+    _companies((1, "AAA", "100"))
+    monkeypatch.setattr(stakes, "_fetch", lambda url: (b"<html>x</html>", ".htm", "text/html"))
+    hit = {
+        "url": "https://www.sec.gov/Archives/edgar/data/100/000/d.htm",
+        "adsh": "0001-15-000001",
+        "doc": "d.htm",
+        "cik": "100",
+        "ciks": ["100", "999777"],
+        "name": "N1",
+        "form": "SC 13D/A",
+        "file_date": "2015-04-07",
+    }
+    con = store.connect()
+    got = stakes._capture(hit, con)
+    assert got is not None
+    notes = [r["note"] for r in store.read_table("references", con=con)]
+    assert any("ciks=100|999777" in n and "file_date=2015-04-07" in n for n in notes)
+
+
+def test_backfill_enriches_preexisting_capture_notes(db, monkeypatch):
+    """Captures taken before the note carried the search CIK list are repaired
+    on the next pass, so the library becomes self-sufficient for future rule
+    versions. The repair goes through the store layer (P18), never raw SQL.
+    Idempotent: a second pass changes nothing."""
+    _companies((1, "AAA", "100"))
+    monkeypatch.setattr(stakes, "_fetch", lambda url: (b"<html>x</html>", ".htm", "text/html"))
+    hit = {
+        "url": "https://www.sec.gov/Archives/edgar/data/100/000/d.htm",
+        "adsh": "0001-15-000001",
+        "doc": "d.htm",
+        "cik": "100",
+        "ciks": ["100", "999777"],
+        "name": "N1",
+        "form": "SC 13D/A",
+        "file_date": "2015-04-07",
+    }
+    con = store.connect()
+    stakes._capture(hit, con)
+    stakes.flush_note_backfill(con)
+    # simulate the pre-enrichment state of the captures already in the library
+    rows = store.read_table("references", con=con)
+    cols = store.table_columns("references", con)
+    for r in rows:
+        r["note"] = "captured by stakes-probe;form=SC 13D/A;cik=100"
+    store.write_table("references", rows, cols, con=con)
+    assert all("ciks=" not in str(r["note"]) for r in store.read_table("references", con=con))
+
+    assert stakes._capture(hit, con) is not None  # cached path queues the repair
+    assert stakes.flush_note_backfill(con) == 1
+    after = [str(r["note"]) for r in store.read_table("references", con=con)]
+    assert any("ciks=100|999777" in n and "file_date=2015-04-07" in n for n in after)
+
+    stakes._capture(hit, con)  # second pass: note already carries ciks=
+    assert stakes.flush_note_backfill(con) == 0
+    assert [str(r["note"]) for r in store.read_table("references", con=con)] == after

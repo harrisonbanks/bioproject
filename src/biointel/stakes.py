@@ -100,6 +100,52 @@ def _fetch(url: str) -> tuple[bytes, str, str] | None:
     return None
 
 
+def _hit_note(hit: dict) -> str:
+    """Reference note carrying the search metadata a later re-parse needs."""
+    return (
+        f"captured by stakes-probe;form={hit['form']};cik={hit['cik']}"
+        f";ciks={'|'.join(hit.get('ciks') or [])};file_date={hit['file_date']}"
+    )
+
+
+# Pending note repairs, keyed by ref_id, flushed through the store layer at
+# the end of a pass. Nothing here writes SQL: P18 requires every table read
+# and write to go through `store`, and hand-written SQL against a table whose
+# name is a reserved word is exactly the kind of breakage that rule prevents.
+_PENDING_NOTES: dict[str, str] = {}
+
+
+def _backfill_note(ref_row: dict, hit: dict) -> bool:
+    """Queue the search CIK list onto a pre-existing reference note. Returns
+    True when a repair was queued. Idempotent: a note already carrying
+    `ciks=` is left untouched, so re-runs queue nothing."""
+    note = str(ref_row.get("note") or "")
+    if "ciks=" in note or not (hit.get("ciks") or []):
+        return False
+    _PENDING_NOTES[str(ref_row["ref_id"])] = _hit_note(hit)
+    return True
+
+
+def flush_note_backfill(con=None) -> int:
+    """Apply queued note repairs through the store layer. Returns the number
+    of rows changed."""
+    if not _PENDING_NOTES:
+        return 0
+    con = con or store.connect()
+    rows = store.read_table("references", con=con)
+    cols = store.table_columns("references", con)
+    changed = 0
+    for r in rows:
+        new_note = _PENDING_NOTES.get(str(r["ref_id"]))
+        if new_note and str(r.get("note") or "") != new_note:
+            r["note"] = new_note
+            changed += 1
+    if changed:
+        store.write_table("references", rows, cols, con=con)
+    _PENDING_NOTES.clear()
+    return changed
+
+
 def _capture(hit: dict, con) -> tuple[str, str, str] | None:
     """Capture one filing into the library with stakes-probe provenance;
     returns (capture_sha, ext, content_type). Re-captures nothing: an
@@ -111,6 +157,11 @@ def _capture(hit: dict, con) -> tuple[str, str, str] | None:
             if r["url"] == hit["url"]:
                 for c in store.read_table("captures", con=con):
                     if c["ref_id"] == r["ref_id"] and c["status"] == "active":
+                        # Backfill: captures taken before the note carried the
+                        # search CIK list are enriched in place, so the library
+                        # becomes self-sufficient for every future rule version
+                        # (no re-search needed to identify a 13D/13G owner).
+                        _backfill_note(r, hit)
                         return c["capture_id"], "." + str(c.get("ext") or "htm"), "cached"
     got = _fetch(hit["url"])
     if not got:
@@ -126,7 +177,10 @@ def _capture(hit: dict, con) -> tuple[str, str, str] | None:
             "published_at": hit["file_date"],
             "source_system": "stakes-probe",
             "source_key": f"{hit['adsh']}:{hit['doc']}",
-            "note": f"captured by stakes-probe;form={hit['form']};cik={hit['cik']}",
+            # The search result's full CIK list is persisted because the owner
+            # of a 13D/13G is identified by that metadata, not by the document
+            # text, for the HTML eras.
+            "note": _hit_note(hit),
         },
         con,
     )
@@ -210,6 +264,7 @@ def probe() -> int:
                 "=" * 78 + f"\nCAPTURE {sha}  {h['form']}  filed {h['file_date']}  "
                 f"url {h['url']}\n" + "=" * 78 + "\n" + text[:BUNDLE_CHARS]
             )
+    flush_note_backfill(con)
     head = [
         f"STAKES PROBE — {captured} filings captured across {len(ERAS)} eras "
         f"(forms {STAKE_FORMS}; query {PROBE_QUERY})"
@@ -728,6 +783,7 @@ def run(since: str = "2001-01-01") -> int:
             ocik = str(r["holder_key"])[4:]
             if ocik not in member_ciks:
                 thirteen_d_owners.setdefault(ocik, str(r.get("owner_name") or ""))
+    counters["notes_backfilled"] = flush_note_backfill(con)
     stub_lines = _proposed_stubs(thirteen_d_owners)
     p = store.write_export("stakes_proposed_stubs.txt", "\n".join(stub_lines) + "\n")
     runr = results.start(
