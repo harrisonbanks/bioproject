@@ -109,6 +109,36 @@ running code. Two of its claims are false, and the audit repeated them:
 **Lesson recorded:** an audit that reads docstrings inherits their errors.
 Provenance claims must be checked against the executing line.
 
+### 2b. Docstring sweep across the remaining modules (2026-09-03)
+After §2a showed that an audit reading docstrings inherits their errors,
+every claim in `pairs.py`, `study.py`, `improve.py` and `features.py` was
+checked against the executing line. Four more false claims, all corrected in
+place:
+
+1. **`pairs.py`: "TF-IDF weighted — idf supplies the rare-technology
+   emphasis."** The adopted engine uses RAW COUNTS; rarity comes from the
+   paper's own Eq 10 (each technology column divided by its norm). TF-IDF is
+   used only by `_sim_matrix`, which feeds the retired cosine baseline.
+2. **`pairs.py`: "Writes gold/pair_report.txt."** It does not. That file is
+   written by `baselines.evaluate_pairs`, the LEGACY `pairs` command, which
+   now refuses to run.
+3. **`study.py`: "with SPY as a robustness check."** No SPY path exists;
+   `schema.BENCHMARKS` allows only `("XBI", "none")`. The claim also appeared
+   in the comment beside `BENCHMARK`.
+4. **`study.py`: "Five metrics."** Decorative count: CAR is three windows and
+   Beta is recorded alongside.
+
+`improve.py` and `features.py` check out: the purge derivation, the origins,
+the holdout rule and the 400-day window all match the code.
+
+**Pattern, not coincidence.** All six false claims found in this audit
+(§2a plus these four) describe a RETIRED engine as if it were live. The
+docstrings were written for the pre-v0.81 architecture and were never updated
+when MASS-exact replaced the hand-weighted pairing. Disposition: docstrings
+are part of the deliverable of any gate that supersedes an engine, and a
+claim in a docstring is not evidence of anything until checked against the
+executing line.
+
 ## 3. `improve.py` — `fitted`, the target-screen implementation (validated 2.2× lift)
 
 | Line | Value | What it does | Provenance | Disposition |

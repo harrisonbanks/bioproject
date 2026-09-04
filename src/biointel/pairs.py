@@ -3,18 +3,28 @@
 formulation: M&A as link prediction between firm portfolios rather than
 standalone target scoring.
 
-Portfolios: each firm's trial CONDITIONS+INTERVENTIONS tokens as of a
-date (StartDate <= cutoff), TF-IDF weighted -- idf supplies the
-rare-technology emphasis the MASS paper found essential; the
-large-acquires-small asymmetry enters through one-directional
-eligibility (acquirer side = annualized revenue > $2B as of the date).
+Portfolios: each firm's trial CONDITIONS+INTERVENTIONS+DRUGS tokens as of
+a date (StartDate <= cutoff). The adopted engine (`mass-exact`) uses RAW
+COUNTS and takes its rare-technology emphasis from the paper's own Eq 10
+(each technology column divided by its norm), not from TF-IDF; TF-IDF
+appears only in `_sim_matrix`, which feeds the retired cosine baseline.
+The large-acquires-small asymmetry enters through one-directional
+eligibility (acquirer side = annualized revenue above
+schema.PAIRS_ACQUIRER_SIDE_REVENUE as of the date; that threshold is
+UNSOURCED, see docs/20260903_v1_Constants_Audit.md).
+
+Docstring corrected 2026-09-03: it credited the rarity handling to TF-IDF
+and claimed this module writes gold/pair_report.txt. It does not — that
+file comes from `baselines.evaluate_pairs`, the LEGACY `pairs` command,
+which now refuses to run.
 
 Outputs:
-  `pairs`   -- field-protocol evaluation: for every verified event whose
-               acquirer resolves into the universe, rank the TRUE target
-               among all eligible targets by similarity at the quarter
-               before announcement; report median rank, hit@10/@25, mAP.
-               Writes gold/pair_report.txt.
+  `pairs-exact` / `pairs-full-exact` -- the live evaluations: for every
+               verified event whose acquirer resolves into the universe,
+               rank the TRUE target among eligible candidates at the
+               year-end before announcement. Reports go to
+               data/exports/pair_exact_report.txt and
+               pair_full_exact_report.txt, rendered from the run record.
   feature   -- per (firm, year-end) max similarity to any eligible
                acquirer, cached to gold/pair_feature.csv; engineer()
                folds it into the target model as _maxSimToAcq.

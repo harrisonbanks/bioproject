@@ -5,11 +5,12 @@ Standard market-model event study (Brown & Warner 1980/1985): expected
 return is estimated from a benchmark over a window that ends BEFORE the
 event window, abnormal return is actual minus expected, and CAR sums
 abnormal returns over the event window. Biotech studies benchmark against
-XBI (SPDR S&P Biotech) with SPY as a robustness check; reactions are
+XBI (SPDR S&P Biotech); reactions are
 documented to be asymmetric (negative events move prices more and longer)
 and size-dependent (small caps move more).
 
-Five metrics, all computable from the existing RelDay -10..+10 windows:
+Metrics, all computable from the existing RelDay -10..+10 windows
+(CAR is reported over three windows; Beta is recorded alongside):
 
   CAR         cumulative abnormal return vs benchmark over [-1,+1],
               [0,+1] and [-5,+5]
@@ -34,7 +35,10 @@ from datetime import date, timedelta
 from biointel import config
 from biointel.sources import prices
 
-BENCHMARK = "XBI"  # SPDR S&P Biotech; SPY available as check
+BENCHMARK = "XBI"  # SPDR S&P Biotech. Corrected 2026-09-03: earlier text
+# here and in the module docstring claimed SPY was available as a
+# robustness check. No SPY path exists and schema.BENCHMARKS allows only
+# ("XBI", "none"). Adding one is a change, not a correction.
 EST_DAYS = 120  # estimation window (trading days), ends at RelDay -11.
 # CONVENTIONAL: market-model estimation windows of 100-250 trading days are
 # standard since Brown & Warner (1980, 1985), cited in the module docstring.
