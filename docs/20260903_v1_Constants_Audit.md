@@ -139,6 +139,19 @@ are part of the deliverable of any gate that supersedes an engine, and a
 claim in a docstring is not evidence of anything until checked against the
 executing line.
 
+### 2c. `references` table rename — considered and cancelled (2026-09-03)
+Proposed after a hand-written UPDATE broke on the reserved word. Sized
+before writing: 29 call sites across 8 modules, two of them
+fingerprint-protected (`efts.py`, `forward.py`), plus a live-database
+migration and the CSV path the table name derives from. The motive no longer
+exists: no hand-written SQL remains in any model or feeder, and
+`store.update_rows` / `store.add_columns` quote every identifier from the
+schema declaration, so the collision cannot recur through the store layer.
+Cancelled under P9. Replaced by `tests/unit/test_no_raw_sql.py`, which fails
+the suite if any module outside the infrastructure tier (`store.py`,
+`results.py`, `schema.py`, `migrate.py`) executes SQL. The allowlist is
+asserted exactly, so it can only change on purpose.
+
 ## 3. `improve.py` — `fitted`, the target-screen implementation (validated 2.2× lift)
 
 | Line | Value | What it does | Provenance | Disposition |

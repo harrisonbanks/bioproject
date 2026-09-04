@@ -41,6 +41,7 @@ python -m biointel pairs-full-exact           full-universe re-rank with the ado
 python -m biointel pairs-aspect [forward]     L4: aspect-match paired vs mass-exact; `forward` runs the per-buyer-year hit/false-alarm test
 python -m biointel stakes SUB ...             F1: equity stakes from 13D/13G - probe (capture-first), run [SINCE] (collector), sample [N] (blind sample), precision (Wilson CI, retires judged-wrong rows)
 python -m biointel hypothesis SUB ...         expert-hypothesis store: ledger | list [CUTOFF] | resolve ID hit|miss|withdrawn
+python -m biointel priorities probe           F2 stage 1: capture specimens of each stated-priority source type and stop (rule 4.20)
 python -m biointel orangebook-probe           OB: test Orange Book download (run FIRST)
 python -m biointel universe                   P1a: build rule-defined table universe
 python -m biointel harvest                    L: propose acquisition events for whole universe
@@ -862,6 +863,11 @@ def main(argv):
         from biointel import hypotheses as _hyp
 
         return _hyp.cli(argv[2:])
+
+    elif cmd == "priorities":
+        from biointel import priorities as _pri
+
+        return _pri.cli(argv[2:])
 
     elif cmd == "calendar-forward":
         from biointel import forward as _forward
