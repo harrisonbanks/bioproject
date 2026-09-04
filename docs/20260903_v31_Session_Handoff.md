@@ -1,20 +1,24 @@
-# docs/20260903_v30_Session_Handoff.md
+# docs/20260903_v31_Session_Handoff.md
 
-# Session handoff v30 — F1 in flight; L4-P, audit and F2 scope closed
+# Session handoff v31 — F1 in flight; everything buildable without the database is committed
 
-Bioindustry Intelligence Platform · 2026-09-03 · supersedes v29. Read with
-PROJECT_STATUS 1.13, Design Principles v5 (P1–P19), Implementation Plan v24,
+Bioindustry Intelligence Platform · 2026-09-03 (evening) · supersedes v30. Read with
+PROJECT_STATUS 1.14, Design Principles v6 (P1–P21), Implementation Plan v25,
 Ontology v5, Data-Feeder Roadmap (amended), Constants Audit v2, F2 scope,
 Hypothesis-Store Decisions, Stakes Parser Development Record.
 
 ## 1. Where the repository stands
-Branch `jason/refactor`, HEAD `8449877`. 199 unit tests green. Commits this
+Branch `jason/refactor`, HEAD `058d729`. 217 unit tests green. Commits this
 session: fea4bfd (F1 code, tests, 13 probe fixtures, parser development
 record) · 3754eb6 + 1f3b2c7 (UNSOURCED-constants correction, code and
 PROJECT_STATUS) · 7b2967d (gate L4-P) · b7f6cb5 (roadmap amendment) ·
 eab75eb (capture-note persistence and backfill) · ef17094 + c7f0b43
 (constants audit v1, v2) · 26c5d07 (LEGACY command guard) · 8449877 (F2
-scope).
+scope) · 4a7c3e3 (docs v30 / 1.13 / hypothesis decisions) · 5e92aa3 (blind
+sample links the captured document) · 15c5ebc (store extension) · 1c9cb47
+(expert-hypothesis store) · 3399234 (annotation pass + threshold
+reconciliation scope) · fd00d64 (docstring sweep) · 058d729 (F2 probe code +
+raw-SQL guard; references rename cancelled).
 
 Known pre-existing ruff findings outside gate files (improve.py E731,
 score.py and study.py F841) remain deliberate human-review items.
@@ -43,6 +47,25 @@ score.py and study.py F841) remain deliberate human-review items.
    retired) → stub-list decision (proposed 13D owners passing the SIC test;
    never auto-added) → thirteen fingerprints → docs → commit.
 
+## 2a. Built ahead of the database, proofs owed at F1 close
+1. **Store extension** (`update_rows`, `add_columns`): identifiers from
+   schema.py, quoted; feeders contain no raw SQL. Fingerprint proof owed.
+2. **Constants annotation pass**: every constant marked with its provenance
+   class; thresholds centralized in schema.py with values unchanged; six
+   false docstring claims corrected (all described the pre-v0.81 engine as
+   live). Fingerprint proof owed. The threshold reconciliation gate — measure
+   the buyer/target boundary, don't assert it — is scoped and waits for the
+   database.
+3. **Expert-hypothesis store**: table at schema 0.12, entry with derived
+   evidence class, artifact-dated as_of, event-only resolution, per-expert
+   ledger. Not wired into any model yet (aspect-match v2 owns that). A CLI
+   entry form is deferred until a few rows exist by hand.
+4. **Raw-SQL guard test**: SQL outside store/results/schema/migrate fails the
+   suite. The `references` rename was sized and cancelled under P9.
+5. **F2 probe code**: written, not run; needs the network and the database.
+6. **Design Principles v6** drafted with P20 (sourced constants) and P21 (the
+   store tier speaks SQL) — the operator's document; committed on approval.
+
 ## 3. Closed this session
 1. **Gate L4-P** (7b2967d): the two unsourced constants in `aspect-match`
    eliminated, not re-tuned. Therapeutic-area overlap contributes its raw
@@ -63,18 +86,22 @@ score.py and study.py F841) remain deliberate human-review items.
 
 ## 4. Open queue
 1. F1 close (§2).
-2. Post-F1 gates, order undecided: `store` extension (`update_rows`,
+2. Immediately after F1 close, in this order unless the operator rules
+   otherwise: the thirteen-fingerprint proof (covers L4-P, store extension,
+   annotation pass); F2 probe (`priorities probe`, attach the bundle);
+   threshold reconciliation measurement.
+3. Post-F1 gates, order undecided: `store` extension (`update_rows`,
    `add_columns`, identifiers from schema.py — closes the raw-SQL path);
    `references` table rename (migration, after the store gate); constants
    remediation (annotate every constant, reconcile the three buyer
    thresholds and two staleness windows, sensitivity-report the `>= 8` pool
    floor, replace the drift SMA); hypothesis store (decisions recorded, two
    questions open); F2 (scoped).
-3. aspect-match v2, blocked on F1 + F2, direction of record: temporal-graph
+4. aspect-match v2, blocked on F1 + F2, direction of record: temporal-graph
    link prediction over the dated edges the feeders supply, replacing
    hand-set aspect rules; own pre-registration; same benchmark, same
    exclusion.
-4. Harrison unblock: merge, key rotation, repo visibility, USB snapshot.
+5. Harrison unblock: merge, key rotation, repo visibility, USB snapshot.
 
 ## 5. Operating rules added or reinforced today
 1. No numeric constant without a source line; absent one the parameter is

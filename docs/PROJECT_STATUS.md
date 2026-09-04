@@ -2,7 +2,51 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 1.13. Supersedes v1.12. Session 2026-09-03 (afternoon), all
+Version 1.14. Supersedes v1.13. Session 2026-09-03 (evening), commits
+3399234 … 058d729, all on jason/refactor, 217 tests:
+- Constants annotation pass (3399234): every constant marked with its
+  provenance class at its definition; size thresholds and staleness windows
+  declared once in schema.py (PAIRS_ACQUIRER_SIDE_REVENUE 2e9,
+  SCORE_ACQUIRER_SIDE_REVENUE 1e10, SCORE_ACQUIRER_SIDE_MARKETCAP 7.5e10,
+  SCORE_TARGET_CAP_BAND, the two staleness windows) with values UNCHANGED —
+  unifying them moves `predict` output and is the threshold reconciliation
+  gate (docs/20260903_v1_Threshold_Reconciliation_Gate.md: measure the
+  buyer/target size boundary from the ~129 resolvable deals with the
+  selection rule pre-registered, not asserted).
+- Six false docstring claims corrected against the executing line
+  (3399234, fd00d64), all describing the pre-v0.81 architecture as live:
+  score.py's cap cut is $75B not $100B; the 50/30/20 pairing fit and its
+  $5B/$50B eligibility retired at v0.81 (predict uses MASS-exact x 100);
+  pairs.py's rarity handling is the paper's Eq 10 over raw counts, not
+  TF-IDF; pairs.py does not write pair_report.txt (the LEGACY `pairs`
+  command does); study.py has no SPY benchmark. Audit v5 records the
+  pattern and the rule: a docstring is not evidence until checked against
+  the running line. score.py's unused `toks = _condition_tokens()` is the
+  retired engine's remnant, left in place for the reconciliation gate.
+- Store extension (15c5ebc): `store.update_rows` (row-level update by
+  declared key) and `store.add_columns` (idempotent declared-column add),
+  identifiers from schema.py, quoted. stakes.py now contains no raw SQL.
+- Raw-SQL guard (058d729): tests/unit/test_no_raw_sql.py fails the suite on
+  SQL outside store/results/schema/migrate; allowlist asserted exactly. The
+  `references` rename was sized (29 sites, 8 modules, 2 fingerprint-
+  protected, live migration) and cancelled under P9.
+- Expert-hypothesis store built (1c9cb47): analyst_hypotheses table at
+  schema 0.12, `hypotheses.add/attach_artifact/resolve/as_of_rows/ledger`,
+  CLI `hypothesis ledger|list|resolve`. Decisions of record in
+  docs/20260903_v1_Hypothesis_Store_Decisions.md. Not yet wired into any
+  model (aspect-match v2's pre-registration owns that).
+- F2 probe written, not run (058d729): priorities.py captures specimens of
+  the three source types across two eras; runs after F1 closes.
+- Blind-sample fix (5e92aa3): the judging list links to the captured
+  document, not an accession directory under the subject CIK (EDGAR indexes
+  13D/13G under the filer's CIK).
+- Design Principles v6 drafted with P20 (sourced constants) and P21 (the
+  store tier speaks SQL; nothing else does) — the operator's document,
+  committed on approval.
+- Proofs owed at F1 close (all need the database): thirteen fingerprints
+  covering L4-P, the store extension, and the annotation pass together.
+
+v1.13. Supersedes v1.12. Session 2026-09-03 (afternoon), all
 committed on jason/refactor (fea4bfd … 8449877):
 - F1 in progress: collector running (~45% of 1,379 members, ~23k rows at
   last check), interruption-safe; parser at rule F1-r6, coverage 0.881 →
@@ -449,7 +493,7 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 - Gate 1.4 DONE 2026-08-31: `events_table` live (4,282 rows migrated 1:1 from `events`, deterministic event_id, ledger run recorded); `event_date` column added per the approved amendment; v4 event classes declared (vocabulary complete from birth, writers at their own gates); `calendar IID` a view over trials + events_table with forward rows empty until 1.5/1.6; pytest 85; validate 27/0/8/4 (39 declared); thirteen fingerprints MATCH; runbook docs/20260831_v1_GATE14_INSTALL.md.
 - Regression baseline: thirteen fingerprints (docs/regression_baseline.txt, ffbbf20), reproduced at every gate since.
 
-## 0.9 Open queue (2026-09-03; detail in docs/20260903_v30_Session_Handoff.md)
+## 0.9 Open queue (2026-09-03; detail in docs/20260903_v31_Session_Handoff.md)
 1. Snapshot of record decided (0.5); remaining action: after the merge, hand `data\snapshots\20260831\` to Harrison on USB; he places `biointel.duckdb` at `<his root>\data\biointel.duckdb`, verifies the SHA-256 in 0.5 and runs `validate`.
 2. `predict` composition (M1-P): `target-screen/fitted` has no fit/predict path; `scorecard` drives `predict`; decide fitted-ranks/scorecard-explains or keep.
 3. Rotate the Alpha Vantage key; set the repository private (Harrison).
@@ -458,7 +502,7 @@ Commits: 76a3ba3 baseline hashes · c5bbf6c line endings · 26133aa dead code an
 6. Order of record complete (L4 DONE 2026-09-02). Open next, each its own decision or gate: (a) the a3 analyser rule agenda incl. aspect-extraction rules to populate stated_priorities/assets/deal_aspects — the coverage metrics show the aspect matcher is substrate-starved, not rule-starved; (b) 13D/13G ingestion for equity_stakes at scale; (c) aspect weights beyond the equal-weight prior (own pre-registration, weights never set on test deals); (d) `report pairs-aspect` RENDERERS entry with the next results.py gate; (e) gate L1 vs Phase 1 gate 1.4 sequencing question (Ontology §8 Q8) is moot — both done. Previously: L4 — aspect-match: the acquirer-pairing implementation that scores hypothetical pairs from company aspects (dossier-derived vocabulary, typed relationships, stated priorities) and tests them forward against verified deals. Previously: L3 — realized readouts and PDUFA outcomes as events with event_date and disclosure_datetime, delay_timing events from negated guidance, outcome_state from outcome words, all written from the `mined_candidates` ledger (no re-fetching; re-mine with r7 and re-measure precision/recall). Then 2.9′ → L3 → L4 (order of record L1 → 1.4 → L2 → 2.10 → 1.5a → 1.5b → 1.5c → 2.9′ → L3 → L4). Standing, no gate needed: pending seed rows re-admitted by captures — equity_value_usd (Tempus PR via `library add <file> --for Rf573315b3de`), the three Merck rows (merger-agreement exhibit or §9 news URLs), later timeline/comparables rows (remaining §9 URLs); before any rebuild-from-bronze, run `manual export` first and `manual load` after.
 7. Universe check before 2.9′: are Tempus AI and Personalis among the 1,379 members (one query; Ontology v4 §8 Q9).
 9. F1 close (collector → `stakes run` re-run as the r6 re-parse → blind 60 → precision → stub list → thirteen fingerprints → docs → commit).
-10. Post-F1 gates, order to decide: store extension; references rename; constants remediation; hypothesis store; F2 (scoped, 8449877).
+10. Post-F1 gates, order to decide: threshold reconciliation (scoped); F2 (scoped, probe code written); hypothesis-store CLI entry and matcher wiring (v2 pre-registration); LOE/token-floor sensitivities (v2). Done ahead of F1: store extension, hypothesis store, annotation pass, raw-SQL guard; references rename cancelled.
 8. `predict` composition (item 2) is subordinate to the dossier track: `aspect-match` results (gate L4) inform it; the buyer-agnostic checklist-versus-fitted test remains available as a cheap evaluation.
 
 ---

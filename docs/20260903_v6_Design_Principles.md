@@ -1,6 +1,6 @@
-docs/20260831_v5_Design_Principles.md
+docs/20260903_v6_Design_Principles.md
 
-# Design principles — Bioindustry Intelligence Platform (v5, 2026-08-31; supersedes v4 of 2026-08-30 by appending P19)
+# Design principles — Bioindustry Intelligence Platform (v6, 2026-09-03; supersedes v5 of 2026-08-31 by appending P20 and P21)
 
 Binding for every session. Loaded at session start with the handoff. Each
 principle records the decision, its date, and the reason it was taken.
@@ -165,3 +165,35 @@ deals they were derived from (P10). Reason: the Tempus record (Ontology v4
 §2.5) showed that a deal is a dossier of dated facts whose value depends on
 being re-readable at source; the retracted 6.2× result showed what an
 untraceable number costs.
+
+## P20. Sourced constants (2026-09-03)
+No numeric constant enters a rule, a scope, or a document without a source
+line: a paper, a regulator's limit, a measurement on this project's own
+data, or an operator instruction. Absent one, the parameter is eliminated
+(the raw quantity is used, as therapeutic-area overlap now is) or reported
+as a sensitivity across a stated grid (as the LOE horizon now is); it is
+never picked. Constants already in the code are annotated at their
+definition with their provenance class — sourced, conventional, structural,
+protocol, operational, or UNSOURCED — and every UNSOURCED value is listed in
+docs/20260903_v1_Constants_Audit.md with a disposition. Re-tuning a
+constant against the deals that grade the model is fitting on the test set
+(P10) and is refused; a change of value is a pre-registered change with a
+re-run. Reason: two invented constants shipped inside a gate L4 model and
+were not labelled arbitrary; an invented 18-month horizon would have scored
+the Tempus–Personalis sequence as a miss; and the M&A-prediction literature
+names irrational threshold-setting as the flaw that discredited the field's
+early models.
+
+## P21. The store tier speaks SQL; nothing else does (2026-09-03)
+P18 is enforced mechanically. Only `store.py`, `results.py`, `schema.py` and
+`migrate.py` may execute SQL; `tests/unit/test_no_raw_sql.py` fails the
+suite on any other module, and asserts that allowlist exactly so it can
+only change on purpose. Row-level updates go through `store.update_rows`
+(match on the declared key, columns checked against the declaration) and
+column additions through `store.add_columns`; both take every identifier
+from the schema declaration and quote it, so a table or column named with a
+reserved word cannot break a statement. Reason: a hand-written UPDATE in a
+feeder broke on the reserved word `references`; renaming the table was sized
+at 29 call sites across 8 modules plus a live-database migration and
+cancelled under P9, because the store layer already closes the collision by
+construction.
