@@ -824,3 +824,17 @@ def _write_tmp(_con, text):
     p = config.DATA / "doc_rebuild.htm"  # the fixture redirects config.DATA to tmp_path
     p.write_text(text, encoding="utf-8")
     return p
+
+
+def test_orient_does_not_depend_on_which_cik_was_searched(db):
+    """The BlackRock row that survived the first fix: SEC listed the fund
+    first, the note called it the 'member', and the old code inverted the
+    row. Orientation must come from the document and the parties alone."""
+    _companies((1, "VSTM", "1347178", "Verastem, Inc."))
+    parsed = {"issuer_name": "Verastem, Inc.", "owner_name": "BlackRock, Inc.", "percent": "16.9"}
+    hit = _hit(ciks=("1364742", "1347178"))  # fund listed first
+    # whichever CIK the caller believes was searched, the answer is the same
+    for believed_member in ("1364742", "1347178"):
+        holder, issuer, how = stakes.orient(hit, parsed, believed_member)
+        assert (holder, issuer) == ("CIK:1364742", "CIK:1347178"), believed_member
+        assert how == "subject"

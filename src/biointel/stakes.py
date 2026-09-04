@@ -809,58 +809,78 @@ def _member_name(cik: str) -> str:
     return ""
 
 
+def _registry_name_of(cik: str) -> str:
+    return _member_name(cik)
+
+
 def orient(hit: dict, parsed: dict, member_cik: str) -> tuple[str, str, str]:
     """Decide who is the SUBJECT (issuer) and who is the OWNER (holder) of a
-    filing, from the DOCUMENT, not from which company we searched by.
+    filing from the DOCUMENT and the two parties SEC associates with it —
+    never from which company we happened to search by.
 
-    Defect fixed 2026-09-04: the collector searches SEC by each member's CIK
-    and previously assumed the member was the subject. The search also
-    returns filings where the member is the FILER (GSK's 13G about a company
-    it holds), and those rows were written backwards — issuer = GSK, holder =
-    the target — which is exactly the strategic-stake population the matcher
-    exists to read. The stub list showed it: one buyer's name under dozens of
-    target CIKs.
+    Defect history (2026-09-04). First version: the searched member was
+    assumed to be the subject, inverting every filing where the member was
+    the filer (11,302 of 41,121 rows). Second version: fixed that but still
+    trusted the reference note's "member", which recorded SEC's first-listed
+    CIK rather than the searched one; when that was a non-member fund the
+    name test had nothing to compare against and fell through to the old
+    assumption. This version needs no "member": the parties are the CIKs
+    SEC lists; the document names the issuer; whichever party carries that
+    name is the subject and the other is the owner.
 
-    Rule: the subject is the issuer the document names (XML issuerCik, or the
-    HTML "(Name of Issuer)" resolved against the registry). If that is the
-    member, the member is the subject and the owner is the other search CIK
-    (or the document's owner CIK). If it is not, the member is the filer:
-    holder = member, issuer = the document's issuer CIK or the other search
-    CIK. Returns (holder_key, issuer_key, orientation) with orientation
-    "subject", "filer", or "unresolved"."""
+    Returns (holder_key, issuer_key, orientation) where orientation is
+    "subject" (the document's issuer identified among the parties or by the
+    XML), "filer" (the document's issuer is not the party we started from),
+    or "unresolved" (the document names no issuer we can place; the
+    historical fallback applies and is counted)."""
     from biointel import network
 
-    member = str(int(member_cik))
-    ciks = [c for c in hit.get("ciks", []) if c]
-    others = [c for c in ciks if c != member]
+    parties = [c for c in hit.get("ciks", []) if c]
     doc_issuer = parsed.get("issuer_cik") or ""
-    issuer_name = network._norm(parsed.get("issuer_name") or "")
-    if not doc_issuer and issuer_name:
-        doc_issuer = _name_index().get(issuer_name, "")
     doc_owner = parsed.get("owner_cik") or ""
+    issuer_name = network._norm(parsed.get("issuer_name") or "")
 
-    # Decisive HTML-era test that needs no registry knowledge of the target:
-    # if the document names an issuer and it is NOT the member, the member
-    # is the filer, whoever the issuer is.
-    member_name = _member_name(member)
-    if not doc_issuer and issuer_name and member_name and issuer_name != member_name:
-        if len(others) == 1:
-            return f"CIK:{member}", f"CIK:{others[0]}", "filer"
-        return f"CIK:{member}", f"NAME:{issuer_name}", "filer"
+    def _label(owner: str) -> str:
+        # "filer": a registry member is the OWNER (member holds a stake in
+        # someone); "subject": the member is the one being held.
+        return "filer" if _registry_name_of(owner) else "subject"
 
-    if doc_issuer and doc_issuer != member:
-        # the member is the filer; the document names someone else as issuer
-        holder = member if (not doc_owner or doc_owner == member) else doc_owner
-        return f"CIK:{holder}", f"CIK:{doc_issuer}", "filer"
-    if doc_issuer == member or (not doc_issuer and doc_owner and doc_owner != member):
-        owner = doc_owner or (others[0] if len(others) == 1 else "")
+    # Structured era: the XML states both sides outright.
+    if doc_issuer:
+        owner = doc_owner or next((c for c in parties if c != doc_issuer), "")
         if owner:
-            return f"CIK:{owner}", f"CIK:{member}", "subject"
-    if not doc_issuer and len(others) == 1:
-        # HTML era, issuer name did not resolve: the only evidence is the
-        # search metadata; keep the historical assumption but flag it
+            return f"CIK:{owner}", f"CIK:{doc_issuer}", _label(owner)
+        return "", "", "unresolved"
+
+    # HTML era: place the document's issuer name among the parties.
+    if issuer_name:
+        by_name = _name_index().get(issuer_name, "")
+        for c in parties:
+            if c == by_name or (_registry_name_of(c) and _registry_name_of(c) == issuer_name):
+                owner = doc_owner or next((o for o in parties if o != c), "")
+                if owner:
+                    return f"CIK:{owner}", f"CIK:{c}", _label(owner)
+        if by_name:  # issuer is a registry company that SEC did not list as a party
+            owner = doc_owner or next((o for o in parties if o != by_name), "")
+            if owner:
+                return f"CIK:{owner}", f"CIK:{by_name}", "filer"
+        # issuer named but not a registry company: the registry party is the
+        # filer (it is the only one we could have searched by)
+        members = [c for c in parties if _registry_name_of(c)]
+        if len(members) == 1 and len(parties) == 2:
+            other = next(o for o in parties if o != members[0])
+            return f"CIK:{members[0]}", f"CIK:{other}", "filer"
+        if len(members) == 1:
+            return f"CIK:{members[0]}", f"NAME:{issuer_name}", "filer"
+
+    # No usable issuer in the document: historical fallback, counted.
+    member = str(int(member_cik)) if str(member_cik).strip() else ""
+    others = [c for c in parties if c != member]
+    if doc_owner and member and doc_owner != member:
+        return f"CIK:{doc_owner}", f"CIK:{member}", "unresolved"
+    if member and len(others) == 1:
         return f"CIK:{others[0]}", f"CIK:{member}", "unresolved"
-    if parsed.get("owner_name"):
+    if parsed.get("owner_name") and member:
         return f"NAME:{network._norm(parsed['owner_name'])}", f"CIK:{member}", "unresolved"
     return "", "", "unresolved"
 
