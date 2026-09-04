@@ -19,8 +19,12 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "EXPORTS", tmp_path / "exports")
     monkeypatch.setattr(config, "BRONZE", tmp_path / "bronze")
     store.close()
+    stakes.reset_capture_index()  # per-pass index must not leak between tests
+    stakes._PENDING_NOTES.clear()
     yield store.connect(tmp_path / "t.duckdb")
     store.close()
+    stakes.reset_capture_index()
+    stakes._PENDING_NOTES.clear()
 
 
 def test_member_ciks_deterministic_iid_order_and_cikless_skipped(db):
@@ -596,6 +600,7 @@ def test_backfill_enriches_preexisting_capture_notes(db, monkeypatch):
         r["note"] = "captured by stakes-probe;form=SC 13D/A;cik=100"
     store.write_table("references", rows, cols, con=con)
     assert all("ciks=" not in str(r["note"]) for r in store.read_table("references", con=con))
+    stakes.reset_capture_index()  # a new pass rebuilds its index from the table
 
     assert stakes._capture(hit, con) is not None  # cached path queues the repair
     assert stakes.flush_note_backfill(con) == 1
@@ -676,3 +681,35 @@ def test_sample_warns_when_a_document_url_cannot_be_resolved(db, capsys):
     out = capsys.readouterr().out
     assert "WARNING: 1 of 1 rows have no resolvable document URL." in out
     assert "(no url)" in out
+
+
+def test_capture_index_is_built_once_per_pass(db, monkeypatch):
+    """Regression for the 2026-09-04 re-parse stall: the cached-capture check
+    must not re-read the references/captures tables per hit."""
+    _companies((1, "AAA", "100"))
+    monkeypatch.setattr(stakes, "_fetch", lambda url: (b"<html>x</html>", ".htm", "text/html"))
+    con = store.connect()
+    hit = {
+        "url": "https://www.sec.gov/Archives/edgar/data/100/000/d.htm",
+        "adsh": "0001-15-000001",
+        "doc": "d.htm",
+        "cik": "100",
+        "ciks": ["100", "999777"],
+        "name": "N1",
+        "form": "SC 13D/A",
+        "file_date": "2015-04-07",
+    }
+    stakes.reset_capture_index()
+    stakes._capture(hit, con)
+    reads = {"n": 0}
+    real = store.read_table
+
+    def counting(name, *a, **k):
+        if name in ("references", "captures"):
+            reads["n"] += 1
+        return real(name, *a, **k)
+
+    monkeypatch.setattr(store, "read_table", counting)
+    for _ in range(50):
+        assert stakes._capture(hit, con)[2] == "cached"
+    assert reads["n"] == 0  # fifty cached hits, zero table reads

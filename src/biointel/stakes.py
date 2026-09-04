@@ -122,7 +122,9 @@ def _backfill_note(ref_row: dict, hit: dict) -> bool:
     note = str(ref_row.get("note") or "")
     if "ciks=" in note or not (hit.get("ciks") or []):
         return False
-    _PENDING_NOTES[str(ref_row["ref_id"])] = _hit_note(hit)
+    new_note = _hit_note(hit)
+    _PENDING_NOTES[str(ref_row["ref_id"])] = new_note
+    ref_row["note"] = new_note  # the index row now matches what flush will write
     return True
 
 
@@ -140,23 +142,52 @@ def flush_note_backfill(con=None) -> int:
     return changed
 
 
+# URL -> (reference row, capture_id, ext) for every active capture, built
+# ONCE per pass. Defect fixed 2026-09-04: the previous lookup re-read the
+# whole references and captures tables for every hit — cheap on the first
+# pass when the tables were empty, but with ~25k rows each and ~37k hits the
+# r6 re-parse ground for hours on my scan instead of on SEC's rate limit.
+_CAPTURE_INDEX: dict[str, tuple[dict, str, str]] | None = None
+
+
+def _build_capture_index(con) -> dict[str, tuple[dict, str, str]]:
+    idx: dict[str, tuple[dict, str, str]] = {}
+    if not (store.has_table("references", con) and store.has_table("captures", con)):
+        return idx
+    active: dict[str, tuple[str, str]] = {}
+    for c in store.read_table("captures", con=con):
+        if c["status"] == "active":
+            active[str(c["ref_id"])] = (str(c["capture_id"]), "." + str(c.get("ext") or "htm"))
+    for r in store.read_table("references", con=con):
+        hit = active.get(str(r["ref_id"]))
+        if hit and r.get("url"):
+            idx[str(r["url"])] = (r, hit[0], hit[1])
+    return idx
+
+
+def reset_capture_index() -> None:
+    global _CAPTURE_INDEX
+    _CAPTURE_INDEX = None
+
+
 def _capture(hit: dict, con) -> tuple[str, str, str] | None:
     """Capture one filing into the library with stakes-probe provenance;
     returns (capture_sha, ext, content_type). Re-captures nothing: an
-    existing active capture of the same URL is reused."""
+    existing active capture of the same URL is reused via the per-pass
+    index."""
+    global _CAPTURE_INDEX
     if not hit["url"]:
         return None
-    if store.has_table("references", con):
-        for r in store.read_table("references", con=con):
-            if r["url"] == hit["url"]:
-                for c in store.read_table("captures", con=con):
-                    if c["ref_id"] == r["ref_id"] and c["status"] == "active":
-                        # Backfill: captures taken before the note carried the
-                        # search CIK list are enriched in place, so the library
-                        # becomes self-sufficient for every future rule version
-                        # (no re-search needed to identify a 13D/13G owner).
-                        _backfill_note(r, hit)
-                        return c["capture_id"], "." + str(c.get("ext") or "htm"), "cached"
+    if _CAPTURE_INDEX is None:
+        _CAPTURE_INDEX = _build_capture_index(con)
+    cached = _CAPTURE_INDEX.get(hit["url"])
+    if cached:
+        ref_row, capture_id, ext = cached
+        # Backfill: captures taken before the note carried the search CIK
+        # list are enriched in place, so the library becomes self-sufficient
+        # for every future rule version.
+        _backfill_note(ref_row, hit)
+        return capture_id, ext, "cached"
     got = _fetch(hit["url"])
     if not got:
         return None
@@ -182,6 +213,8 @@ def _capture(hit: dict, con) -> tuple[str, str, str] | None:
     library.add_capture(ref_id, sha, dst, "fetched_html", "stakes-probe", con)
     if hit["cik"]:
         library.add_link(ref_id, "CIK", hit["cik"], "subject", con)
+    if _CAPTURE_INDEX is not None:
+        _CAPTURE_INDEX[hit["url"]] = ({"ref_id": ref_id, "note": _hit_note(hit)}, sha, ext)
     return sha, ext, ctype
 
 
@@ -720,6 +753,7 @@ def run(since: str = "2001-01-01") -> int:
 
     from biointel import schema as _schema
 
+    reset_capture_index()
     con = store.connect()
     until = _date.today().isoformat()
     cols = list(_schema.EQUITY_STAKE_COLS) + list(
