@@ -158,11 +158,14 @@ def test_parse_cover_refuses_non_cover_text():
 
 def _companies(*rows_):
     out = []
-    for iid, tick, cik in rows_:
+    for row in rows_:
+        iid, tick, cik = row[:3]
+        name = row[3] if len(row) > 3 else f"N{iid}"
         r = dict.fromkeys(schema.COMPANY_COLS, "")
-        r.update({"IID": str(iid), "Name": f"N{iid}", "Ticker": tick, "CIK": cik})
+        r.update({"IID": str(iid), "Name": name, "Ticker": tick, "CIK": cik})
         out.append(r)
     store.write_table("companies", out, schema.COMPANY_COLS)
+    stakes.reset_name_index()
 
 
 # ---- stage 2b: XML parser, row build, idempotent collect, measurement ----
@@ -263,7 +266,7 @@ def test_row_from_owner_resolution_and_exit_semantics():
 
 
 def test_run_writes_idempotently_and_proposes_stubs(db, monkeypatch):
-    _companies((1, "AAA", "100"))
+    _companies((1, "AAA", "100", "Mylan N.V."))  # the member is the document's issuer
 
     def fake_search(q, forms, start, end, cik=None, page_from=0):
         if forms == stakes.STAKE_FORMS and cik == "100" and page_from == 0:
@@ -713,3 +716,111 @@ def test_capture_index_is_built_once_per_pass(db, monkeypatch):
     for _ in range(50):
         assert stakes._capture(hit, con)[2] == "cached"
     assert reads["n"] == 0  # fifty cached hits, zero table reads
+
+
+# ---- orientation (2026-09-04): the document decides who is subject and who is owner ----
+def test_orient_member_is_subject_when_document_names_it_as_issuer(db):
+    _companies((1, "MYL", "100", "Mylan N.V."))
+    parsed = {"issuer_name": "Mylan N.V.", "owner_name": "Abbott Laboratories", "percent": "15.32"}
+    holder, issuer, how = stakes.orient(_hit(ciks=("100", "999777")), parsed, "100")
+    assert (holder, issuer, how) == ("CIK:999777", "CIK:100", "subject")
+
+
+def test_orient_member_is_filer_when_document_names_someone_else(db):
+    """GSK's 13G about a company it holds, found by searching GSK's CIK: the
+    row must read GSK -> target, not target -> GSK. This is the inversion
+    that put one buyer's name under dozens of target CIKs in the stub list."""
+    _companies((1, "GSK", "100", "GlaxoSmithKline plc"))
+    parsed = {
+        "issuer_name": "Small Biotech Inc",
+        "owner_name": "GlaxoSmithKline plc",
+        "percent": "9.9",
+    }
+    holder, issuer, how = stakes.orient(_hit(ciks=("100", "555444")), parsed, "100")
+    assert (holder, issuer, how) == ("CIK:100", "CIK:555444", "filer")
+
+
+def test_orient_structured_filing_uses_the_xml_issuer_cik(db):
+    """Structured era: the XML names the issuer and the owner outright. A
+    member that filed about itself-as-owner must not become a self-stake."""
+    _companies((1, "JNJ", "100", "Johnson & Johnson"))
+    parsed = {
+        "issuer_cik": "777",
+        "owner_cik": "100",
+        "owner_name": "Johnson & Johnson",
+        "percent": "6.1",
+    }
+    holder, issuer, how = stakes.orient(_hit(ciks=("100", "777")), parsed, "100")
+    assert (holder, issuer, how) == ("CIK:100", "CIK:777", "filer")
+    parsed2 = {"issuer_cik": "100", "owner_cik": "888", "owner_name": "Vanguard", "percent": "8.0"}
+    assert stakes.orient(_hit(ciks=("100", "888")), parsed2, "100") == (
+        "CIK:888",
+        "CIK:100",
+        "subject",
+    )
+
+
+def test_orient_falls_back_only_when_the_document_is_silent(db):
+    _companies((1, "AAA", "100"))
+    parsed = {"owner_name": "Some Fund LP", "percent": "5.5"}  # no issuer name parsed
+    holder, issuer, how = stakes.orient(_hit(ciks=("100", "999777")), parsed, "100")
+    assert how == "unresolved" and issuer == "CIK:100" and holder == "CIK:999777"
+
+
+def test_rebuild_rederives_rows_from_the_library_with_correct_orientation(db, monkeypatch):
+    """A filer-side filing captured under the old assumption is re-derived
+    from the library and comes out the right way round, with no network."""
+    _companies((1, "GSK", "100", "GlaxoSmithKline plc"))
+    monkeypatch.setattr(stakes, "_fetch", lambda url: (b"<html>x</html>", ".htm", "text/html"))
+    # capture a document with a note carrying the search metadata
+    hit = {
+        "url": "https://www.sec.gov/Archives/edgar/data/555444/000/g.htm",
+        "adsh": "0009-19-000009",
+        "doc": "g.htm",
+        "cik": "100",
+        "ciks": ["100", "555444"],
+        "name": "GSK",
+        "form": "SC 13G/A",
+        "file_date": "2019-02-14",
+    }
+    con = store.connect()
+    sha, _e, _c = stakes._capture(hit, con)
+    stakes.flush_note_backfill(con)
+    # the document names Small Biotech as issuer and GSK as the reporting person
+    text = (
+        "Small Biotech Inc (Name of Issuer) Common Stock 123456789 (CUSIP Number) "
+        "NAMES OF REPORTING PERSONS GlaxoSmithKline plc (2) CHECK THE APPROPRIATE BOX "
+        "PERCENT OF CLASS REPRESENTED BY AMOUNT IN ROW (9) 9.9% 12 TYPE OF REPORTING PERSON CO "
+        "December 31, 2018 (Date of Event Which Requires Filing of this Statement)"
+    )
+    monkeypatch.setattr(stakes.library, "store_path", lambda s, e: _write_tmp(db, text))
+    # seed an INVERTED row, as the old code would have written it
+    cols = list(schema.EQUITY_STAKE_COLS) + list(schema.EQUITY_STAKE_F1_COLS)
+    inverted = dict.fromkeys(cols, "")
+    inverted.update(
+        {
+            "holder_key": "CIK:555444",
+            "issuer_key": "CIK:100",
+            "percent": "9.9",
+            "as_of": "2018-12-31",
+            "doc_id": sha,
+            "span": "9.9%",
+            "form": "SC 13G/A",
+            "filing_date": "2019-02-14",
+            "owner_name": "GlaxoSmithKline plc",
+            "accession": "0009-19-000009",
+        }
+    )
+    store.write_table("equity_stakes", [inverted], cols, con=con)
+
+    assert stakes.rebuild(con) == 0
+    rows = store.read_table("equity_stakes", con=con)
+    assert len(rows) == 1
+    assert rows[0]["holder_key"] == "CIK:100" and rows[0]["issuer_key"] == "CIK:555444"
+    assert rows[0]["owner_name"] == "GlaxoSmithKline plc"
+
+
+def _write_tmp(_con, text):
+    p = config.DATA / "doc_rebuild.htm"  # the fixture redirects config.DATA to tmp_path
+    p.write_text(text, encoding="utf-8")
+    return p

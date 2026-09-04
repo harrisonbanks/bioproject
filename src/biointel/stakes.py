@@ -316,6 +316,118 @@ def probe() -> int:
     return 0 if captured else 1
 
 
+def rebuild(con=None) -> int:
+    """Re-derive EVERY stake row from the library with the current rules and
+    the current orientation logic. No network: the search metadata each row
+    needs (the CIK list, the form, the filing date) rides in the reference
+    note, which is why that backfill mattered. Replaces the table wholesale;
+    the prior and new row counts, the orientation split, and per-format parse
+    failures are recorded as run metrics. Written 2026-09-04 to repair the
+    inverted rows the subject assumption produced."""
+    from biointel import schema as _schema
+
+    reset_capture_index()
+    reset_name_index()
+    con = con or store.connect()
+    cols = list(_schema.EQUITY_STAKE_COLS) + list(
+        _schema.TABLE_BY_PATH["silver/equity_stakes.csv"].optional
+    )
+    before = (
+        len(store.read_table("equity_stakes", con=con))
+        if store.has_table("equity_stakes", con)
+        else 0
+    )
+    caps = {
+        str(c["ref_id"]): c
+        for c in store.read_table("captures", con=con)
+        if c["status"] == "active"
+    }
+    counters = {
+        "references_seen": 0,
+        "rows_rebuilt": 0,
+        "no_note_metadata": 0,
+        "parse_failures_html": 0,
+        "parse_failures_xml": 0,
+        "row_rejects": 0,
+        "orient_subject": 0,
+        "orient_filer": 0,
+        "orient_unresolved": 0,
+        "dupes_dropped": 0,
+    }
+    rows: list[dict] = []
+    seen: set[tuple] = set()
+    note_re = _re.compile(r"form=([^;]*);cik=([^;]*);ciks=([^;]*);file_date=([^;]*)")
+    for ref in store.read_table("references", con=con):
+        if str(ref.get("source_system") or "") != "stakes-probe":
+            continue
+        cap = caps.get(str(ref["ref_id"]))
+        if not cap:
+            continue
+        counters["references_seen"] += 1
+        m = note_re.search(str(ref.get("note") or ""))
+        if not m:
+            counters["no_note_metadata"] += 1
+            continue
+        form, member_cik, ciks, file_date = m.groups()
+        if not member_cik.strip():
+            counters["no_note_metadata"] += 1
+            continue
+        sha = str(cap["capture_id"])
+        ext = "." + str(cap.get("ext") or "htm")
+        try:
+            raw = library.store_path(sha, ext).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        parsed = parse_structured(raw) if ext == ".xml" else parse_cover(normalize_text(raw))
+        if not parsed:
+            counters["parse_failures_xml" if ext == ".xml" else "parse_failures_html"] += 1
+            continue
+        hit = {
+            "sha": sha,
+            "form": form,
+            "file_date": file_date,
+            "adsh": str(ref.get("sec_accession") or ""),
+            "ciks": [c for c in ciks.split("|") if c],
+        }
+        row = _row_from(hit, parsed, member_cik)
+        if row is None:
+            counters["row_rejects"] += 1
+            continue
+        counters[f"orient_{row.pop('_orientation')}"] += 1
+        key = (row["holder_key"], row["issuer_key"], str(row["as_of"])[:10])
+        if key in seen:
+            counters["dupes_dropped"] += 1
+            continue
+        seen.add(key)
+        rows.append(row)
+    store.write_table("equity_stakes", rows, cols, con=con)
+    counters["rows_rebuilt"] = len(rows)
+    runr = results.start(
+        "stakes-rebuild",
+        "stakes rebuild",
+        ["references", "captures"],
+        {"rule_version": RULE_VERSION},
+    )
+    runr.metric("_", "rows_before", before)
+    for k, v in counters.items():
+        runr.metric("_", k, v)
+    run_id = results.finish(
+        runr,
+        note=(
+            f"full rebuild from the library at rule {RULE_VERSION}; orientation from the "
+            "document (subject/filer/unresolved counted); replaces the r1+r6 table"
+        ),
+    )
+    log.info(
+        f"rebuilt {len(rows)} rows (was {before}); orientation subject/filer/unresolved = "
+        f"{counters['orient_subject']}/{counters['orient_filer']}/{counters['orient_unresolved']}; "
+        f"parse failures h/x {counters['parse_failures_html']}/{counters['parse_failures_xml']}; "
+        f"no note metadata {counters['no_note_metadata']}"
+    )
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
 def cli(argv: list[str]) -> int:
     sub = argv[0] if argv else ""
     if sub == "probe":
@@ -326,7 +438,9 @@ def cli(argv: list[str]) -> int:
         return sample(int(argv[1]) if len(argv) > 1 else 60)
     if sub == "precision":
         return precision()
-    print("usage: stakes probe|run [SINCE]|sample [N]|precision")
+    if sub == "rebuild":
+        return rebuild()
+    print("usage: stakes probe|run [SINCE]|rebuild|sample [N]|precision")
     return 1
 
 
@@ -347,12 +461,25 @@ _ISSUER = _re.compile(r"([A-Za-z0-9&.,'()\- ]{3,80}?)\s*\(Name of Issuer\)", _re
 _ISSUER_AFTER = _re.compile(r"Name of issuer\s*:\s*(.{3,80}?)\s+Title of Class", _re.IGNORECASE)
 _CUSIP_BEFORE = _re.compile(r"([0-9A-Z][0-9A-Za-z ]{5,14}?)\s*\(CUSIP Number\)", _re.IGNORECASE)
 _CUSIP_AFTER = _re.compile(r"CUSIP Number\s*:\s*([0-9][0-9A-Za-z]{5,8})\b", _re.IGNORECASE)
+# r7 (2026-09-04, from live-table specimens): a comma may follow "Person"
+# before "S.S. or"; "IRS"/"EIN"/"I.D."/"Employer Identification" appear
+# without dots and must stop the name; the next row's marker may be printed
+# as "(2) Check" or "2) Check".
 _OWNER = _re.compile(
-    r"Names?\s+of\s+Reporting\s+Persons?\b[.:]?\s*(?:\d{1,2}\s*[.:]?\s+)?"
-    r"(?:S\.S\.\s+or\s+)?(?:I\.?R\.?S\.?\s+Identification\s+Nos?\.?\s+of\s+above\s+persons?"
+    r"Names?\s+of\s+Reporting\s+Persons?\b[.:,]?\s*(?:\d{1,2}\s*[.:)]?\s+)?"
+    r"(?:S\.?S\.?\s+or\s+)?(?:I\.?R\.?S\.?\s+Identification\s+Nos?\.?\s+of\s+above\s+persons?"
     r"\s*(?:\(entities only\)|\[entities only\])?[.:]?\s*)?"
-    r"(.{3,90}?)\s*(?:I\.R\.S\.|S\.S\.|###|\d{2}-\d{7}|-\s*\d{2}-|\d\s*\.?\s*Check\b|2\s+CHECK\b)",
+    r"(.{3,90}?)\s*(?:I\.R\.S\.|IRS\b|S\.?S\.\s+or|EIN\b|I\.D\.|Tax\s+I\.?D|"
+    r"Employer\s+Identification|###|\d{2}-\d{7}|-\s*\d{2}-|\(?\d\)?\s*\.?\s*Check\b)",
     _re.IGNORECASE | _re.DOTALL,
+)
+_NAME_JUNK = _re.compile(
+    r"^(s\.?s\.?\s*or|or|ein|none|#|\d+|i\.?r\.?s\.?)$|^[\W\d]*$", _re.IGNORECASE
+)
+_NAME_TRAIL = _re.compile(
+    r"\s*(IRS\s+Identification\s+No\.?|EIN\s*#?|I\.D\.\s*#?|Tax\s+I\.?D\.?|#|None|"
+    r"\(\s*[“\"]?Parent[”\"]?\s*\)|I\.R\.S\.\s+Employer\s+Identification\s+Number)\s*$",
+    _re.IGNORECASE,
 )
 _SHARES = _re.compile(
     r"Aggregate\s+Amount\s+Beneficially\s+Owned\s+by\s+Each\s+Reporting\s+Person"
@@ -490,7 +617,7 @@ def parse_cover(text: str) -> dict:
     m = _CUSIP_BEFORE.search(text) or _CUSIP_AFTER.search(text)
     if m:
         out["cusip"] = m.group(1).replace(" ", "")
-    m = _OWNER.search(text)
+    m = _OWNER.search(_RULE_RUNS.sub(" ", text))  # r7: rule lines between rows
     if m:
         name = " ".join(m.group(1).split()).strip(" ,:;-")
         if name.endswith(".") and not _re.search(
@@ -499,7 +626,12 @@ def parse_cover(text: str) -> dict:
             name = name[:-1]
         name = name.strip(" ,:;-")
         name = name.rstrip("( ").strip()  # 62d58af: trailing "(" before I.R.S. number
-        out["owner_name"] = name
+        for _ in range(3):  # r7: strip stacked trailing label residue
+            name = _NAME_TRAIL.sub("", name).strip(" ,:;-")
+        if _NAME_JUNK.match(name) or len(name) < 3:
+            name = ""  # a label fragment is not a name: leave it empty, never junk
+        if name:
+            out["owner_name"] = name
     m = _SHARES.search(text) or _SHARES_ITEM.search(text)
     if m:
         out["shares"] = m.group(1).replace(",", "")
@@ -521,7 +653,9 @@ def parse_cover(text: str) -> dict:
 # digit in owner label); r3 bare-number percents, "-0-", qualified exits as 0;
 # r4 structured 13D tag set (percentOfClass, aggregateAmountOwned, issuerCIK,
 # issuerCUSIP, dateOfEvent, reportingPersonCIK).
-RULE_VERSION = "F1-r6"  # r6: window no longer needs a row terminator; value may precede "in Row"
+RULE_VERSION = (
+    "F1-r7"  # r7: owner-name label residue; orientation from the document (subject/filer)
+)
 
 
 def _local(tag: str) -> str:
@@ -645,16 +779,90 @@ def _hits_full(payload: dict) -> list[dict]:
     return out
 
 
-def _owner_cik_from_hit(hit: dict, subject_cik: str, parsed: dict) -> str:
-    """XML gives the owner CIK directly; for the HTML eras the owner is the
-    hit-metadata CIK that is not the subject we queried. Ambiguity falls
-    back to a name key, counted in the run metrics."""
-    if parsed.get("owner_cik"):
-        return parsed["owner_cik"]
-    others = [c for c in hit.get("ciks", []) if c != str(int(subject_cik))]
-    if len(others) == 1:
-        return others[0]
+_NAME_INDEX: dict[str, str] | None = None  # normalized company name -> cik
+
+
+def _name_index(con=None) -> dict[str, str]:
+    global _NAME_INDEX
+    if _NAME_INDEX is None:
+        from biointel import network
+
+        idx: dict[str, str] = {}
+        for co in store.read_table("companies", con=con):
+            cik = str(co.get("CIK") or "").strip()
+            if cik:
+                idx[network._norm(str(co.get("Name") or ""))] = str(int(cik))
+        _NAME_INDEX = idx
+    return _NAME_INDEX
+
+
+def reset_name_index() -> None:
+    global _NAME_INDEX
+    _NAME_INDEX = None
+
+
+def _member_name(cik: str) -> str:
+    """Normalized registry name for a member CIK, or ''."""
+    for name, c in _name_index().items():
+        if c == cik:
+            return name
     return ""
+
+
+def orient(hit: dict, parsed: dict, member_cik: str) -> tuple[str, str, str]:
+    """Decide who is the SUBJECT (issuer) and who is the OWNER (holder) of a
+    filing, from the DOCUMENT, not from which company we searched by.
+
+    Defect fixed 2026-09-04: the collector searches SEC by each member's CIK
+    and previously assumed the member was the subject. The search also
+    returns filings where the member is the FILER (GSK's 13G about a company
+    it holds), and those rows were written backwards — issuer = GSK, holder =
+    the target — which is exactly the strategic-stake population the matcher
+    exists to read. The stub list showed it: one buyer's name under dozens of
+    target CIKs.
+
+    Rule: the subject is the issuer the document names (XML issuerCik, or the
+    HTML "(Name of Issuer)" resolved against the registry). If that is the
+    member, the member is the subject and the owner is the other search CIK
+    (or the document's owner CIK). If it is not, the member is the filer:
+    holder = member, issuer = the document's issuer CIK or the other search
+    CIK. Returns (holder_key, issuer_key, orientation) with orientation
+    "subject", "filer", or "unresolved"."""
+    from biointel import network
+
+    member = str(int(member_cik))
+    ciks = [c for c in hit.get("ciks", []) if c]
+    others = [c for c in ciks if c != member]
+    doc_issuer = parsed.get("issuer_cik") or ""
+    issuer_name = network._norm(parsed.get("issuer_name") or "")
+    if not doc_issuer and issuer_name:
+        doc_issuer = _name_index().get(issuer_name, "")
+    doc_owner = parsed.get("owner_cik") or ""
+
+    # Decisive HTML-era test that needs no registry knowledge of the target:
+    # if the document names an issuer and it is NOT the member, the member
+    # is the filer, whoever the issuer is.
+    member_name = _member_name(member)
+    if not doc_issuer and issuer_name and member_name and issuer_name != member_name:
+        if len(others) == 1:
+            return f"CIK:{member}", f"CIK:{others[0]}", "filer"
+        return f"CIK:{member}", f"NAME:{issuer_name}", "filer"
+
+    if doc_issuer and doc_issuer != member:
+        # the member is the filer; the document names someone else as issuer
+        holder = member if (not doc_owner or doc_owner == member) else doc_owner
+        return f"CIK:{holder}", f"CIK:{doc_issuer}", "filer"
+    if doc_issuer == member or (not doc_issuer and doc_owner and doc_owner != member):
+        owner = doc_owner or (others[0] if len(others) == 1 else "")
+        if owner:
+            return f"CIK:{owner}", f"CIK:{member}", "subject"
+    if not doc_issuer and len(others) == 1:
+        # HTML era, issuer name did not resolve: the only evidence is the
+        # search metadata; keep the historical assumption but flag it
+        return f"CIK:{others[0]}", f"CIK:{member}", "unresolved"
+    if parsed.get("owner_name"):
+        return f"NAME:{network._norm(parsed['owner_name'])}", f"CIK:{member}", "unresolved"
+    return "", "", "unresolved"
 
 
 def _row_from(hit: dict, parsed: dict, subject_cik: str) -> dict | None:
@@ -663,14 +871,8 @@ def _row_from(hit: dict, parsed: dict, subject_cik: str) -> dict | None:
         float(pct)
     except (TypeError, ValueError):
         return None
-    owner_cik = _owner_cik_from_hit(hit, subject_cik, parsed)
-    if owner_cik:
-        holder = f"CIK:{owner_cik}"
-    elif parsed.get("owner_name"):
-        from biointel import network
-
-        holder = f"NAME:{network._norm(parsed['owner_name'])}"
-    else:
+    holder, issuer, orientation = orient(hit, parsed, subject_cik)
+    if not holder:
         return None
     as_of = parsed.get("event_date") or hit["file_date"]
     if not as_of:
@@ -678,7 +880,7 @@ def _row_from(hit: dict, parsed: dict, subject_cik: str) -> dict | None:
     span = parsed.get("percent_span") or parsed.get("shares_span") or parsed.get("event_span") or ""
     return {
         "holder_key": holder,
-        "issuer_key": f"CIK:{int(subject_cik)}",
+        "issuer_key": issuer,
         "percent": pct,
         "as_of": as_of,
         "doc_id": hit["sha"],
@@ -690,6 +892,7 @@ def _row_from(hit: dict, parsed: dict, subject_cik: str) -> dict | None:
         "accession": hit["adsh"],
         "cusip": parsed.get("cusip", ""),
         "item4_text": parsed.get("item4_text", ""),
+        "_orientation": orientation,
     }
 
 
@@ -730,6 +933,7 @@ def _collect_member(cik: str, since: str, until: str, con, counters) -> list[dic
                     continue
                 if row["holder_key"].startswith("NAME:"):
                     counters["name_fallback"] += 1
+                counters[f"orient_{row.pop('_orientation')}"] += 1
                 rows.append(row)
             total = ((payload.get("hits") or {}).get("total") or {}).get("value", 0)
             page += 1
@@ -754,6 +958,7 @@ def run(since: str = "2001-01-01") -> int:
     from biointel import schema as _schema
 
     reset_capture_index()
+    reset_name_index()
     con = store.connect()
     until = _date.today().isoformat()
     cols = list(_schema.EQUITY_STAKE_COLS) + list(
@@ -774,6 +979,9 @@ def run(since: str = "2001-01-01") -> int:
         "parse_failures_xml": 0,
         "row_rejects": 0,
         "name_fallback": 0,
+        "orient_subject": 0,
+        "orient_filer": 0,
+        "orient_unresolved": 0,
         "efts_errors": 0,
         "capped_members": 0,
         "members_done": 0,
@@ -881,8 +1089,10 @@ def sample(n: int = 60, seed: int = 20260903) -> int:
     missing = sum(1 for r in picked if not urls.get(str(r["doc_id"])))
     print(
         f"STAKES BLIND SAMPLE ({len(picked)} rows, rule {RULE_VERSION}, seed {seed}). "
-        "For each: open the filing URL, check owner, subject, percent, event date; then "
-        "`judge F<id> correct|wrong|unsure`. A row passes only if ALL FOUR match."
+        "For each: open the filing URL and check FIVE things - the holder CIK is the "
+        "filer, the issuer CIK is the subject (direction), the owner name, the percent, "
+        "the event date; then `judge F<id> correct|wrong|unsure`. A row passes only if "
+        "ALL FIVE match."
     )
     print(
         "Rows must have been parsed at this rule version: re-run `stakes run` after any "
@@ -892,8 +1102,8 @@ def sample(n: int = 60, seed: int = 20260903) -> int:
         print(f"WARNING: {missing} of {len(picked)} rows have no resolvable document URL.")
     for r in picked:
         print(
-            f"F{str(r['doc_id'])[:12]}  {r.get('owner_name') or r['holder_key']} -> "
-            f"{r['issuer_key']}  {r['percent']}%  as_of {str(r['as_of'])[:10]}  "
+            f"F{str(r['doc_id'])[:12]}  holder {r['holder_key']} ({r.get('owner_name') or '?'}) "
+            f"-> issuer {r['issuer_key']}  {r['percent']}%  as_of {str(r['as_of'])[:10]}  "
             f"{r.get('form', '')}  {urls.get(str(r['doc_id']), '(no url)')}"
         )
     return 0
