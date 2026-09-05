@@ -33,6 +33,7 @@ code consumes.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re as _re
 import time
@@ -658,6 +659,8 @@ def repair_headers(con=None) -> int:
     sec_header. No network. Counts recorded; idempotent (nothing to move on
     a second pass)."""
 
+    from biointel import schema as _schema
+
     con = con or store.connect()
     log.info(f"{_ts()}  repair-headers: reading tables")
     refs = {str(r["ref_id"]): r for r in store.read_table("references", con=con)}
@@ -670,7 +673,11 @@ def repair_headers(con=None) -> int:
     moved = 0
     unresolved = 0
     repoint: dict[str, str] = {}
-    for rid, cs in multi.items():
+    new_refs: list[dict] = []
+    existing_ids = set(refs)
+    for n, (rid, cs) in enumerate(multi.items(), 1):
+        if n % 500 == 0:
+            log.info(f"{_ts()}  {n}/{len(multi)} references examined; {moved} headers queued")
         ref = refs.get(rid)
         if not ref:
             continue
@@ -687,30 +694,42 @@ def repair_headers(con=None) -> int:
         if not headers or not docs:
             unresolved += 1
             continue
+        m = _re.search(r"/edgar/data/(\d+)/", str(ref.get("url") or ""))
+        url = _submission_url(m.group(1), acc) if (m and acc) else ""
         for h in headers:
-            url = ""
-            # rebuild the submission URL from the filing's own URL path
-            m = _re.search(r"/edgar/data/(\d+)/", str(ref.get("url") or ""))
-            if m and acc:
-                url = _submission_url(m.group(1), acc)
-            new_ref, _ = library.upsert_reference(
-                {
-                    "ref_type": "sec_filing",
-                    "url": url,
-                    "title": f"{acc} submission header",
-                    "publisher": "SEC EDGAR",
-                    "published_at": str(ref.get("published_at") or ""),
-                    "source_system": HEADER_SOURCE,
-                    "source_key": f"{acc}:hdr",
-                    "note": f"moved from {rid} by repair-headers 2026-09-05",
-                },
-                con,
-            )
-            repoint[str(h["capture_id"])] = new_ref
+            fields = {
+                "ref_type": "sec_filing",
+                "url": url,
+                "title": f"{acc} submission header",
+                "publisher": "SEC EDGAR",
+                "published_at": str(ref.get("published_at") or ""),
+                "source_system": HEADER_SOURCE,
+                "source_key": f"{acc}:hdr",
+                "note": f"moved from {rid} by repair-headers 2026-09-05",
+            }
+            # Built in memory and appended in ONE write below: calling the
+            # library's upsert per header re-reads the whole references table
+            # each time (7,235 x ~72k rows ~ 45 min of scanning, 2026-09-05).
+            row = dict.fromkeys(_schema.REFERENCE_COLS, "")
+            row.update({k: str(v) for k, v in fields.items() if k in row and v})
+            row["ref_id"] = library._ref_id(fields)
+            while row["ref_id"] in existing_ids:
+                row["ref_id"] = (
+                    "R" + hashlib.sha256((row["ref_id"] + acc).encode()).hexdigest()[:16]
+                )
+            existing_ids.add(row["ref_id"])
+            row["accessed_at"] = library._now()
+            row["added_by"] = library.ADDED_BY_DEFAULT
+            row["status"] = "active"
+            new_refs.append(row)
+            repoint[str(h["capture_id"])] = row["ref_id"]
             moved += 1
+    log.info(
+        f"{_ts()}  examined all; writing {len(new_refs)} header references and re-pointing captures"
+    )
+    if new_refs:
+        store.append_rows("references", new_refs, list(_schema.REFERENCE_COLS), con=con)
     if repoint:
-        # ref_id is part of captures' declared key, so this is a rewrite
-        # through the store layer, not an update
         rows = store.read_table("captures", con=con)
         cols = store.table_columns("captures", con)
         for c in rows:
@@ -719,6 +738,7 @@ def repair_headers(con=None) -> int:
                 c["ref_id"] = nr
                 c["kind"] = HEADER_KIND
         store.write_table("captures", rows, cols, con=con)
+    log.info(f"{_ts()}  writes done")
     runr = results.start(
         "stakes-repair-headers", "stakes repair-headers", ["references", "captures"], {}
     )
