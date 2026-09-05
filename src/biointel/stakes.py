@@ -63,6 +63,14 @@ BUNDLE_CHARS = 40_000
 BUNDLE_NAME = "stakes_probe_bundle.txt"
 
 
+def _ts() -> str:
+    """Local wall-clock stamp for progress lines, so 'is it alive' is
+    answered by the line itself (operator, 2026-09-05)."""
+    from datetime import datetime as _dt
+
+    return _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 def _member_ciks() -> list[tuple[str, str, str]]:
     """(cik, ticker, name) for every registry company with a CIK, IID order —
     deterministic, no hand-picked names in code."""
@@ -364,6 +372,8 @@ def rebuild(con=None) -> int:
         if not cap:
             continue
         counters["references_seen"] += 1
+        if counters["references_seen"] % 5000 == 0:
+            log.info(f"{_ts()}  {counters['references_seen']} references re-parsed")
         m = note_re.search(str(ref.get("note") or ""))
         if not m:
             counters["no_note_metadata"] += 1
@@ -545,7 +555,8 @@ def verify_direction(limit: int | None = None, probe: bool = False, con=None) ->
                 )
         if i % 500 == 0:
             log.info(
-                f"{i}/{len(accs)} headers; match {counters['rows_match']} mismatch {counters['rows_mismatch']}"
+                f"{_ts()}  {i}/{len(accs)} headers; match {counters['rows_match']} "
+                f"mismatch {counters['rows_mismatch']}"
             )
     flush_note_backfill(con)
     if probe:
@@ -1186,7 +1197,7 @@ def run(since: str = "2001-01-01") -> int:
         counters["members_done"] += 1
         if counters["members_done"] % 25 == 0:
             log.info(
-                f"{counters['members_done']} members; rows {counters['rows_written']}; "
+                f"{_ts()}  {counters['members_done']} members; rows {counters['rows_written']}; "
                 f"failures f/h/x {counters['fetch_failures']}/"
                 f"{counters['parse_failures_html']}/{counters['parse_failures_xml']}"
             )
