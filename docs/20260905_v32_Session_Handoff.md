@@ -1,14 +1,14 @@
-# docs/20260903_v31_Session_Handoff.md
+# docs/20260905_v32_Session_Handoff.md
 
-# Session handoff v31 — F1 in flight; everything buildable without the database is committed
+# Session handoff v32 — F1 close in progress: table rebuilt with correct direction; SEC-header verification running
 
-Bioindustry Intelligence Platform · 2026-09-03 (evening) · supersedes v30. Read with
-PROJECT_STATUS 1.14, Design Principles v6 (P1–P21), Implementation Plan v25,
+Bioindustry Intelligence Platform · 2026-09-05 · supersedes v31. Read with
+PROJECT_STATUS 1.15, Design Principles v6 (P1–P21), Implementation Plan v26,
 Ontology v5, Data-Feeder Roadmap (amended), Constants Audit v2, F2 scope,
 Hypothesis-Store Decisions, Stakes Parser Development Record.
 
 ## 1. Where the repository stands
-Branch `jason/refactor`, HEAD `058d729`. 217 unit tests green. Commits this
+Branch `jason/refactor`, HEAD `69a0ee9`. 240 unit tests green. Commits this
 session: fea4bfd (F1 code, tests, 13 probe fixtures, parser development
 record) · 3754eb6 + 1f3b2c7 (UNSOURCED-constants correction, code and
 PROJECT_STATUS) · 7b2967d (gate L4-P) · b7f6cb5 (roadmap amendment) ·
@@ -23,29 +23,29 @@ raw-SQL guard; references rename cancelled).
 Known pre-existing ruff findings outside gate files (improve.py E731,
 score.py and study.py F841) remain deliberate human-review items.
 
-## 2. F1 — the only work in flight
-1. **Collector running** (`stakes run`), ~45% of 1,379 members, ~23k rows at
-   last check, fetch failures flat at 1,082 since member 350. Safe to
-   interrupt; re-running resumes for free (documents cached, rows dedup on
-   key holder/issuer/as_of).
-2. **Parser at rule F1-r6.** Coverage on the live library, measured five
-   times with the offline analyzer: 0.881 → 0.959 → 0.975 → 0.987 → 0.992;
-   XML failures 101 → 0. Sixteen probe captures are committed fixtures; 24
-   verbatim layouts locked as tests. Two data-corrupting bugs were caught by
-   that loop (a false 5% on exit filings; dropping exit rows entirely) —
-   both recorded in the development record.
-3. **Exit filings write percent 0** with the phrase verbatim in the span
-   (decision of record): the amendment chain must carry the true dated fact.
-   "Up to N%" is a blocker cap and stays unwritten.
-4. **The r6 re-parse of record is re-running `stakes run`** after the
-   collector finishes. No re-download; only the searches repeat. It also
-   backfills capture notes with the search CIK list, after which any future
-   rule version can re-parse from the library with no network at all.
-5. **Then, in order**: `stakes sample 60` → operator judges each row against
-   its filing URL (`judge F<id> correct|wrong|unsure`; four fields, all or
-   nothing) → `stakes precision` (Wilson CI at F1-r6, judged-wrong rows
-   retired) → stub-list decision (proposed 13D owners passing the SIC test;
-   never auto-added) → thirteen fingerprints → docs → commit.
+## 2. F1 — where it stands (read the parser development record v2 §7–§10 first)
+1. **Table of record:** 41,137 rows after the direction-corrected rebuild
+   (`20260905T003602-stakes-rebuild`), orientation subject / filer /
+   unresolved = 36,979 / 1,192 / 3,395. The collector's original assumption
+   (searched member = subject) had written 11,302 rows backwards; fixed in
+   three rounds (r7 → r7c). Direction now comes from the document's issuer
+   and the reporting person's name, never from the search.
+2. **Direction verification against SEC's SGML header** (FILED BY / SUBJECT
+   COMPANY) is RUNNING (`stakes verify-direction`, log gatef1_k.txt): 98.1%
+   match at 23,500 of 41,137, rate flat since 4,000; ETA ~21:30 on
+   2026-09-05. Every progress line is timestamped. Interruption-safe: headers
+   are cached in the library under their own references (kind `sec_header`).
+3. **Close sequence after it finishes, in order:** `fetch-probe 5 200`
+   (parallel pool probe; must not run while the check runs) → read
+   `data\exports\stakes_direction_mismatches.txt` and classify the ~2% →
+   `stakes crosscheck` (second-route percent/date; disagreements exported) →
+   operator judges disagreements only → `stakes stubs` (the 09-04 list is
+   void) → stub decisions → thirteen fingerprints (also proving L4-P, the
+   store extension, the annotation pass) → docs → F1 commit.
+4. **Library defect found and repaired** (record v2 §9): the identifier
+   ladder attached header captures to filing references; 6,074 moved;
+   1,161 references with two DOCUMENT captures remain for inspection.
+5. **Unit tests cannot touch the live database** (tests/unit/conftest.py).
 
 ## 2a. Built ahead of the database, proofs owed at F1 close
 1. **Store extension** (`update_rows`, `add_columns`): identifiers from
@@ -65,6 +65,12 @@ score.py and study.py F841) remain deliberate human-review items.
 5. **F2 probe code**: written, not run; needs the network and the database.
 6. **Design Principles v6** drafted with P20 (sourced constants) and P21 (the
    store tier speaks SQL) — the operator's document; committed on approval.
+
+7. **Parallel fetch pool** (fetchpool.py, 5cee57d/69a0ee9): 5/s aggregate
+   ceiling with strict spacing, 429/403 pauses and halves, order preserved.
+   Wired into the collector behind `config.FETCH_POOL_ENABLED = False`;
+   flipped only after `fetch-probe` passes on real SEC. The header check and
+   the F2 probe get the same wiring after that.
 
 ## 3. Closed this session
 1. **Gate L4-P** (7b2967d): the two unsourced constants in `aspect-match`
@@ -103,7 +109,16 @@ score.py and study.py F841) remain deliberate human-review items.
    exclusion.
 5. Harrison unblock: merge, key rotation, repo visibility, USB snapshot.
 
-## 5. Operating rules added or reinforced today
+## 4a. Operating rules added 2026-09-04/05
+1. Every log line and every block stage carries a wall-clock timestamp.
+2. Instrument before guessing (the per-stage timing line found the cache miss).
+3. No per-row call into anything that scans a table.
+4. Capture everything SEC offers about a filing the first time it is touched.
+5. When SEC states a fact as a structured field, that field is the check.
+6. Every deployment message: what → precondition → download → block → then.
+7. Blocks assert each copied file landed before anything depends on it.
+
+## 5. Operating rules added or reinforced (2026-09-03)
 1. No numeric constant without a source line; absent one the parameter is
    eliminated or reported as a sensitivity (PROJECT_STATUS 1.11).
 2. No hand-written SQL: every table read and write through `store` (P18).
