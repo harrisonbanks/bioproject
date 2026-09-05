@@ -428,6 +428,149 @@ def rebuild(con=None) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- direction verification (SEC header)
+# EDGAR's complete-submission file opens with an SGML header that states, as
+# structured fields, who FILED the document and which SUBJECT COMPANY it is
+# about - SEC's own statement of holder and issuer, independent of anything
+# this module parses from the cover page. Checking every row against it
+# verifies holder, issuer and direction for the whole table, not a sample.
+# Percent and event date are not in the header; they remain for the two-route
+# check and the human on disagreements.
+_HDR_BLOCK = _re.compile(
+    r"(SUBJECT COMPANY|FILED BY|FILER):\s*(.*?)(?=\n(?:SUBJECT COMPANY|FILED BY|FILER):|</SEC-HEADER>|$)",
+    _re.S,
+)
+_HDR_CIK = _re.compile(r"CENTRAL INDEX KEY:\s*(\d+)")
+_HDR_NAME = _re.compile(r"COMPANY CONFORMED NAME:\s*(.+)")
+
+
+def _submission_url(cik: str, adsh: str) -> str:
+    return f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{adsh.replace('-', '')}/{adsh}.txt"
+
+
+def parse_header(text: str) -> dict:
+    """SGML header -> {'subject': [(cik, name)...], 'filed_by': [(cik, name)...]}.
+    Written against real captures (probe first, rule 4.20)."""
+    head = text.split("</SEC-HEADER>", 1)[0] if "</SEC-HEADER>" in text else text[:20000]
+    out = {"subject": [], "filed_by": []}
+    for kind, body in _HDR_BLOCK.findall(head):
+        cik = _HDR_CIK.search(body)
+        name = _HDR_NAME.search(body)
+        pair = (str(int(cik.group(1))) if cik else "", name.group(1).strip() if name else "")
+        if not pair[0]:
+            continue
+        out["subject" if kind == "SUBJECT COMPANY" else "filed_by"].append(pair)
+    return out
+
+
+def verify_direction(limit: int | None = None, probe: bool = False, con=None) -> int:
+    """Fetch each row's submission header (cached in the library), compare
+    holder/issuer to SEC's FILED BY / SUBJECT COMPANY, record match /
+    mismatch / no_header per row as run metrics, list mismatches to an
+    export for inspection. --probe captures three headers and prints them
+    raw, then stops."""
+    con = con or store.connect()
+    reset_capture_index()
+    rows = store.read_table("equity_stakes", con=con)
+    by_acc: dict[str, list[dict]] = {}
+    for r in rows:
+        acc = str(r.get("accession") or "")
+        if acc:
+            by_acc.setdefault(acc, []).append(r)
+    accs = list(by_acc)
+    if probe:
+        accs = accs[:3]
+    elif limit:
+        accs = accs[:limit]
+    counters = {
+        "accessions": len(accs),
+        "headers_fetched": 0,
+        "headers_cached": 0,
+        "no_header": 0,
+        "rows_match": 0,
+        "rows_mismatch": 0,
+        "rows_no_header": 0,
+    }
+    mismatches: list[str] = []
+    for i, acc in enumerate(accs, 1):
+        r0 = by_acc[acc][0]
+        cik_for_path = str(r0["issuer_key"])[4:] if str(r0["issuer_key"]).startswith("CIK:") else ""
+        alt = str(r0["holder_key"])[4:] if str(r0["holder_key"]).startswith("CIK:") else ""
+        text = None
+        for c in (cik_for_path, alt):
+            if not c:
+                continue
+            hit = {
+                "url": _submission_url(c, acc),
+                "adsh": acc,
+                "doc": f"{acc}.txt",
+                "cik": c,
+                "ciks": [c],
+                "name": "",
+                "form": str(r0.get("form") or ""),
+                "file_date": str(r0.get("filing_date") or ""),
+            }
+            got = _capture(hit, con)
+            if got:
+                sha, ext, ctype = got
+                counters["headers_cached" if ctype == "cached" else "headers_fetched"] += 1
+                try:
+                    text = library.store_path(sha, ext).read_text(
+                        encoding="utf-8", errors="replace"
+                    )
+                except OSError:
+                    text = None
+                break
+        if text is None:
+            counters["no_header"] += 1
+            counters["rows_no_header"] += len(by_acc[acc])
+            continue
+        if probe:
+            print("=" * 70 + f"\n{acc}\n" + text.split("</SEC-HEADER>", 1)[0][:3000])
+            continue
+        hdr = parse_header(text)
+        subj = {c for c, _n in hdr["subject"]}
+        filers = {c for c, _n in hdr["filed_by"]}
+        for r in by_acc[acc]:
+            h = str(r["holder_key"])[4:] if str(r["holder_key"]).startswith("CIK:") else ""
+            iss = str(r["issuer_key"])[4:] if str(r["issuer_key"]).startswith("CIK:") else ""
+            ok = bool(subj) and iss in subj and (not filers or h in filers)
+            if ok:
+                counters["rows_match"] += 1
+            else:
+                counters["rows_mismatch"] += 1
+                mismatches.append(
+                    f"{acc}  row holder {r['holder_key']} issuer {r['issuer_key']} | SEC subject "
+                    f"{sorted(subj)} filed_by {sorted(filers)}  ({str(r.get('owner_name') or '')[:40]})"
+                )
+        if i % 500 == 0:
+            log.info(
+                f"{i}/{len(accs)} headers; match {counters['rows_match']} mismatch {counters['rows_mismatch']}"
+            )
+    flush_note_backfill(con)
+    if probe:
+        return 0
+    p = store.write_export("stakes_direction_mismatches.txt", "\n".join(mismatches) + "\n")
+    runr = results.start(
+        "stakes-verify-direction",
+        "stakes verify-direction",
+        ["equity_stakes", "references", "captures"],
+        {"rule_version": RULE_VERSION},
+    )
+    for k, v in counters.items():
+        runr.metric("_", k, v)
+    runr.artefact(p)
+    run_id = results.finish(
+        runr,
+        note="holder/issuer/direction checked against SEC SGML header FILED BY / SUBJECT COMPANY",
+    )
+    log.info(
+        f"rows match {counters['rows_match']} mismatch {counters['rows_mismatch']} no_header {counters['rows_no_header']}; mismatches -> {p}"
+    )
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
 def cli(argv: list[str]) -> int:
     sub = argv[0] if argv else ""
     if sub == "probe":
@@ -440,7 +583,13 @@ def cli(argv: list[str]) -> int:
         return precision()
     if sub == "rebuild":
         return rebuild()
-    print("usage: stakes probe|run [SINCE]|rebuild|sample [N]|precision")
+    if sub == "verify-direction":
+        probe_mode = "--probe" in argv
+        lim = next((int(a) for a in argv[1:] if a.isdigit()), None)
+        return verify_direction(limit=lim, probe=probe_mode)
+    print(
+        "usage: stakes probe|run [SINCE]|rebuild|verify-direction [--probe|N]|sample [N]|precision"
+    )
     return 1
 
 

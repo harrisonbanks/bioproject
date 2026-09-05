@@ -896,3 +896,17 @@ def test_r7_person_s_and_leading_slash_label_variants():
         )["owner_name"]
         == "CCP IV GP LTD"
     )
+
+
+def test_parse_header_on_three_real_sec_headers():
+    """verify-direction probe captures (2026-09-05): FILED BY / SUBJECT
+    COMPANY blocks in either order, group members present, agent or trust
+    filers distinct from the parent."""
+    fx = FIXTURES
+    h0 = stakes.parse_header((fx / "hdr_probe_0.txt").read_text(encoding="utf-8"))
+    assert h0["subject"] == [("882365", "I STAT CORPORATION /DE/")]
+    assert h0["filed_by"] == [("1800", "ABBOTT LABORATORIES")]
+    h1 = stakes.parse_header((fx / "hdr_probe_1.txt").read_text(encoding="utf-8"))
+    assert h1["subject"] == [("1800", "ABBOTT LABORATORIES")]
+    assert h1["filed_by"] == [("918392", "ABBOTT LABORATORIES STOCK RETIREMENT TRUST")]
+    assert stakes.parse_header("no header here") == {"subject": [], "filed_by": []}
