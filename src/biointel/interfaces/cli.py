@@ -42,6 +42,7 @@ python -m biointel pairs-aspect [forward]     L4: aspect-match paired vs mass-ex
 python -m biointel stakes SUB ...             F1: equity stakes from 13D/13G - probe (capture-first), run [SINCE] (collector), sample [N] (blind sample), precision (Wilson CI, retires judged-wrong rows)
 python -m biointel hypothesis SUB ...         expert-hypothesis store: ledger | list [CUTOFF] | resolve ID hit|miss|withdrawn
 python -m biointel priorities probe           F2 stage 1: capture specimens of each stated-priority source type and stop (rule 4.20)
+python -m biointel fetch-probe [RATE] [N]     parallel fetch pool probe: N real SEC URLs at RATE/s; histogram + observed rate recorded (rule 4.20 before any pool use)
 python -m biointel orangebook-probe           OB: test Orange Book download (run FIRST)
 python -m biointel universe                   P1a: build rule-defined table universe
 python -m biointel harvest                    L: propose acquisition events for whole universe
@@ -868,6 +869,43 @@ def main(argv):
         from biointel import priorities as _pri
 
         return _pri.cli(argv[2:])
+
+    elif cmd == "fetch-probe":
+        # Rule 4.20 for a rate: N real SEC URLs through the parallel pool at
+        # RATE/s, response histogram and observed rate recorded as a run.
+        from biointel import fetchpool as _fp
+        from biointel import results as _res
+        from biointel.stakes import _submission_url
+
+        rate = float(argv[2]) if len(argv) > 2 else _fp.DEFAULT_RATE
+        n = int(argv[3]) if len(argv) > 3 else 200
+        urls: list[str] = []
+        seen: set[str] = set()
+        for r in store.read_table("equity_stakes"):
+            acc = str(r.get("accession") or "")
+            cik = str(r["issuer_key"])[4:] if str(r["issuer_key"]).startswith("CIK:") else ""
+            if acc and cik and acc not in seen:
+                seen.add(acc)
+                urls.append(_submission_url(cik, acc))
+            if len(urls) >= n:
+                break
+        out = _fp.probe(urls, rate=rate)
+        run = _res.start(
+            "fetch-probe", "fetch-probe", ["equity_stakes"], {"rate": rate, "n": len(urls)}
+        )
+        for k, v in out.items():
+            if k != "status_histogram":
+                run.metric("_", k, v)
+        for code, cnt in out["status_histogram"].items():
+            run.metric("status", code, cnt)
+        rid = _res.finish(run, note="parallel fetch pool probe against real SEC submission URLs")
+        print(out)
+        print(f"run {rid} recorded")
+        return (
+            0
+            if out["backoffs"] == 0 and out["status_histogram"].get("200", 0) >= 0.9 * len(urls)
+            else 1
+        )
 
     elif cmd == "calendar-forward":
         from biointel import forward as _forward
