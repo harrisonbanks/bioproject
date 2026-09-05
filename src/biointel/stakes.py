@@ -109,6 +109,37 @@ def _fetch(url: str) -> tuple[bytes, str, str] | None:
     return None
 
 
+def _ext_for(ctype: str) -> str:
+    return {
+        "application/pdf": ".pdf",
+        "text/plain": ".txt",
+        "application/xml": ".xml",
+        "text/xml": ".xml",
+    }.get(ctype, ".htm")
+
+
+def _prefetch(urls: list[str]) -> dict[str, tuple[bytes, str, str]]:
+    """Fetch many URLs through the parallel pool when it is enabled; return
+    url -> (bytes, ext, content_type) for the successes. When the pool is
+    disabled (the default until fetch-probe passes) returns {} and callers
+    fall back to the serial fetcher unchanged."""
+    if not config.FETCH_POOL_ENABLED or not urls:
+        return {}
+    from biointel import fetchpool
+
+    pool = fetchpool.FetchPool(rate=config.FETCH_POOL_RATE, workers=config.FETCH_POOL_WORKERS)
+    out: dict[str, tuple[bytes, str, str]] = {}
+    for res in pool.fetch_all(urls):
+        if res.status == 200 and res.content is not None:
+            out[res.url] = (res.content, _ext_for(res.content_type), res.content_type)
+    if pool.stats.backoffs:
+        log.warning(
+            f"{_ts()}  fetch pool backed off {pool.stats.backoffs}x; rate ended at "
+            f"{pool.stats.rate_end}/s"
+        )
+    return out
+
+
 def _hit_note(hit: dict) -> str:
     """Reference note carrying the search metadata a later re-parse needs."""
     return (
@@ -189,7 +220,9 @@ HEADER_KIND = "sec_header"  # capture kind for complete-submission headers
 HEADER_SOURCE = "stakes-header"
 
 
-def _capture(hit: dict, con, header: bool = False) -> tuple[str, str, str] | None:
+def _capture(
+    hit: dict, con, header: bool = False, prefetched: dict | None = None
+) -> tuple[str, str, str] | None:
     """Capture one filing into the library with stakes-probe provenance;
     returns (capture_sha, ext, content_type). Re-captures nothing: an
     existing active capture of the same URL is reused via the per-pass
@@ -217,7 +250,7 @@ def _capture(hit: dict, con, header: bool = False) -> tuple[str, str, str] | Non
         # for every future rule version.
         _backfill_note(ref_row, hit)
         return capture_id, ext, "cached"
-    got = _fetch(hit["url"])
+    got = (prefetched or {}).get(hit["url"]) or _fetch(hit["url"])
     if not got:
         return None
     data, ext, ctype = got
@@ -1453,8 +1486,13 @@ def _collect_member(cik: str, since: str, until: str, con, counters) -> list[dic
             if payload.get("error"):
                 counters["efts_errors"] += 1
                 break
+            global _CAPTURE_INDEX
+            if _CAPTURE_INDEX is None:
+                _CAPTURE_INDEX = _build_capture_index(con)
+            uncached = [h["url"] for h in hits if h["url"] not in _CAPTURE_INDEX]
+            prefetched = _prefetch(uncached)
             for h in hits:
-                got = _capture(h, con)
+                got = _capture(h, con, prefetched=prefetched)
                 if not got:
                     counters["fetch_failures"] += 1
                     continue

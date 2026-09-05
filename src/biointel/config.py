@@ -84,6 +84,12 @@ WIKI_API = "https://en.wikipedia.org/w/api.php"
 
 # --- behaviour -------------------------------------------------------------
 SEC_RATE_LIMIT = 0.11  # seconds between SEC calls (limit is 10/sec)
+# Parallel fetch pool (decisions of record 2026-09-05). OFF until
+# `fetch-probe` passes on real SEC at the chosen rate; then flip ENABLED.
+# Ceiling is aggregate across all workers and holds in every 1-second window.
+FETCH_POOL_ENABLED = False
+FETCH_POOL_RATE = 5.0  # requests/second, half SEC's published 10/s limit
+FETCH_POOL_WORKERS = 6
 WINDOW_PRE = 10  # trading days before t0
 WINDOW_POST = 10  # trading days after t0
 PRICE_PAD_DAYS = 90  # calendar days either side of event to request

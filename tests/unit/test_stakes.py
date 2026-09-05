@@ -293,7 +293,7 @@ def test_run_writes_idempotently_and_proposes_stubs(db, monkeypatch):
         return {"hits": {"hits": [], "total": {"value": 0}}}
 
     monkeypatch.setattr(stakes, "search", fake_search)
-    monkeypatch.setattr(stakes, "_capture", lambda h, con: ("f" * 64, ".htm", "text/html"))
+    monkeypatch.setattr(stakes, "_capture", lambda h, con, **kw: ("f" * 64, ".htm", "text/html"))
     monkeypatch.setattr(
         stakes.library, "store_path", lambda sha, ext: FIXTURES / "62d58afeee49.txt"
     )
@@ -1025,3 +1025,56 @@ def test_route_b_exit_and_cap_semantics():
     assert stakes.route_b_percent(t) == "0"
     t2 = "PERCENT OF CLASS REPRESENTED BY AMOUNT IN ROW 9 Up to 9.9999% 12 TYPE OF REPORTING PERSON"
     assert stakes.route_b_percent(t2) is None
+
+
+# ---- pool path (2026-09-05): off by default, used only when enabled ----
+def test_prefetch_is_a_noop_when_pool_disabled(monkeypatch):
+    monkeypatch.setattr(config, "FETCH_POOL_ENABLED", False)
+    assert stakes._prefetch(["https://x/a", "https://x/b"]) == {}
+
+
+def test_prefetch_uses_pool_results_when_enabled(monkeypatch):
+    monkeypatch.setattr(config, "FETCH_POOL_ENABLED", True)
+    from biointel import fetchpool
+
+    class _Res:
+        def __init__(self, url, status, body, ctype):
+            self.url, self.status, self.content, self.content_type = url, status, body, ctype
+
+    class _FakePool:
+        def __init__(self, rate, workers):
+            self.stats = type("S", (), {"backoffs": 0, "rate_end": rate})()
+
+        def fetch_all(self, urls):
+            return [
+                _Res(u, 200, b"<html/>", "text/html") if "ok" in u else _Res(u, 404, None, "")
+                for u in urls
+            ]
+
+    monkeypatch.setattr(fetchpool, "FetchPool", _FakePool)
+    out = stakes._prefetch(["https://x/ok1", "https://x/gone", "https://x/ok2"])
+    assert set(out) == {"https://x/ok1", "https://x/ok2"}
+    assert out["https://x/ok1"] == (b"<html/>", ".htm", "text/html")
+
+
+def test_capture_prefers_prefetched_bytes_over_the_network(db, monkeypatch):
+    _companies((1, "AAA", "100"))
+    monkeypatch.setattr(
+        stakes, "_fetch", lambda url: (_ for _ in ()).throw(AssertionError("network used"))
+    )
+    hit = {
+        "url": "https://www.sec.gov/Archives/edgar/data/100/000/p.htm",
+        "adsh": "0001-15-000009",
+        "doc": "p.htm",
+        "cik": "100",
+        "ciks": ["100", "7"],
+        "name": "N1",
+        "form": "SC 13G",
+        "file_date": "2015-01-01",
+    }
+    con = store.connect()
+    stakes.reset_capture_index()
+    got = stakes._capture(
+        hit, con, prefetched={hit["url"]: (b"<html>pre</html>", ".htm", "text/html")}
+    )
+    assert got is not None and got[2] == "text/html"
