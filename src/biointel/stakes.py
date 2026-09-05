@@ -521,6 +521,10 @@ def verify_direction(limit: int | None = None, probe: bool = False, con=None) ->
         "rows_no_header": 0,
     }
     mismatches: list[str] = []
+    import time as _time
+
+    timing = {"lookup": 0.0, "fetch": 0.0, "read": 0.0, "parse": 0.0}
+    cache_hits = 0
     for i, acc in enumerate(accs, 1):
         r0 = by_acc[acc][0]
         cik_for_path = str(r0["issuer_key"])[4:] if str(r0["issuer_key"]).startswith("CIK:") else ""
@@ -539,15 +543,22 @@ def verify_direction(limit: int | None = None, probe: bool = False, con=None) ->
                 "form": str(r0.get("form") or ""),
                 "file_date": str(r0.get("filing_date") or ""),
             }
+            t0 = _time.perf_counter()
             got = _capture(hit, con)
+            t1 = _time.perf_counter()
             if got:
                 sha, ext, ctype = got
-                counters["headers_cached" if ctype == "cached" else "headers_fetched"] += 1
+                cached = ctype == "cached"
+                cache_hits += cached
+                counters["headers_cached" if cached else "headers_fetched"] += 1
+                timing["lookup" if cached else "fetch"] += t1 - t0
                 try:
                     text = _read_head(library.store_path(sha, ext))
                 except OSError:
                     text = None
+                timing["read"] += _time.perf_counter() - t1
                 break
+            timing["fetch"] += t1 - t0  # a miss that had to try the network
         if text is None:
             counters["no_header"] += 1
             counters["rows_no_header"] += len(by_acc[acc])
@@ -555,7 +566,9 @@ def verify_direction(limit: int | None = None, probe: bool = False, con=None) ->
         if probe:
             print("=" * 70 + f"\n{acc}\n" + text.split("</SEC-HEADER>", 1)[0][:3000])
             continue
+        t2 = _time.perf_counter()
         hdr = parse_header(text)
+        timing["parse"] += _time.perf_counter() - t2
         subj = {c for c, _n in hdr["subject"]}
         filers = {c for c, _n in hdr["filed_by"]}
         for r in by_acc[acc]:
@@ -570,10 +583,12 @@ def verify_direction(limit: int | None = None, probe: bool = False, con=None) ->
                     f"{acc}  row holder {r['holder_key']} issuer {r['issuer_key']} | SEC subject "
                     f"{sorted(subj)} filed_by {sorted(filers)}  ({str(r.get('owner_name') or '')[:40]})"
                 )
-        if i % 500 == 0:
+        if i % 500 == 0 or (i <= 1000 and i % 100 == 0):
             log.info(
                 f"{_ts()}  {i}/{len(accs)} headers; match {counters['rows_match']} "
-                f"mismatch {counters['rows_mismatch']}"
+                f"mismatch {counters['rows_mismatch']}; cache hits {cache_hits}; "
+                f"secs lookup {timing['lookup']:.1f} fetch {timing['fetch']:.1f} "
+                f"read {timing['read']:.1f} parse {timing['parse']:.1f}"
             )
     flush_note_backfill(con)
     if probe:
