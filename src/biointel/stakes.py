@@ -454,6 +454,18 @@ _HDR_CIK = _re.compile(r"CENTRAL INDEX KEY:\s*(\d+)")
 _HDR_NAME = _re.compile(r"COMPANY CONFORMED NAME:\s*(.+)")
 
 
+HEADER_BYTES = 65_536  # the SGML header ends within the first few KB of a submission
+
+
+def _read_head(path) -> str:
+    """The SEC header sits at the top of the complete-submission file; the
+    rest is every exhibit in the filing, often megabytes. Read only the head.
+    (2026-09-05: reading whole files made 500 cached headers take ten
+    minutes - slower than fetching them.)"""
+    with open(path, "rb") as fh:
+        return fh.read(HEADER_BYTES).decode("utf-8", errors="replace")
+
+
 def _submission_url(cik: str, adsh: str) -> str:
     return f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{adsh.replace('-', '')}/{adsh}.txt"
 
@@ -525,9 +537,7 @@ def verify_direction(limit: int | None = None, probe: bool = False, con=None) ->
                 sha, ext, ctype = got
                 counters["headers_cached" if ctype == "cached" else "headers_fetched"] += 1
                 try:
-                    text = library.store_path(sha, ext).read_text(
-                        encoding="utf-8", errors="replace"
-                    )
+                    text = _read_head(library.store_path(sha, ext))
                 except OSError:
                     text = None
                 break
