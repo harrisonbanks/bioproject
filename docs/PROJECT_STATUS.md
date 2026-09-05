@@ -2,7 +2,40 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 1.14. Supersedes v1.13. Session 2026-09-03 (evening), commits
+Version 1.15. Supersedes v1.14. F1 close in progress (2026-09-04/05),
+commits 01323da … 281e880 plus the next K-block commit, 232 tests:
+- Collector complete: 37,772 rows (r1), re-parse +4,918 (r6), then the
+  DIRECTION DEFECT: the collector assumed the searched member was the
+  subject; filings where the member was the filer were written backwards
+  (11,302 rows under the first rebuild). Fixed in three rounds (r7 → r7c,
+  orientation from the document's issuer and the reporting person's name,
+  never from the search); rebuild of record 41,137 rows, subject / filer /
+  unresolved 36,979 / 1,192 / 3,395. Full account in the parser development
+  record v2 §7.
+- Verification against SEC's SGML submission header (FILED BY / SUBJECT
+  COMPANY) running: 98.0% match at 21,500 of 41,137, rate flat since 4,000.
+  Percent and event date checked by a second extraction route
+  (`stakes crosscheck`); the human judges disagreements only.
+- Library defect found and repaired: the identifier ladder attached header
+  captures to filing references (accession before URL); 6,074 moved, kind
+  `sec_header` added (schema 0.13). Record v2 §9.
+- Performance defects fixed, each found by timing lines, not by guessing:
+  per-hit table scan in the capture lookup (indexed once per pass);
+  whole-file reads for a 4 KB header (64 KB bound); per-header library upsert
+  in the repair (batched). Timestamps on every progress line and startup
+  stage; unit tests isolated from the live database (conftest).
+- Stub list of 2026-09-04 is VOID (built from inverted rows); `stakes stubs`
+  regenerates from the corrected table.
+- Machine specs recorded (docs/…machine_specs, operator): Ryzen 9 5900X, 32 GB,
+  2× NVMe. Every long run was SEC-rate-bound; hardware is not the constraint.
+  Parallel fetching within SEC's limit is the one speed lever; scoped
+  separately.
+- Remaining to close F1: final header-verification counts and mismatch
+  classification; crosscheck run; human judgment of disagreements; stub
+  decisions; fingerprints (also proving L4-P, store extension, annotation
+  pass); docs; commit.
+
+v1.14. Supersedes v1.13. Session 2026-09-03 (evening), commits
 3399234 … 058d729, all on jason/refactor, 217 tests:
 - Constants annotation pass (3399234): every constant marked with its
   provenance class at its definition; size thresholds and staleness windows

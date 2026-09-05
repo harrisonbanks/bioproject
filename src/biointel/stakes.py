@@ -754,6 +754,179 @@ def repair_headers(con=None) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- second-route cross-check (percent, date)
+# SEC's header verifies holder, issuer and direction. Percent and event date
+# are not in the header, so they are checked by a SECOND extraction route
+# that shares no anchor with the parser: the parser reads forward from the
+# "Percent of Class" label; route B reads BACKWARD from the row that follows
+# it ("Type of Reporting Person") and takes the nearest percentage. For the
+# date, route B takes the month-name date nearest to "Date of Event" rather
+# than a label-then-capture pattern. Agreement confirms the field;
+# disagreement goes to a human. This does not replace the human - it
+# decides which rows need one.
+_TYPE_ROW = _re.compile(r"Type\s+of\s+Reporting\s+Person", _re.IGNORECASE)
+_PCT_TOKEN = _re.compile(r"(?<![\d.])(\d{1,3}(?:\.\d{1,10})?)\s*%")
+_DATE_OF_EVENT = _re.compile(r"Date\s+of\s+Event", _re.IGNORECASE)
+
+
+def route_b_percent(text: str) -> str | None:
+    """Nearest percentage before the FIRST 'Type of Reporting Person' row."""
+    text = _RULE_RUNS.sub(" ", text)
+    m = _TYPE_ROW.search(text)
+    if not m:
+        return None
+    window = text[max(0, m.start() - 400) : m.start()]
+    if _re.search(r"(less\s+than|up\s+to|not\s+more\s+than)\s+\d", window, _re.IGNORECASE):
+        return "0" if _re.search(r"less\s+than\s+\d", window, _re.IGNORECASE) else None
+    hits = _PCT_TOKEN.findall(window)
+    return hits[-1] if hits else None
+
+
+def route_b_event_date(text: str) -> str | None:
+    """Month-name date nearest (either side) to 'Date of Event'."""
+    m = _DATE_OF_EVENT.search(text)
+    if not m:
+        return None
+    best, best_dist = None, None
+    for d in _DATE_TEXT.finditer(text):
+        dist = min(abs(d.start() - m.start()), abs(d.end() - m.start()))
+        if dist > 250:
+            continue
+        if best_dist is None or dist < best_dist:
+            best, best_dist = d.group(0), dist
+    return _iso(best) if best else None
+
+
+def _pct_equal(a: str | None, b: str | None) -> bool:
+    try:
+        return a is not None and b is not None and abs(float(a) - float(b)) < 0.005
+    except ValueError:
+        return False
+
+
+def crosscheck(limit: int | None = None, con=None) -> int:
+    """Run route B over every stake row (or the first N), compare with the
+    stored percent and as_of, record agreement counts as run metrics, export
+    disagreements for the human. Structured-era rows are skipped: their
+    fields are copied from XML tags, not parsed, and need no second route."""
+    con = con or store.connect()
+    log.info(f"{_ts()}  crosscheck: reading tables")
+    rows = store.read_table("equity_stakes", con=con)
+    caps: dict[str, dict] = {}
+    for c in store.read_table("captures", con=con):
+        if c["status"] == "active" and str(c.get("kind") or "") != HEADER_KIND:
+            caps[str(c["capture_id"])] = c
+    if limit:
+        rows = rows[:limit]
+    counters = {
+        "rows": len(rows),
+        "xml_skipped": 0,
+        "unreadable": 0,
+        "agree_both": 0,
+        "pct_disagree": 0,
+        "date_disagree": 0,
+        "route_b_no_pct": 0,
+        "route_b_no_date": 0,
+    }
+    out: list[str] = []
+    for i, r in enumerate(rows, 1):
+        if i % 5000 == 0:
+            log.info(f"{_ts()}  {i}/{len(rows)} rows; agree {counters['agree_both']}")
+        cap = caps.get(str(r["doc_id"]))
+        if not cap:
+            counters["unreadable"] += 1
+            continue
+        ext = "." + str(cap.get("ext") or "htm")
+        if ext == ".xml":
+            counters["xml_skipped"] += 1
+            continue
+        try:
+            text = normalize_text(
+                library.store_path(str(cap["capture_id"]), ext).read_text(
+                    encoding="utf-8", errors="replace"
+                )
+            )
+        except OSError:
+            counters["unreadable"] += 1
+            continue
+        b_pct = route_b_percent(text)
+        b_date = route_b_event_date(text)
+        pct_ok = _pct_equal(str(r["percent"]), b_pct)
+        stored_date = str(r["as_of"])[:10]
+        date_ok = b_date == stored_date
+        if b_pct is None:
+            counters["route_b_no_pct"] += 1
+        if b_date is None:
+            counters["route_b_no_date"] += 1
+        if pct_ok and date_ok:
+            counters["agree_both"] += 1
+            continue
+        if not pct_ok and b_pct is not None:
+            counters["pct_disagree"] += 1
+        if not date_ok and b_date is not None:
+            counters["date_disagree"] += 1
+        out.append(
+            f"F{str(r['doc_id'])[:12]}  stored pct {r['percent']} routeB {b_pct}  | stored as_of "
+            f"{stored_date} routeB {b_date}  | {r['holder_key']} -> {r['issuer_key']} {r.get('form')}"
+        )
+    p = store.write_export("stakes_crosscheck_disagreements.txt", "\n".join(out) + "\n")
+    runr = results.start(
+        "stakes-crosscheck",
+        "stakes crosscheck",
+        ["equity_stakes", "captures"],
+        {"rule_version": RULE_VERSION},
+    )
+    for k, v in counters.items():
+        runr.metric("_", k, v)
+    runr.artefact(p)
+    run_id = results.finish(
+        runr, note="second-route check of percent and event date; disagreements to the human"
+    )
+    log.info(
+        f"{_ts()}  agree {counters['agree_both']} / checked {len(rows) - counters['xml_skipped'] - counters['unreadable']}; "
+        f"pct disagree {counters['pct_disagree']} date disagree {counters['date_disagree']}; "
+        f"route B silent pct {counters['route_b_no_pct']} date {counters['route_b_no_date']}; -> {p}"
+    )
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
+def stubs(con=None) -> int:
+    """Regenerate the proposed-stub list from the table as it stands. The
+    first list (2026-09-04) was built from inverted rows and named buyers'
+    TARGETS as if they were owners; it is void. This reads the corrected
+    table: distinct 13D owners keyed by CIK that are not registry members,
+    passed through the plausible-party SIC test (one submissions fetch per
+    owner, cached by the library). Nothing is auto-added."""
+    con = con or store.connect()
+    reset_capture_index()
+    member_ciks = {str(int(c)) for c, _t, _n in _member_ciks()}
+    owners: dict[str, str] = {}
+    for r in store.read_table("equity_stakes", con=con):
+        if "13D" in str(r.get("form") or "") and str(r["holder_key"]).startswith("CIK:"):
+            ocik = str(r["holder_key"])[4:]
+            if ocik not in member_ciks:
+                owners.setdefault(ocik, str(r.get("owner_name") or ""))
+    log.info(f"{_ts()}  {len(owners)} distinct non-member 13D owners; fetching SIC codes")
+    lines = _proposed_stubs(owners)
+    p = store.write_export("stakes_proposed_stubs.txt", "\n".join(lines) + "\n")
+    runr = results.start(
+        "stakes-stubs",
+        "stakes stubs",
+        ["equity_stakes", "companies"],
+        {"rule_version": RULE_VERSION},
+    )
+    runr.metric("_", "distinct_13d_owners", len(owners))
+    runr.metric("_", "proposed", max(0, len(lines) - 1))
+    runr.artefact(p)
+    run_id = results.finish(
+        runr, note="stub proposals from the direction-corrected table; the 2026-09-04 list is void"
+    )
+    log.info(f"{_ts()}  {max(0, len(lines) - 1)} proposed -> {p}")
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
 def cli(argv: list[str]) -> int:
     sub = argv[0] if argv else ""
     if sub == "probe":
@@ -768,6 +941,11 @@ def cli(argv: list[str]) -> int:
         return rebuild()
     if sub == "repair-headers":
         return repair_headers()
+    if sub == "stubs":
+        return stubs()
+    if sub == "crosscheck":
+        lim = next((int(a) for a in argv[1:] if a.isdigit()), None)
+        return crosscheck(limit=lim)
     if sub == "verify-direction":
         probe_mode = "--probe" in argv
         lim = next((int(a) for a in argv[1:] if a.isdigit()), None)

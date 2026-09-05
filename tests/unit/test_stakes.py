@@ -1006,3 +1006,22 @@ def test_repair_headers_moves_misattached_captures(db, monkeypatch):
     idx = stakes._build_capture_index(con)
     assert idx[doc_hit["url"]][1] == d[0]
     assert stakes.repair_headers(con) == 0  # idempotent: nothing left to move
+
+
+def test_route_b_agrees_with_parser_on_all_nine_probe_captures():
+    """Route B shares no anchor with the parser (reads backward from the
+    'Type of Reporting Person' row; date nearest 'Date of Event'). Agreement
+    on the probe captures is the baseline; disagreements in the live table
+    are what go to the human."""
+    for sha in EXPECT:
+        t = (FIXTURES / f"{sha}.txt").read_text(encoding="utf-8")
+        a = stakes.parse_cover(t)
+        assert stakes._pct_equal(a.get("percent"), stakes.route_b_percent(t)), sha
+        assert stakes.route_b_event_date(t) == a.get("event_date"), sha
+
+
+def test_route_b_exit_and_cap_semantics():
+    t = "PERCENT OF CLASS REPRESENTED BY AMOUNT IN ROW (9) Less than 5% 12 TYPE OF REPORTING PERSON IA"
+    assert stakes.route_b_percent(t) == "0"
+    t2 = "PERCENT OF CLASS REPRESENTED BY AMOUNT IN ROW 9 Up to 9.9999% 12 TYPE OF REPORTING PERSON"
+    assert stakes.route_b_percent(t2) is None
