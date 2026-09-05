@@ -340,6 +340,7 @@ def rebuild(con=None) -> int:
     cols = list(_schema.EQUITY_STAKE_COLS) + list(
         _schema.TABLE_BY_PATH["silver/equity_stakes.csv"].optional
     )
+    log.info(f"{_ts()}  rebuild: reading tables")
     before = (
         len(store.read_table("equity_stakes", con=con))
         if store.has_table("equity_stakes", con)
@@ -350,6 +351,7 @@ def rebuild(con=None) -> int:
         for c in store.read_table("captures", con=con)
         if c["status"] == "active"
     }
+    log.info(f"{_ts()}  {before} rows before; {len(caps)} active captures; starting re-parse")
     counters = {
         "references_seen": 0,
         "rows_rebuilt": 0,
@@ -493,7 +495,12 @@ def verify_direction(limit: int | None = None, probe: bool = False, con=None) ->
     raw, then stops."""
     con = con or store.connect()
     reset_capture_index()
+    log.info(f"{_ts()}  verify-direction: reading equity_stakes")
     rows = store.read_table("equity_stakes", con=con)
+    log.info(f"{_ts()}  {len(rows)} rows; building capture index")
+    global _CAPTURE_INDEX
+    _CAPTURE_INDEX = _build_capture_index(con)  # the one-time build, stamped here
+    log.info(f"{_ts()}  index built; starting header loop")
     by_acc: dict[str, list[dict]] = {}
     for r in rows:
         acc = str(r.get("accession") or "")
