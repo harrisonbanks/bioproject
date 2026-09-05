@@ -466,8 +466,8 @@ _CUSIP_AFTER = _re.compile(r"CUSIP Number\s*:\s*([0-9][0-9A-Za-z]{5,8})\b", _re.
 # without dots and must stop the name; the next row's marker may be printed
 # as "(2) Check" or "2) Check".
 _OWNER = _re.compile(
-    r"Names?\s+of\s+Reporting\s+Persons?\b[.:,]?\s*(?:\d{1,2}\s*[.:)]?\s+)?"
-    r"(?:S\.?S\.?\s+or\s+)?(?:I\.?R\.?S\.?\s+Identification\s+Nos?\.?\s+of\s+above\s+persons?"
+    r"Names?\s+of\s+Reporting\s+Persons?\b(?:\s*\(s\))?[.:,]?\s*(?:\d{1,2}\s*[.:)]?\s+)?"
+    r"(?:S\.?S\.?\s+or\s+)?[/,]?\s*(?:I\.?R\.?S\.?\s+Identification\s+Nos?\.?\s+of\s+above\s+persons?"
     r"\s*(?:\(entities only\)|\[entities only\])?[.:]?\s*)?"
     r"(.{3,90}?)\s*(?:I\.R\.S\.|IRS\b|S\.?S\.\s+or|EIN\b|I\.D\.|Tax\s+I\.?D|"
     r"Employer\s+Identification|###|\d{2}-\d{7}|-\s*\d{2}-|\(?\d\)?\s*\.?\s*Check\b)",
@@ -852,11 +852,16 @@ def orient(hit: dict, parsed: dict, member_cik: str) -> tuple[str, str, str]:
             return f"CIK:{owner}", f"CIK:{doc_issuer}", _label(owner)
         return "", "", "unresolved"
 
+    def _same(a: str, b: str) -> bool:
+        # registry name vs parsed document text: the parsed string may carry
+        # spillover ("Verastem, Inc. Common Stock"), so containment counts
+        return bool(a) and bool(b) and (a == b or a in b or b in a)
+
     # HTML era: place the document's issuer name among the parties.
     if issuer_name:
         by_name = _name_index().get(issuer_name, "")
         for c in parties:
-            if c == by_name or (_registry_name_of(c) and _registry_name_of(c) == issuer_name):
+            if c == by_name or _same(_registry_name_of(c), issuer_name):
                 owner = doc_owner or next((o for o in parties if o != c), "")
                 if owner:
                     return f"CIK:{owner}", f"CIK:{c}", _label(owner)
@@ -864,14 +869,22 @@ def orient(hit: dict, parsed: dict, member_cik: str) -> tuple[str, str, str]:
             owner = doc_owner or next((o for o in parties if o != by_name), "")
             if owner:
                 return f"CIK:{owner}", f"CIK:{by_name}", "filer"
-        # issuer named but not a registry company: the registry party is the
-        # filer (it is the only one we could have searched by)
-        members = [c for c in parties if _registry_name_of(c)]
-        if len(members) == 1 and len(parties) == 2:
-            other = next(o for o in parties if o != members[0])
-            return f"CIK:{members[0]}", f"CIK:{other}", "filer"
-        if len(members) == 1:
-            return f"CIK:{members[0]}", f"NAME:{issuer_name}", "filer"
+        # An issuer name that matches nothing is NOT evidence of direction
+        # (2026-09-04: treating it as "the member must be the filer" inverted
+        # BlackRock's filings whose issuer text carried spillover). Fall
+        # through to the owner-name test.
+
+    # The reporting person's name is a second, independent document field.
+    # With exactly one registry party M: if the reporting person IS M, M is
+    # the owner (filer); otherwise M is being held (subject).
+    members = [c for c in parties if _registry_name_of(c)]
+    owner_name = network._norm(parsed.get("owner_name") or "")
+    if len(members) == 1 and len(parties) == 2 and owner_name:
+        m = members[0]
+        other = next(o for o in parties if o != m)
+        if _same(_registry_name_of(m), owner_name):
+            return f"CIK:{m}", f"CIK:{other}", "filer"
+        return f"CIK:{doc_owner or other}", f"CIK:{m}", "subject"
 
     # No usable issuer in the document: historical fallback, counted.
     member = str(int(member_cik)) if str(member_cik).strip() else ""

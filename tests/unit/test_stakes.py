@@ -235,7 +235,11 @@ def _hit(sha="a" * 64, form="SC 13D", ciks=("1800", "999777"), fd="2015-04-07"):
     }
 
 
-def test_row_from_owner_resolution_and_exit_semantics():
+def test_row_from_owner_resolution_and_exit_semantics(db):
+    # orient() reads the registry: this test must never touch the live
+    # database (it did on the operator machine on 2026-09-04, where CIK 1800
+    # is Abbott and the expectation below became wrong by design)
+    _companies((1, "MYL", "1800", "Mylan N.V."))  # the member is the SUBJECT here
     parsed = {
         "percent": "15.32",
         "event_date": "2015-04-06",
@@ -760,9 +764,44 @@ def test_orient_structured_filing_uses_the_xml_issuer_cik(db):
     )
 
 
+def test_orient_owner_name_decides_when_issuer_is_unplaceable(db):
+    """No issuer name parsed, but the reporting person is a fund, not the
+    member: the member is being held. Resolved by the document, not by the
+    search."""
+    _companies((1, "AAA", "100", "Acme Therapeutics Inc"))
+    parsed = {"owner_name": "Some Fund LP", "percent": "5.5"}
+    holder, issuer, how = stakes.orient(_hit(ciks=("100", "999777")), parsed, "100")
+    assert (holder, issuer, how) == ("CIK:999777", "CIK:100", "subject")
+    # and when the reporting person IS the member, the member is the owner
+    parsed2 = {"owner_name": "Acme Therapeutics, Inc.", "percent": "5.5"}
+    assert stakes.orient(_hit(ciks=("100", "999777")), parsed2, "100") == (
+        "CIK:100",
+        "CIK:999777",
+        "filer",
+    )
+
+
+def test_orient_unmatched_issuer_text_is_not_evidence_of_direction(db):
+    """The BlackRock inversion that survived r7: issuer text with spillover
+    ('Verastem, Inc. Common Stock') matched nothing, and the old rule read
+    that as 'the member must be the filer'. Containment now places it; and
+    even if it could not, the owner name ('BlackRock') is not the member."""
+    _companies((1, "VSTM", "1347178", "Verastem, Inc."))
+    parsed = {
+        "issuer_name": "Verastem, Inc. Common Stock, par value $0.0001",
+        "owner_name": "BlackRock, Inc.",
+        "percent": "7.1",
+    }
+    assert stakes.orient(_hit(ciks=("1364742", "1347178")), parsed, "1364742") == (
+        "CIK:1364742",
+        "CIK:1347178",
+        "subject",
+    )
+
+
 def test_orient_falls_back_only_when_the_document_is_silent(db):
     _companies((1, "AAA", "100"))
-    parsed = {"owner_name": "Some Fund LP", "percent": "5.5"}  # no issuer name parsed
+    parsed = {"percent": "5.5"}  # neither issuer nor owner parsed
     holder, issuer, how = stakes.orient(_hit(ciks=("100", "999777")), parsed, "100")
     assert how == "unresolved" and issuer == "CIK:100" and holder == "CIK:999777"
 
@@ -838,3 +877,22 @@ def test_orient_does_not_depend_on_which_cik_was_searched(db):
         holder, issuer, how = stakes.orient(hit, parsed, believed_member)
         assert (holder, issuer) == ("CIK:1364742", "CIK:1347178"), believed_member
         assert how == "subject"
+
+
+def test_r7_person_s_and_leading_slash_label_variants():
+    """From the F1-G sample: 'PERSON(S)' glued '(s)' onto names; a leading
+    slash before 'I.R.S.' stored the whole label clause as the name."""
+    s = " Percent of Class: 9.9%"
+    assert (
+        stakes.parse_cover(
+            "NAME OF REPORTING PERSON(S) Karpus Investment Management (2) CHECK" + s
+        )["owner_name"]
+        == "Karpus Investment Management"
+    )
+    assert (
+        stakes.parse_cover(
+            "NAMES OF REPORTING PERSONS /I.R.S. IDENTIFICATION NOS. OF ABOVE PERSONS (ENTITIES ONLY) CCP IV GP LTD 2 CHECK"
+            + s
+        )["owner_name"]
+        == "CCP IV GP LTD"
+    )
