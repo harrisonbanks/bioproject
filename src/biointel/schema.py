@@ -61,7 +61,7 @@ SCORE_ACQUIRER_SIDE_MARKETCAP = 7.5e10
 SCORE_TARGET_CAP_BAND = (3e8, 4e10)
 FEATURES_FINANCIALS_STALENESS_DAYS = 400
 
-SCHEMA_VERSION = "0.12"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.13"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -439,6 +439,7 @@ REF_TYPES = (
 CAPTURE_KINDS = (
     "fetched_html", "fetched_pdf", "fetched_text", "printed_pdf",
     "uploaded_file", "media_file", "captions", "wayback",
+    "sec_header",  # complete-submission file kept for its SGML header (F1, 2026-09-05)
 )
 LINK_ROLES = (
     "subject", "acquirer", "target", "third_party", "comparable",

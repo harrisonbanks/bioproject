@@ -910,3 +910,99 @@ def test_parse_header_on_three_real_sec_headers():
     assert h1["subject"] == [("1800", "ABBOTT LABORATORIES")]
     assert h1["filed_by"] == [("918392", "ABBOTT LABORATORIES STOCK RETIREMENT TRUST")]
     assert stakes.parse_header("no header here") == {"subject": [], "filed_by": []}
+
+
+# ---- header captures must not attach to filing references (2026-09-05) ----
+_SUBMISSION = (
+    "<SEC-DOCUMENT>0001-15-000001.txt : 20150407\n<SEC-HEADER>0001-15-000001.hdr.sgml : 20150407\n"
+    "ACCESSION NUMBER:\t\t0001-15-000001\nSUBJECT COMPANY:\t\n\tCOMPANY DATA:\t\n"
+    "\t\tCOMPANY CONFORMED NAME:\t\t\tMYLAN N.V.\n\t\tCENTRAL INDEX KEY:\t\t\t0000000100\n"
+    "FILED BY:\t\t\n\tCOMPANY DATA:\t\n\t\tCOMPANY CONFORMED NAME:\t\t\tABBOTT LABORATORIES\n"
+    "\t\tCENTRAL INDEX KEY:\t\t\t0000999777\n</SEC-HEADER>\n<DOCUMENT>...</DOCUMENT>"
+)
+
+
+def _capture_doc_and_header(monkeypatch, con):
+    """Capture a filing document, then its submission header, the way the
+    collector and verify-direction do."""
+    doc_hit = {
+        "url": "https://www.sec.gov/Archives/edgar/data/100/000115000001/d.htm",
+        "adsh": "0001-15-000001",
+        "doc": "d.htm",
+        "cik": "100",
+        "ciks": ["100", "999777"],
+        "name": "Mylan",
+        "form": "SC 13D/A",
+        "file_date": "2015-04-07",
+    }
+    hdr_hit = {
+        "url": stakes._submission_url("100", "0001-15-000001"),
+        "adsh": "0001-15-000001",
+        "doc": "0001-15-000001.txt",
+        "cik": "100",
+        "ciks": ["100"],
+        "name": "",
+        "form": "SC 13D/A",
+        "file_date": "2015-04-07",
+    }
+    payloads = {
+        doc_hit["url"]: (b"<html>doc</html>", ".htm", "text/html"),
+        hdr_hit["url"]: (_SUBMISSION.encode(), ".txt", "text/plain"),
+    }
+    monkeypatch.setattr(stakes, "_fetch", lambda url: payloads[url])
+    stakes.reset_capture_index()
+    d = stakes._capture(doc_hit, con)
+    h = stakes._capture(hdr_hit, con, header=True)
+    return doc_hit, hdr_hit, d, h
+
+
+def test_header_capture_gets_its_own_reference_and_is_cached(db, monkeypatch):
+    _companies((1, "MYL", "100", "Mylan N.V."))
+    con = store.connect()
+    doc_hit, hdr_hit, d, h = _capture_doc_and_header(monkeypatch, con)
+    refs = store.read_table("references", con=con)
+    assert len(refs) == 2  # the ladder did NOT attach the header to the filing
+    kinds = {str(c["kind"]) for c in store.read_table("captures", con=con)}
+    assert kinds == {"fetched_html", stakes.HEADER_KIND}
+    # second pass: the header is a cache hit, no fetch
+    stakes.reset_capture_index()
+    monkeypatch.setattr(
+        stakes, "_fetch", lambda url: (_ for _ in ()).throw(AssertionError("fetched"))
+    )
+    assert stakes._capture(hdr_hit, con, header=True)[2] == "cached"
+    assert stakes._capture(doc_hit, con)[2] == "cached"
+
+
+def test_repair_headers_moves_misattached_captures(db, monkeypatch):
+    """Simulate the pre-fix state: the header capture sits on the filing's
+    reference with kind fetched_html. After repair the filing reference has
+    one document capture and the header has its own reference."""
+    _companies((1, "MYL", "100", "Mylan N.V."))
+    con = store.connect()
+    doc_hit, hdr_hit, d, h = _capture_doc_and_header(monkeypatch, con)
+    # collapse to the broken state
+    refs = store.read_table("references", con=con)
+    doc_ref = next(r for r in refs if str(r["source_system"]) == "stakes-probe")
+    caps = store.read_table("captures", con=con)
+    cols = store.table_columns("captures", con)
+    for c in caps:
+        c["ref_id"] = doc_ref["ref_id"]
+        c["kind"] = "fetched_html"
+    store.write_table("captures", caps, cols, con=con)
+    rcols = store.table_columns("references", con)
+    store.write_table("references", [doc_ref], rcols, con=con)
+    assert len({str(c["ref_id"]) for c in store.read_table("captures", con=con)}) == 1
+
+    assert stakes.repair_headers(con) == 0
+    caps = store.read_table("captures", con=con)
+    by_ref = {}
+    for c in caps:
+        by_ref.setdefault(str(c["ref_id"]), []).append(c)
+    assert len(by_ref) == 2 and all(len(v) == 1 for v in by_ref.values())
+    hdr = next(c for c in caps if str(c["kind"]) == stakes.HEADER_KIND)
+    assert hdr["ref_id"] != doc_ref["ref_id"]
+    # the rebuild's document map never picks the header
+    stakes.reset_capture_index()
+    idx = stakes._build_capture_index(con)
+    assert idx[doc_hit["url"]][1] == d[0]
+    assert stakes.repair_headers(con) == 0  # idempotent: nothing left to move

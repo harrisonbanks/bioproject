@@ -164,8 +164,14 @@ def _build_capture_index(con) -> dict[str, tuple[dict, str, str]]:
         return idx
     active: dict[str, tuple[str, str]] = {}
     for c in store.read_table("captures", con=con):
-        if c["status"] == "active":
-            active[str(c["ref_id"])] = (str(c["capture_id"]), "." + str(c.get("ext") or "htm"))
+        if c["status"] != "active":
+            continue
+        rid = str(c["ref_id"])
+        # a document capture always wins over a header capture on the same
+        # reference (legacy state before the 2026-09-05 fix)
+        if rid in active and str(c.get("kind") or "") == HEADER_KIND:
+            continue
+        active[rid] = (str(c["capture_id"]), "." + str(c.get("ext") or "htm"))
     for r in store.read_table("references", con=con):
         hit = active.get(str(r["ref_id"]))
         if hit and r.get("url"):
@@ -178,11 +184,25 @@ def reset_capture_index() -> None:
     _CAPTURE_INDEX = None
 
 
-def _capture(hit: dict, con) -> tuple[str, str, str] | None:
+HEADER_KIND = "sec_header"  # capture kind for complete-submission headers
+HEADER_SOURCE = "stakes-header"
+
+
+def _capture(hit: dict, con, header: bool = False) -> tuple[str, str, str] | None:
     """Capture one filing into the library with stakes-probe provenance;
     returns (capture_sha, ext, content_type). Re-captures nothing: an
     existing active capture of the same URL is reused via the per-pass
-    index."""
+    index.
+
+    header=True captures the complete-submission file for its SGML header.
+    Defect fixed 2026-09-05: the library's identifier ladder matches on
+    accession before URL, so a header capture carrying the filing's
+    accession ATTACHED ITSELF to the filing's reference - the header URL was
+    never recorded, the cache never hit, every run re-fetched every header,
+    and the filing's reference ended up with two captures that later code
+    could confuse. Header captures now get their own reference (distinct
+    source system, accession kept out of the identifier field) and a
+    distinct capture kind."""
     global _CAPTURE_INDEX
     if not hit["url"]:
         return None
@@ -200,25 +220,30 @@ def _capture(hit: dict, con) -> tuple[str, str, str] | None:
     if not got:
         return None
     data, ext, ctype = got
-    ref_id, _ = library.upsert_reference(
-        {
-            "ref_type": "sec_filing",
-            "sec_accession": hit["adsh"],
-            "url": hit["url"],
-            "title": f"{hit['name']} {hit['form']} {hit['file_date']}".strip(),
-            "publisher": "SEC EDGAR",
-            "published_at": hit["file_date"],
-            "source_system": "stakes-probe",
-            "source_key": f"{hit['adsh']}:{hit['doc']}",
-            # The search result's full CIK list is persisted because the owner
-            # of a 13D/13G is identified by that metadata, not by the document
-            # text, for the HTML eras.
-            "note": _hit_note(hit),
-        },
-        con,
-    )
+    fields = {
+        "ref_type": "sec_filing",
+        "url": hit["url"],
+        "title": f"{hit['name']} {hit['form']} {hit['file_date']}".strip(),
+        "publisher": "SEC EDGAR",
+        "published_at": hit["file_date"],
+        # The search result's full CIK list is persisted because the owner
+        # of a 13D/13G is identified by that metadata, not by the document
+        # text, for the HTML eras.
+        "note": _hit_note(hit),
+    }
+    if header:
+        fields["source_system"] = HEADER_SOURCE
+        fields["source_key"] = f"{hit['adsh']}:hdr"
+        fields["title"] = f"{hit['adsh']} submission header"
+    else:
+        fields["sec_accession"] = hit["adsh"]
+        fields["source_system"] = "stakes-probe"
+        fields["source_key"] = f"{hit['adsh']}:{hit['doc']}"
+    ref_id, _ = library.upsert_reference(fields, con)
     sha, dst, _new = library.put_bytes(data, ext)
-    library.add_capture(ref_id, sha, dst, "fetched_html", "stakes-probe", con)
+    library.add_capture(
+        ref_id, sha, dst, HEADER_KIND if header else "fetched_html", "stakes-probe", con
+    )
     if hit["cik"]:
         library.add_link(ref_id, "CIK", hit["cik"], "subject", con)
     if _CAPTURE_INDEX is not None:
@@ -346,11 +371,11 @@ def rebuild(con=None) -> int:
         if store.has_table("equity_stakes", con)
         else 0
     )
-    caps = {
-        str(c["ref_id"]): c
-        for c in store.read_table("captures", con=con)
-        if c["status"] == "active"
-    }
+    caps: dict[str, dict] = {}
+    for c in store.read_table("captures", con=con):
+        if c["status"] != "active" or str(c.get("kind") or "") == HEADER_KIND:
+            continue
+        caps[str(c["ref_id"])] = c
     log.info(f"{_ts()}  {before} rows before; {len(caps)} active captures; starting re-parse")
     counters = {
         "references_seen": 0,
@@ -544,7 +569,7 @@ def verify_direction(limit: int | None = None, probe: bool = False, con=None) ->
                 "file_date": str(r0.get("filing_date") or ""),
             }
             t0 = _time.perf_counter()
-            got = _capture(hit, con)
+            got = _capture(hit, con, header=True)
             t1 = _time.perf_counter()
             if got:
                 sha, ext, ctype = got
@@ -614,6 +639,101 @@ def verify_direction(limit: int | None = None, probe: bool = False, con=None) ->
     return 0
 
 
+_SUBMISSION_MARKERS = ("<SEC-DOCUMENT>", "-----BEGIN PRIVACY-ENHANCED MESSAGE-----", "<SEC-HEADER>")
+
+
+def _looks_like_submission(path) -> bool:
+    try:
+        head = _read_head(path)[:4000]
+    except OSError:
+        return False
+    return any(m in head for m in _SUBMISSION_MARKERS)
+
+
+def repair_headers(con=None) -> int:
+    """One-time repair for header captures that attached to filing references
+    (before the 2026-09-05 fix): each filing reference with more than one
+    active capture has its header capture moved to a proper header reference
+    (source stakes-header, URL = the submission .txt) and re-kinded
+    sec_header. No network. Counts recorded; idempotent (nothing to move on
+    a second pass)."""
+
+    con = con or store.connect()
+    log.info(f"{_ts()}  repair-headers: reading tables")
+    refs = {str(r["ref_id"]): r for r in store.read_table("references", con=con)}
+    by_ref: dict[str, list[dict]] = {}
+    for c in store.read_table("captures", con=con):
+        if c["status"] == "active":
+            by_ref.setdefault(str(c["ref_id"]), []).append(c)
+    multi = {rid: cs for rid, cs in by_ref.items() if len(cs) > 1}
+    log.info(f"{_ts()}  {len(multi)} references with more than one active capture")
+    moved = 0
+    unresolved = 0
+    repoint: dict[str, str] = {}
+    for rid, cs in multi.items():
+        ref = refs.get(rid)
+        if not ref:
+            continue
+        acc = str(ref.get("sec_accession") or "")
+        headers = [
+            c
+            for c in cs
+            if str(c.get("kind") or "") == HEADER_KIND
+            or _looks_like_submission(
+                library.store_path(str(c["capture_id"]), "." + str(c.get("ext") or "htm"))
+            )
+        ]
+        docs = [c for c in cs if c not in headers]
+        if not headers or not docs:
+            unresolved += 1
+            continue
+        for h in headers:
+            url = ""
+            # rebuild the submission URL from the filing's own URL path
+            m = _re.search(r"/edgar/data/(\d+)/", str(ref.get("url") or ""))
+            if m and acc:
+                url = _submission_url(m.group(1), acc)
+            new_ref, _ = library.upsert_reference(
+                {
+                    "ref_type": "sec_filing",
+                    "url": url,
+                    "title": f"{acc} submission header",
+                    "publisher": "SEC EDGAR",
+                    "published_at": str(ref.get("published_at") or ""),
+                    "source_system": HEADER_SOURCE,
+                    "source_key": f"{acc}:hdr",
+                    "note": f"moved from {rid} by repair-headers 2026-09-05",
+                },
+                con,
+            )
+            repoint[str(h["capture_id"])] = new_ref
+            moved += 1
+    if repoint:
+        # ref_id is part of captures' declared key, so this is a rewrite
+        # through the store layer, not an update
+        rows = store.read_table("captures", con=con)
+        cols = store.table_columns("captures", con)
+        for c in rows:
+            nr = repoint.get(str(c["capture_id"]))
+            if nr:
+                c["ref_id"] = nr
+                c["kind"] = HEADER_KIND
+        store.write_table("captures", rows, cols, con=con)
+    runr = results.start(
+        "stakes-repair-headers", "stakes repair-headers", ["references", "captures"], {}
+    )
+    runr.metric("_", "references_with_multiple_captures", len(multi))
+    runr.metric("_", "headers_moved", moved)
+    runr.metric("_", "unresolved", unresolved)
+    run_id = results.finish(
+        runr, note="header captures separated from filing references (identifier-ladder defect)"
+    )
+    log.info(f"{_ts()}  moved {moved} header captures; {unresolved} references left for inspection")
+    log.info(f"run {run_id} recorded")
+    reset_capture_index()
+    return 0
+
+
 def cli(argv: list[str]) -> int:
     sub = argv[0] if argv else ""
     if sub == "probe":
@@ -626,6 +746,8 @@ def cli(argv: list[str]) -> int:
         return precision()
     if sub == "rebuild":
         return rebuild()
+    if sub == "repair-headers":
+        return repair_headers()
     if sub == "verify-direction":
         probe_mode = "--probe" in argv
         lim = next((int(a) for a in argv[1:] if a.isdigit()), None)
