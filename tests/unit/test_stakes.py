@@ -1078,3 +1078,59 @@ def test_capture_prefers_prefetched_bytes_over_the_network(db, monkeypatch):
         hit, con, prefetched={hit["url"]: (b"<html>pre</html>", ".htm", "text/html")}
     )
     assert got is not None and got[2] == "text/html"
+
+
+# ---- r8 (2026-09-06): successor-name collisions must not orient a filing ----
+def test_orient_offparty_name_index_hit_is_not_the_issuer(db):
+    """The Allergan pattern behind 261 of the 434 header-contradicted rows:
+    _norm strips legal suffixes, so the predecessor's cover-page name
+    ("Allergan, Inc.", CIK 850693) resolves in the name index to the
+    successor registry member ("Allergan plc", CIK 1578845) — a CIK SEC
+    never listed as a party to the filing. r7c wrote the successor as
+    issuer and SEC's actual SUBJECT as holder. r8 refuses: an off-party
+    name hit is not evidence, and an off-party searched member cannot be
+    assumed the issuer either, so the row is unresolved and unwritten."""
+    _companies((1, "AGN", "1578845", "Allergan plc"))
+    parsed = {
+        "issuer_name": "Allergan, Inc.",
+        "owner_name": "Wellington Management Company, LLP",
+        "percent": "5.2",
+    }
+    holder, issuer, how = stakes.orient(_hit(ciks=("850693", "902219")), parsed, "1578845")
+    assert (holder, issuer, how) == ("", "", "unresolved")
+    # and the same document oriented from a party that IS the registry
+    # member still resolves normally (the guard is on off-party hits only)
+    _companies((1, "AGN", "850693", "Allergan, Inc."))
+    holder, issuer, how = stakes.orient(_hit(ciks=("850693", "902219")), parsed, "850693")
+    assert (holder, issuer, how) == ("CIK:902219", "CIK:850693", "subject")
+
+
+def test_fix_decision_rules_from_the_20260906_classification(db):
+    """One pure ruling per mismatch class, exactly as classified from the
+    verify-direction export of run 20260906T031232."""
+    subj, filers = {"850693"}, {"902219"}
+    # inverted row (holder == SEC subject): corrected from the header
+    assert stakes._fix_decision("850693", "1578845", subj, filers) == (
+        "fix",
+        {"holder_key": "CIK:902219", "issuer_key": "CIK:850693"},
+    )
+    # agreeing row: untouched
+    assert stakes._fix_decision("902219", "850693", subj, filers) == ("match", {})
+    # filer-of-record (direction right, holder differs): benign, untouched
+    assert stakes._fix_decision("111", "850693", subj, filers) == ("benign", {})
+    # issuer-CIK-only disagreement: benign, untouched
+    assert stakes._fix_decision("902219", "1585364", subj, filers) == ("benign", {})
+    # NAME holder rows carry no CIK: benign, untouched
+    assert stakes._fix_decision("", "1585364", subj, filers) == ("benign", {})
+    # inverted but the header lists two filers: ambiguous, left for a human
+    assert stakes._fix_decision("850693", "1578845", subj, {"902219", "903"}) == (
+        "ambiguous",
+        {},
+    )
+    # issuer-agent self-filing: SEC lists one CIK as both subject and filer
+    # (the GSK plc / Lappe Family Trust rows of run 20260906T031232);
+    # "fixing" would write holder == issuer, a self-stake — refused
+    assert stakes._fix_decision("1131399", "1631574", {"1131399"}, {"1131399"}) == (
+        "ambiguous",
+        {},
+    )

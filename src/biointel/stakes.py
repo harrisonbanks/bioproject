@@ -673,6 +673,166 @@ def verify_direction(limit: int | None = None, probe: bool = False, con=None) ->
     return 0
 
 
+def _fix_decision(holder_cik: str, issuer_cik: str, subj: set, filers: set) -> tuple[str, dict]:
+    """Per-row ruling against a parsed header, as one pure function so the
+    rule is unit-testable without a database.
+
+    Returns (action, fields):
+      "match"      — row agrees with the header; nothing to do.
+      "fix"        — the row's holder is SEC's SUBJECT (the inversion class
+                     the 2026-09-06 classification confirmed as genuine,
+                     434 rows); fields carries the corrected keys, holder
+                     from FILED BY and issuer from SUBJECT COMPANY.
+      "ambiguous"  — inverted, but the header lists several subjects or
+                     filers, so no single correction is stated; left for
+                     inspection.
+      "benign"     — disagrees without inversion (filer-of-record holder,
+                     issuer-CIK-only, NAME holders): classified 2026-09-06
+                     as not defects; untouched.
+    """
+    ok = bool(subj) and issuer_cik in subj and (not filers or holder_cik in filers)
+    if ok:
+        return "match", {}
+    if holder_cik and holder_cik in subj:
+        if len(subj) == 1 and len(filers) == 1 and subj != filers:
+            # subj == filers is an issuer-agent self-filing (SEC lists one
+            # CIK as both parties); "fixing" it would write holder == issuer,
+            # a self-stake. Unarbitrable, like the NAME rows: left alone.
+            return "fix", {
+                "holder_key": f"CIK:{next(iter(filers))}",
+                "issuer_key": f"CIK:{next(iter(subj))}",
+            }
+        return "ambiguous", {}
+    return "benign", {}
+
+
+def fix_direction(con=None) -> int:
+    """Re-orient the header-contradicted rows from SEC's own SGML header
+    (FILED BY / SUBJECT COMPANY), the authority verify-direction checked
+    against. Ruling of record 2026-09-06: fix only the rows whose holder
+    equals SEC's SUBJECT (the genuine inversions); leave the classified
+    benign rows (filer-of-record holders, issuer-CIK-only disagreements,
+    NAME holders the header cannot arbitrate) untouched. No network: only
+    headers already cached in the library are read; a row whose header is
+    not cached is counted and left. The table is replaced wholesale (the
+    corrected columns are the declared key, which update_rows refuses by
+    design); the residual mismatch export is rewritten from the corrected
+    table so it becomes the new state of record."""
+    from biointel import schema as _schema
+
+    con = con or store.connect()
+    reset_capture_index()
+    log.info(f"{_ts()}  fix-direction: reading equity_stakes")
+    rows = store.read_table("equity_stakes", con=con)
+    log.info(f"{_ts()}  {len(rows)} rows; building capture index")
+    idx = _build_capture_index(con)
+    log.info(f"{_ts()}  index built; reading cached headers")
+    by_acc: dict[str, list[dict]] = {}
+    for r in rows:
+        acc = str(r.get("accession") or "")
+        if acc:
+            by_acc.setdefault(acc, []).append(r)
+    headers: dict[str, dict] = {}
+    no_header_accs = 0
+    for acc, group in by_acc.items():
+        text = None
+        r0 = group[0]
+        for key in ("issuer_key", "holder_key"):
+            c = str(r0[key])[4:] if str(r0[key]).startswith("CIK:") else ""
+            hit = idx.get(_submission_url(c, acc)) if c else None
+            if hit:
+                _ref, sha, ext = hit
+                try:
+                    text = _read_head(library.store_path(sha, ext))
+                except OSError:
+                    text = None
+                if text is not None:
+                    break
+        if text is None:
+            no_header_accs += 1
+            continue
+        hdr = parse_header(text)
+        headers[acc] = {
+            "subj": {c for c, _n in hdr["subject"]},
+            "filers": {c for c, _n in hdr["filed_by"]},
+        }
+    log.info(
+        f"{_ts()}  {len(headers)} headers read from cache; {no_header_accs} accessions without one; deciding rows"
+    )
+    counters = {
+        "rows_total": len(rows),
+        "rows_no_accession": sum(1 for r in rows if not str(r.get("accession") or "")),
+        "rows_no_header": 0,
+        "rows_match": 0,
+        "rows_fixed": 0,
+        "rows_ambiguous": 0,
+        "rows_benign": 0,
+        "dupes_dropped": 0,
+    }
+    kept: list[dict] = []
+    seen: set[tuple] = set()
+    residual: list[str] = []
+    for r in rows:
+        acc = str(r.get("accession") or "")
+        hdr = headers.get(acc)
+        row = dict(r)
+        if hdr is None:
+            if acc:
+                counters["rows_no_header"] += 1
+        else:
+            h = str(r["holder_key"])[4:] if str(r["holder_key"]).startswith("CIK:") else ""
+            iss = str(r["issuer_key"])[4:] if str(r["issuer_key"]).startswith("CIK:") else ""
+            action, fields = _fix_decision(h, iss, hdr["subj"], hdr["filers"])
+            if action == "fix":
+                row.update(fields)
+                counters["rows_fixed"] += 1
+            elif action == "match":
+                counters["rows_match"] += 1
+            else:
+                counters[f"rows_{action}"] += 1
+                residual.append(
+                    f"{acc}  row holder {r['holder_key']} issuer {r['issuer_key']} | SEC subject "
+                    f"{sorted(hdr['subj'])} filed_by {sorted(hdr['filers'])}  "
+                    f"({str(r.get('owner_name') or '')[:40]})"
+                )
+        key = (row["holder_key"], row["issuer_key"], str(row["as_of"])[:10])
+        if key in seen:
+            counters["dupes_dropped"] += 1
+            continue
+        seen.add(key)
+        kept.append(row)
+    cols = list(_schema.EQUITY_STAKE_COLS) + list(
+        _schema.TABLE_BY_PATH["silver/equity_stakes.csv"].optional
+    )
+    store.write_table("equity_stakes", kept, cols, con=con)
+    p = store.write_export("stakes_direction_mismatches.txt", "\n".join(residual) + "\n")
+    runr = results.start(
+        "stakes-fix-direction",
+        "stakes fix-direction",
+        ["equity_stakes", "references", "captures"],
+        {"rule_version": RULE_VERSION},
+    )
+    for k, v in counters.items():
+        runr.metric("_", k, v)
+    runr.metric("_", "rows_after", len(kept))
+    runr.artefact(p)
+    run_id = results.finish(
+        runr,
+        note=(
+            "header-contradicted rows re-oriented from SEC SGML header (FILED BY / "
+            "SUBJECT COMPANY, cached, no network); benign classes of 2026-09-06 untouched"
+        ),
+    )
+    log.info(
+        f"{_ts()}  rows {len(kept)} (was {len(rows)}); fixed {counters['rows_fixed']} "
+        f"ambiguous {counters['rows_ambiguous']} benign {counters['rows_benign']} "
+        f"no_header {counters['rows_no_header']} dupes_dropped {counters['dupes_dropped']}; "
+        f"residual mismatches -> {p}"
+    )
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
 _SUBMISSION_MARKERS = ("<SEC-DOCUMENT>", "-----BEGIN PRIVACY-ENHANCED MESSAGE-----", "<SEC-HEADER>")
 
 
@@ -983,8 +1143,10 @@ def cli(argv: list[str]) -> int:
         probe_mode = "--probe" in argv
         lim = next((int(a) for a in argv[1:] if a.isdigit()), None)
         return verify_direction(limit=lim, probe=probe_mode)
+    if sub == "fix-direction":
+        return fix_direction()
     print(
-        "usage: stakes probe|run [SINCE]|rebuild|verify-direction [--probe|N]|sample [N]|precision"
+        "usage: stakes probe|run [SINCE]|rebuild|verify-direction [--probe|N]|fix-direction|sample [N]|precision"
     )
     return 1
 
@@ -1199,7 +1361,7 @@ def parse_cover(text: str) -> dict:
 # r4 structured 13D tag set (percentOfClass, aggregateAmountOwned, issuerCIK,
 # issuerCUSIP, dateOfEvent, reportingPersonCIK).
 RULE_VERSION = (
-    "F1-r7"  # r7: owner-name label residue; orientation from the document (subject/filer)
+    "F1-r8"  # r8: off-party name-index hits and off-party members are not issuers (2026-09-06)
 )
 
 
@@ -1410,14 +1572,14 @@ def orient(hit: dict, parsed: dict, member_cik: str) -> tuple[str, str, str]:
                 owner = doc_owner or next((o for o in parties if o != c), "")
                 if owner:
                     return f"CIK:{owner}", f"CIK:{c}", _label(owner)
-        if by_name:  # issuer is a registry company that SEC did not list as a party
-            owner = doc_owner or next((o for o in parties if o != by_name), "")
-            if owner:
-                return f"CIK:{owner}", f"CIK:{by_name}", "filer"
-        # An issuer name that matches nothing is NOT evidence of direction
-        # (2026-09-04: treating it as "the member must be the filer" inverted
-        # BlackRock's filings whose issuer text carried spillover). Fall
-        # through to the owner-name test.
+        # r8 (2026-09-06): a name-index hit that is NOT among SEC's parties is
+        # not evidence either. _norm strips legal suffixes, so a predecessor's
+        # name ("Allergan, Inc.") resolves to its successor's registry CIK
+        # ("Allergan plc"), and trusting that hit wrote the successor as
+        # issuer and the true subject as holder — 261 of the 434 inverted
+        # rows the SEC-header check caught. The parties SEC lists are the
+        # only CIKs a filing can be about; an off-party name match falls
+        # through, like an unmatched one (the 2026-09-04 BlackRock lesson).
 
     # The reporting person's name is a second, independent document field.
     # With exactly one registry party M: if the reporting person IS M, M is
@@ -1433,6 +1595,12 @@ def orient(hit: dict, parsed: dict, member_cik: str) -> tuple[str, str, str]:
 
     # No usable issuer in the document: historical fallback, counted.
     member = str(int(member_cik)) if str(member_cik).strip() else ""
+    if member and member not in parties:
+        # r8: the searched member is not among the filing's parties (a
+        # successor CIK reached via name collision, or stale search
+        # metadata). Assuming it as issuer fabricates a party SEC never
+        # listed; the row is refused instead.
+        return "", "", "unresolved"
     others = [c for c in parties if c != member]
     if doc_owner and member and doc_owner != member:
         return f"CIK:{doc_owner}", f"CIK:{member}", "unresolved"
