@@ -2,6 +2,41 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.21. Supersedes v1.20. M4 CLOSED — GATE M COMPLETE (2026-09-07),
+commit b891281, 262 tests:
+- Operator rulings of record: model CONFIGURABLE (config.ASSIST_MODEL,
+  default claude-sonnet-5), cap 200 calls/run (config.ASSIST_CALL_CAP),
+  ASSIST_ENABLED committed False — turning it on is an explicit switch.
+- assist.py: `stakes assist [N] [--model M]` — one Messages call per open
+  queue entry with the disputed field, both values, and a bounded
+  field-aware excerpt (never the whole filing); versioned prompt artifact
+  src/biointel/prompts/judge_assist_v1.txt (package-relative, the one
+  stated deviation from the GATEM root path); structured reply
+  correct|wrong|unsure|abstain, abstain mandatory for
+  two-values-in-one-box (codifying the 52-row refusal). Proposals land in
+  review_proposals (SCHEMA_VERSION 0.17) with model id, prompt version,
+  excerpt hash; displayed beside the queue worksheet; NEVER auto-applied;
+  precision counts human verdicts only. Malformed replies and API
+  failures write nothing and are counted; key from environment only.
+- Acceptance of record (`stakes assist-accept`, measured against the r9
+  two-route ground truth — repaired disputes whose correct proposal is
+  known): claude-sonnet-5 agreement 99/99 = 1.000 (1 unusable);
+  claude-haiku-4-5 agreement 100/100 = 1.000. Both perfect on this task;
+  the default stays Sonnet per the operator ruling, and the ledger now
+  carries the measured license to run Haiku at a third of the cost.
+- Cost basis: ~$1-2 for the 200-call acceptance; the full 707-entry
+  queue proposes for roughly $3-4 on Haiku (computed at $1/$5 per MTok,
+  ~3k in / ~150 out per call).
+- One delivery defect caught by the operator's gate, fixed same turn: an
+  un-sorted import (I001) in the new tests — the container replica's
+  default ruff config missed a project isort rule; the exact-string
+  commit gate did its job and refused.
+- GATE M FAMILY COMPLETE: M1 (ingest header check), M2 (run-integrated
+  crosscheck), M3 (standing judge queue, no expiry), M4 (assist) — all
+  closed 2026-09-07 with pasted proof.
+- Remaining board: F2 (stated priorities), fetch-probe, the 707 open
+  entries + 52 deferred F-era verdicts, and the recorded-not-built gaps.
+
 Version 1.20. Supersedes v1.19. r9 CLOSED (2026-09-07), commit c489eb2,
 259 tests, RULE_VERSION F1-r9:
 - Rule 4.20 honored end to end: five specimens dumped deterministically
