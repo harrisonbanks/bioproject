@@ -1103,20 +1103,22 @@ def _pct_equal(a: str | None, b: str | None) -> bool:
         return False
 
 
-def crosscheck(limit: int | None = None, con=None) -> int:
-    """Run route B over every stake row (or the first N), compare with the
-    stored percent and as_of, record agreement counts as run metrics, export
-    disagreements for the human. Structured-era rows are skipped: their
-    fields are copied from XML tags, not parsed, and need no second route."""
-    con = con or store.connect()
-    log.info(f"{_ts()}  crosscheck: reading tables")
-    rows = store.read_table("equity_stakes", con=con)
+def _active_doc_caps(con) -> dict[str, dict]:
+    """capture_id -> capture row for every active DOCUMENT capture (headers
+    excluded). Shared by crosscheck and the run-integrated check (M2)."""
     caps: dict[str, dict] = {}
     for c in store.read_table("captures", con=con):
         if c["status"] == "active" and str(c.get("kind") or "") != HEADER_KIND:
             caps[str(c["capture_id"])] = c
-    if limit:
-        rows = rows[:limit]
+    return caps
+
+
+def _crosscheck_rows(rows: list[dict], caps: dict[str, dict]) -> tuple[dict, list[str]]:
+    """Route-B check of percent and event date over the given rows. M2 queue
+    rule of record (2026-09-07, codifying the 2026-09-06 family ruling):
+    only VALUE-vs-VALUE conflicts queue — route-B silence is a coverage gap,
+    counted in route_b_no_pct / route_b_no_date and never exported. Lines
+    carry the filing date so a full export can be restricted to a window."""
     counters = {
         "rows": len(rows),
         "xml_skipped": 0,
@@ -1157,29 +1159,67 @@ def crosscheck(limit: int | None = None, con=None) -> int:
             counters["route_b_no_pct"] += 1
         if b_date is None:
             counters["route_b_no_date"] += 1
-        if pct_ok and date_ok:
-            counters["agree_both"] += 1
-            continue
-        if not pct_ok and b_pct is not None:
+        pct_conflict = b_pct is not None and not pct_ok
+        date_conflict = b_date is not None and not date_ok
+        if not pct_conflict and not date_conflict:
+            if pct_ok and date_ok:
+                counters["agree_both"] += 1
+            continue  # silence-only rows never queue (coverage gap, not evidence)
+        if pct_conflict:
             counters["pct_disagree"] += 1
-        if not date_ok and b_date is not None:
+        if date_conflict:
             counters["date_disagree"] += 1
         out.append(
-            f"F{str(r['doc_id'])[:12]}  stored pct {r['percent']} routeB {b_pct}  | stored as_of "
+            f"F{str(r['doc_id'])[:12]}  filed {str(r.get('filing_date') or '')[:10]}  "
+            f"stored pct {r['percent']} routeB {b_pct}  | stored as_of "
             f"{stored_date} routeB {b_date}  | {r['holder_key']} -> {r['issuer_key']} {r.get('form')}"
         )
-    p = store.write_export("stakes_crosscheck_disagreements.txt", "\n".join(out) + "\n")
+    return counters, out
+
+
+def crosscheck(
+    limit: int | None = None, con=None, since: str | None = None, until: str | None = None
+) -> int:
+    """Run route B over every stake row (or a window / the first N), compare
+    with the stored percent and as_of, record agreement counts as run
+    metrics, export VALUE-vs-VALUE disagreements for the human (M2 rule;
+    route-B silences are counted, never queued). --since / --until filter by
+    filing_date, so an update run's check can be replayed and compared
+    against the full run restricted to the same window. Structured-era rows
+    are skipped: their fields are copied from XML tags, not parsed, and need
+    no second route."""
+    con = con or store.connect()
+    log.info(f"{_ts()}  crosscheck: reading tables")
+    rows = store.read_table("equity_stakes", con=con)
+    if since:
+        rows = [r for r in rows if str(r.get("filing_date") or "")[:10] >= since]
+    if until:
+        rows = [r for r in rows if str(r.get("filing_date") or "")[:10] <= until]
+    caps = _active_doc_caps(con)
+    if limit:
+        rows = rows[:limit]
+    counters, out = _crosscheck_rows(rows, caps)
+    name = (
+        f"stakes_crosscheck_disagreements_{since or 'start'}_{until or 'end'}.txt"
+        if (since or until)
+        else "stakes_crosscheck_disagreements.txt"
+    )
+    p = store.write_export(name, "\n".join(out) + "\n")
     runr = results.start(
         "stakes-crosscheck",
         "stakes crosscheck",
         ["equity_stakes", "captures"],
-        {"rule_version": RULE_VERSION},
+        {"rule_version": RULE_VERSION, "since": since or "", "until": until or ""},
     )
     for k, v in counters.items():
         runr.metric("_", k, v)
     runr.artefact(p)
     run_id = results.finish(
-        runr, note="second-route check of percent and event date; disagreements to the human"
+        runr,
+        note=(
+            "second-route check of percent and event date; value-vs-value conflicts to the "
+            "human, route-B silences counted as coverage gaps (M2 rule)"
+        ),
     )
     log.info(
         f"{_ts()}  agree {counters['agree_both']} / checked {len(rows) - counters['xml_skipped'] - counters['unreadable']}; "
@@ -1274,7 +1314,9 @@ def cli(argv: list[str]) -> int:
         return stubs()
     if sub == "crosscheck":
         lim = next((int(a) for a in argv[1:] if a.isdigit()), None)
-        return crosscheck(limit=lim)
+        since = argv[argv.index("--since") + 1] if "--since" in argv else None
+        until = argv[argv.index("--until") + 1] if "--until" in argv else None
+        return crosscheck(limit=lim, since=since, until=until)
     if sub == "verify-direction":
         probe_mode = "--probe" in argv
         lim = next((int(a) for a in argv[1:] if a.isdigit()), None)
@@ -1288,7 +1330,7 @@ def cli(argv: list[str]) -> int:
         return check_probe(argv[1], argv[2])
     print(
         "usage: stakes probe|run [SINCE]|rebuild|verify-direction [--probe|N]|fix-direction|"
-        "check-probe SINCE UNTIL|sample [N]|precision"
+        "check-probe SINCE UNTIL|crosscheck [N] [--since D] [--until D]|sample [N]|precision"
     )
     return 1
 
@@ -1885,6 +1927,8 @@ def run(since: str = "2001-01-01") -> int:
         "check_no_header": 0,
     }
     member_ciks = {str(int(c)) for c, _t, _n in _member_ciks()}
+    run_stamp = time.strftime("%Y%m%dT%H%M%S")
+    written_rows: list[dict] = []
     for cik, _ticker, _name in _member_ciks():
         rows = _collect_member(cik, since, until, con, counters)
         counters["filings_seen"] += len(rows)
@@ -1909,6 +1953,7 @@ def run(since: str = "2001-01-01") -> int:
         if fresh:
             store.append_rows("equity_stakes", fresh, cols, con=con)
             counters["rows_written"] += len(fresh)
+            written_rows.extend(fresh)
         counters["members_done"] += 1
         if counters["members_done"] % 25 == 0:
             log.info(
@@ -1925,6 +1970,17 @@ def run(since: str = "2001-01-01") -> int:
             if ocik not in member_ciks:
                 thirteen_d_owners.setdefault(ocik, str(r.get("owner_name") or ""))
     counters["notes_backfilled"] = flush_note_backfill(con)
+    # M2 (scope of record 2026-09-07): every update run ends by crosschecking
+    # EXACTLY the rows it wrote this pass — defects are caught at row one,
+    # value-vs-value conflicts go to the export, silences are counted.
+    xc_counters: dict = {}
+    xc_path = None
+    if written_rows:
+        log.info(f"{_ts()}  M2 crosscheck over {len(written_rows)} fresh rows")
+        xc_counters, xc_lines = _crosscheck_rows(written_rows, _active_doc_caps(con))
+        xc_path = store.write_export(
+            f"stakes_run_crosscheck_{run_stamp}.txt", "\n".join(xc_lines) + "\n"
+        )
     stub_lines = _proposed_stubs(thirteen_d_owners)
     p = store.write_export("stakes_proposed_stubs.txt", "\n".join(stub_lines) + "\n")
     runr = results.start(
@@ -1932,6 +1988,10 @@ def run(since: str = "2001-01-01") -> int:
     )
     for k, v in counters.items():
         runr.metric("_", k, v)
+    for k, v in xc_counters.items():
+        runr.metric("_", f"xc_{k}", v)
+    if xc_path is not None:
+        runr.artefact(xc_path)
     runr.metric("_", "proposed_stubs", max(0, len(stub_lines) - 1))
     runr.artefact(p)
     run_id = results.finish(
@@ -1940,7 +2000,8 @@ def run(since: str = "2001-01-01") -> int:
             f"rule {RULE_VERSION}; one row per filing (lead filer); as_of = cover-page event "
             "date, else filing date; exits written at stated percent (Q4); stubs proposed, "
             "never auto-added (Q3); M1 header check at write time (disputed rows excluded "
-            "from enforced model reads until judged)"
+            "from enforced model reads until judged); M2 crosscheck over this run's fresh "
+            "rows (value-vs-value conflicts exported, silences counted)"
         ),
     )
     log.info(f"rows written {counters['rows_written']}; proposed stubs -> {p}")

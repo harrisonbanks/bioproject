@@ -1399,3 +1399,190 @@ def test_enforced_reads_exclude_disputed_rows(db):
     with store.enforce("m1-test", {"equity_stakes": ("holder_key", "issuer_key", "percent")}):
         got = store.read_table("equity_stakes")
     assert len(got) == 1 and got[0]["percent"] == "5.0"
+
+
+# ---- M2 (2026-09-07): value-vs-value queue rule; window; run-integrated check ----
+_XC_AGREE = (
+    "PERCENT OF CLASS REPRESENTED BY AMOUNT IN ROW (9) 5.0% "
+    "12 TYPE OF REPORTING PERSON CO "
+    "December 31, 2014 (Date of Event Which Requires Filing of this Statement)"
+)
+_XC_SILENT = "This page carries no reporting-person row and no event-date label at all."
+_XC_CONFLICT = (
+    "PERCENT OF CLASS REPRESENTED BY AMOUNT IN ROW (9) 9.9% "
+    "12 TYPE OF REPORTING PERSON CO "
+    "December 31, 2014 (Date of Event Which Requires Filing of this Statement)"
+)
+
+
+def _seed_xc_world(tmp_path, docs):
+    """Seed equity_stakes + captures + on-disk documents for crosscheck
+    tests. docs: list of (doc_id, filing_date, stored_pct, text)."""
+    scols = (
+        list(schema.EQUITY_STAKE_COLS)
+        + list(schema.EQUITY_STAKE_F1_COLS)
+        + list(schema.EQUITY_STAKE_M1_COLS)
+    )
+    ccols = list(schema.CAPTURE_COLS)
+    srows, crows = [], []
+    for i, (doc_id, fdate, pct, text) in enumerate(docs):
+        s = dict.fromkeys(scols, "")
+        s.update(
+            {
+                "holder_key": f"CIK:{i + 1}",
+                "issuer_key": "CIK:900",
+                "percent": pct,
+                "as_of": "2014-12-31",
+                "doc_id": doc_id,
+                "filing_date": fdate,
+                "form": "SC 13G/A",
+            }
+        )
+        srows.append(s)
+        c = dict.fromkeys(ccols, "")
+        c.update(
+            {
+                "capture_id": doc_id,
+                "ref_id": f"R{i}",
+                "kind": "fetched_html",
+                "ext": "htm",
+                "status": "active",
+            }
+        )
+        crows.append(c)
+        (tmp_path / f"{doc_id}.htm").write_text(text, encoding="utf-8")
+    store.write_table("equity_stakes", srows, scols)
+    store.write_table("captures", crows, ccols)
+    return tmp_path
+
+
+def test_crosscheck_queues_value_conflicts_only(db, monkeypatch, tmp_path):
+    """M2 queue rule: an agreeing row and a route-B-silent row never queue
+    (silence is a coverage gap, counted); a value-vs-value percent conflict
+    queues with the filing date in the line."""
+    _seed_xc_world(
+        tmp_path,
+        [
+            ("a" * 64, "2015-01-15", "5.0", _XC_AGREE),
+            ("b" * 64, "2015-01-16", "5.0", _XC_SILENT),
+            ("c" * 64, "2015-01-17", "5.0", _XC_CONFLICT),
+        ],
+    )
+    monkeypatch.setattr(
+        stakes.library, "store_path", lambda sha, ext: tmp_path / f"{sha}{ext}"
+    )
+    assert stakes.crosscheck() == 0
+    lines = [
+        ln
+        for ln in (config.EXPORTS / "stakes_crosscheck_disagreements.txt")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if ln.strip()
+    ]
+    assert len(lines) == 1
+    assert lines[0].startswith("F" + "c" * 12) and "filed 2015-01-17" in lines[0]
+    assert "routeB 9.9" in lines[0]  # the conflicting second-route value is shown
+
+
+def test_crosscheck_window_equals_full_restricted_to_month(db, monkeypatch, tmp_path):
+    """M2 exit criterion in miniature: the windowed crosscheck's lines equal
+    the full crosscheck's lines restricted to the window, exactly."""
+    _seed_xc_world(
+        tmp_path,
+        [
+            ("d" * 64, "2015-01-20", "5.0", _XC_CONFLICT),
+            ("e" * 64, "2015-02-10", "5.0", _XC_CONFLICT),
+            ("f" * 64, "2015-02-20", "5.0", _XC_AGREE),
+            ("1" * 64, "2015-03-05", "5.0", _XC_CONFLICT),
+        ],
+    )
+    monkeypatch.setattr(
+        stakes.library, "store_path", lambda sha, ext: tmp_path / f"{sha}{ext}"
+    )
+    assert stakes.crosscheck() == 0
+    full = (config.EXPORTS / "stakes_crosscheck_disagreements.txt").read_text(
+        encoding="utf-8"
+    )
+    assert stakes.crosscheck(since="2015-02-01", until="2015-02-28") == 0
+    windowed = (
+        config.EXPORTS / "stakes_crosscheck_disagreements_2015-02-01_2015-02-28.txt"
+    ).read_text(encoding="utf-8")
+    restricted = sorted(
+        ln for ln in full.splitlines() if ln.strip() and "filed 2015-02" in ln
+    )
+    assert restricted == sorted(ln for ln in windowed.splitlines() if ln.strip())
+    assert len(restricted) == 1 and restricted[0].startswith("F" + "e" * 12)
+
+
+def test_run_crosschecks_exactly_the_fresh_rows(db, monkeypatch, tmp_path):
+    """M2 run integration: an update run ends by crosschecking the rows it
+    wrote this pass; the dated export carries only their conflicts; a
+    second, fresh-row-free run writes no new crosscheck export."""
+    _companies((1, "AAA", "100", "Mylan N.V."))
+    hdr_a = tmp_path / "hdr_a.txt"
+    hdr_a.write_text(_SUBMISSION, encoding="utf-8")  # subject 100, filed by 999777
+    doc_sha = "f" * 64
+    (tmp_path / f"{doc_sha}.htm").write_text(_XC_CONFLICT, encoding="utf-8")
+
+    def fake_search(q, forms, start, end, cik=None, page_from=0):
+        if forms == stakes.STAKE_FORMS and cik == "100" and page_from == 0:
+            return {
+                "hits": {
+                    "hits": [
+                        {
+                            "_id": "0001-15-000001:d.htm",
+                            "_source": {
+                                "ciks": ["0000000100", "0000999777"],
+                                "display_names": ["N1 (AAA)", "Abbott Laboratories"],
+                                "file_date": "2015-04-07",
+                                "form": "SC 13D/A",
+                            },
+                        }
+                    ],
+                    "total": {"value": 1},
+                }
+            }
+        return {"hits": {"hits": [], "total": {"value": 0}}}
+
+    def fake_capture(h, con, header=False, **kw):
+        return ("b" * 64, ".txt", "cached") if header else (doc_sha, ".htm", "text/html")
+
+    def fake_store_path(sha, ext):
+        return hdr_a if sha.startswith("b") else tmp_path / f"{sha}{ext}"
+
+    monkeypatch.setattr(stakes, "search", fake_search)
+    monkeypatch.setattr(stakes, "_capture", fake_capture)
+    monkeypatch.setattr(stakes.library, "store_path", fake_store_path)
+    monkeypatch.setattr(
+        stakes,
+        "parse_cover",
+        lambda text: {
+            "issuer_name": "Mylan N.V.",
+            "owner_name": "Abbott Laboratories",
+            "percent": "5.0",
+            "event_date": "2014-12-31",
+        },
+    )
+    monkeypatch.setattr(stakes, "_owner_sic", lambda cik: "2834")
+    # crosscheck reads real captures; the fake _capture writes none, so the
+    # M2 pass must see the doc via _active_doc_caps: seed the capture row.
+    ccols = list(schema.CAPTURE_COLS)
+    c = dict.fromkeys(ccols, "")
+    c.update(
+        {
+            "capture_id": doc_sha,
+            "ref_id": "R0",
+            "kind": "fetched_html",
+            "ext": "htm",
+            "status": "active",
+        }
+    )
+    store.write_table("captures", [c], ccols)
+    assert stakes.run() == 0
+    exports = sorted(config.EXPORTS.glob("stakes_run_crosscheck_*.txt"))
+    assert len(exports) == 1
+    lines = [ln for ln in exports[0].read_text(encoding="utf-8").splitlines() if ln.strip()]
+    # stored 5.0 vs route-B 9.9 on the one fresh row: exactly one conflict line
+    assert len(lines) == 1 and lines[0].startswith("F" + "f" * 12)
+    assert stakes.run() == 0  # second run: no fresh rows
+    assert len(list(config.EXPORTS.glob("stakes_run_crosscheck_*.txt"))) == 1
