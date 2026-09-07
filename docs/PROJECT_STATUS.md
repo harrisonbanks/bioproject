@@ -2,6 +2,49 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.23. Supersedes v1.22. F2 STAGE 2 CLOSED (2026-09-07), commit
+594a63c, 267 tests:
+- Probe of record (bundle 2026-09-07): 4 captures — three 10-K Item 1
+  specimens (Akorn 2015, BMY 2019, Tenax 2018) and one investor-day 8-K
+  press release (TXMD). The earnings_call tier is a RECORDED COVERAGE
+  HOLE: three query hypotheses dead at 0 hits across 12 companies x 2
+  eras ('"earnings call" transcript', '"question-and-answer session"',
+  '"prepared remarks"') — transcripts for this universe effectively are
+  not filed as 8-K exhibits; reversible if a future hypothesis lands.
+- Q3 vocabulary FIXED in schema (PRIORITY_CATEGORIES: the 8 P4
+  objective dimensions); the category CHECK constraint DEFERRED to the
+  consume stage — live dossier-seed rows carry pre-Q3 values and
+  enforcing first broke six seed-writing tests (the gate refused); the
+  vocabulary itself is unchanged and binding. TA sub-values await a
+  sourced taxonomy (P20). Q2 columns landed (source_type/section,
+  optional, source_type enum with '' for legacy rows). SCHEMA 0.18.
+  The scope doc's 0.11→0.12 numbering predates gates M/r9 — same
+  columns, current numbers.
+- Rules, written only against the bundle (rule 4.20): item1_slice —
+  last-heading boundary (TOC lines AND inline cross-references cite
+  Item 1A before the body; Akorn's own M&A paragraph does); five
+  priority-sentence rules, one per specimen family, each
+  category-guarded; extract_priorities refuses unsliceable 10-Ks. All
+  specimens locked verbatim; RULE_VERSION_F2 L3-a3-p1 (analyser-side
+  a3 agenda lands with the deal-aspects half).
+- DELIVERY DEFECT, mine, on the record: the stage-2 test file was
+  delivered as new and OVERWROTE the tracked test_priorities.py from
+  058d729 (2026-09-03), destroying its three stage-1 probe tests and
+  producing an afternoon of shifting suite counts (262→263→264) chased
+  through five diagnostic rounds. Restored verbatim same day; permanent
+  fix: `git ls-files` check before any file delivery. Two secondary
+  faults same episode: an enum CHECK shipped against a live-rowed table
+  (now: live-table constraints deferred by default) and a
+  relative-path evidence redirect that voided one diagnostic block
+  (now: absolute paths in every block).
+- Suite arithmetic of record: 259 committed-others + 3 restored + 5
+  new = 267. Ruff baseline 3 unchanged.
+- Next F2 stages: collector for the two live tiers (fixing the two
+  recorded drift defects first: per-hit capture table-scan and the
+  accession-first ladder), stated_priorities writer (must add_columns
+  source_type/section on the live table), deal-aspects half, blind
+  samples 180+60, per-tier precision.
+
 Version 1.22. Supersedes v1.21. fetch-pool ENABLED (2026-09-07):
 - `fetch-probe 5 200` (run 20260907T171738): 200/200 ok, 0 backoffs, 0
   retries, 0 errors, rate held 5.0 -> 5.0, observed 4.1/s, mean latency
