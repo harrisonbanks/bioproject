@@ -114,6 +114,7 @@ def _same_key(table: str, a: dict, b: dict) -> bool:
         "manual_entities": ("entity_key",),
         "manual_attributes": ("entity_key", "attribute"),
         "manual_notes": ("note_id",),
+        "entity_lineage": ("predecessor_cik",),
     }[table]
     return all(a.get(k) == b.get(k) for k in keys)
 
