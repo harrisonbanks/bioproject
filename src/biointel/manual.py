@@ -37,11 +37,12 @@ DOSSIER_TABLES = (
     "stated_priorities",
     "assets",
 )
-HAND_TABLES = MANUAL_TABLES + DOSSIER_TABLES
+HAND_TABLES = MANUAL_TABLES + ("entity_lineage",) + DOSSIER_TABLES
 _COLS = {
     "manual_entities": schema.MANUAL_ENTITY_COLS,
     "manual_attributes": schema.MANUAL_ATTRIBUTE_COLS,
     "manual_notes": schema.MANUAL_NOTE_COLS,
+    "entity_lineage": schema.ENTITY_LINEAGE_COLS,
     "deal_terms": schema.DEAL_TERM_COLS,
     "deal_timeline": schema.DEAL_TIMELINE_COLS,
     "deal_rationale": schema.DEAL_RATIONALE_COLS,
@@ -135,6 +136,24 @@ def add_attribute(entity_key: str, attribute: str, value: str, **fields) -> dict
     row.update({"entity_key": entity_key, "attribute": attribute, "value": value})
     row.update({k: v for k, v in fields.items() if k in row and v is not None})
     _append("manual_attributes", _stamp(row), con)
+    return row
+
+
+def add_lineage(predecessor_cik: str, successor_cik: str, **fields) -> dict:
+    """Record that predecessor_cik is a historical entity whose lineage
+    continues as successor_cik (rename, redomiciliation or merger). Hand-
+    entered only, one primary source per pair; refuses self-mappings and
+    non-numeric CIKs."""
+    p, sc = str(predecessor_cik).strip(), str(successor_cik).strip()
+    if not (p.isdigit() and sc.isdigit()):
+        raise ValueError("lineage CIKs must be numeric")
+    if str(int(p)) == str(int(sc)):
+        raise ValueError("lineage cannot map a CIK to itself")
+    con = store.connect()
+    row = {c: "" for c in schema.ENTITY_LINEAGE_COLS}
+    row.update({"predecessor_cik": str(int(p)), "successor_cik": str(int(sc))})
+    row.update({k: v for k, v in fields.items() if k in row and v is not None})
+    _append("entity_lineage", _stamp(row), con)
     return row
 
 
@@ -259,7 +278,9 @@ def _arg(argv: list[str], flag: str) -> str | None:
 
 def cli(argv: list[str]) -> int:
     if not argv:
-        print("manual: add-entity | add-attribute | add-note | list | validate | export | load")
+        print(
+            "manual: add-entity | add-attribute | add-note | add-lineage | list | validate | export | load"
+        )
         return 1
     sub, rest = argv[0], argv[1:]
     if sub == "add-entity":
@@ -278,6 +299,25 @@ def cli(argv: list[str]) -> int:
             note=_arg(rest, "--note"),
         )
         print(f"manual entity {row['entity_key']} recorded")
+        return 0
+    if sub == "add-lineage":
+        if len(rest) < 2:
+            print(
+                "usage: manual add-lineage PREDECESSOR_CIK SUCCESSOR_CIK [--date YYYY-MM-DD] [--source S] [--note N]"
+            )
+            return 1
+        try:
+            row = add_lineage(
+                rest[0],
+                rest[1],
+                effective_date=_arg(rest, "--date"),
+                source=_arg(rest, "--source"),
+                note=_arg(rest, "--note"),
+            )
+        except ValueError as e:
+            print(str(e))
+            return 1
+        print(f"lineage {row['predecessor_cik']} -> {row['successor_cik']} recorded")
         return 0
     if sub == "add-attribute":
         if len(rest) < 3:

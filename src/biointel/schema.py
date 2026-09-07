@@ -1,4 +1,4 @@
-# src/biointel/schema.py
+# C:\Users\JB\Documents\dev\bioindustry\src\biointel\schema.py
 # src/biointel/schema.py
 """Schema as code: the written ontology (Ontology and Matching Design v3 §3.5).
 
@@ -61,7 +61,7 @@ SCORE_ACQUIRER_SIDE_MARKETCAP = 7.5e10
 SCORE_TARGET_CAP_BAND = (3e8, 4e10)
 FEATURES_FINANCIALS_STALENESS_DAYS = 400
 
-SCHEMA_VERSION = "0.13"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.14"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -510,6 +510,10 @@ MANUAL_ATTRIBUTE_COLS = (
 MANUAL_NOTE_COLS = (
     "note_id", "entity_key", "event_id", "date", "title", "text", "source_url", "entered_by",
     "entered_on", "tags",
+)
+ENTITY_LINEAGE_COLS = (
+    "predecessor_cik", "successor_cik", "effective_date", "source", "entered_by", "entered_on",
+    "note",
 )
 BENCHMARK_COLS = ("name", "type", "constituents_or_ticker")
 # Deal dossier (Ontology v5 §3.10; gate L2). P19: every row carries the
@@ -1140,6 +1144,15 @@ TABLES: tuple[Table, ...] = (
         "manual add-note (2.10)",
         key=("note_id",),
         types={"date": "date"},
+    ),
+    Table(
+        "silver/entity_lineage.csv",
+        ENTITY_LINEAGE_COLS,
+        "manual add-lineage (F1 step 4, 2026-09-06): predecessor CIK -> successor "
+        "CIK, hand-entered with a primary source per pair; stubs consults it so "
+        "historical names are never proposed as new companies",
+        key=("predecessor_cik",),
+        types={"effective_date": "date"},
     ),
     Table("silver/benchmarks.csv", BENCHMARK_COLS, "gate 2.9 (F9)", planned=True),
 )

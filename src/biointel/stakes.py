@@ -1084,6 +1084,18 @@ def crosscheck(limit: int | None = None, con=None) -> int:
     return 0
 
 
+def _partition_lineage(
+    owners: dict[str, str], lineage: dict[str, str]
+) -> tuple[dict[str, str], dict[str, tuple[str, str]]]:
+    """Split proposed owners into (propose, historical): an owner CIK with an
+    entity_lineage entry is a historical name of a registry member's lineage
+    and must never be proposed as a new company (F1 step 4 ruling,
+    2026-09-06)."""
+    propose = {c: n for c, n in owners.items() if c not in lineage}
+    historical = {c: (n, lineage[c]) for c, n in owners.items() if c in lineage}
+    return propose, historical
+
+
 def stubs(con=None) -> int:
     """Regenerate the proposed-stub list from the table as it stands. The
     first list (2026-09-04) was built from inverted rows and named buyers'
@@ -1100,8 +1112,26 @@ def stubs(con=None) -> int:
             ocik = str(r["holder_key"])[4:]
             if ocik not in member_ciks:
                 owners.setdefault(ocik, str(r.get("owner_name") or ""))
-    log.info(f"{_ts()}  {len(owners)} distinct non-member 13D owners; fetching SIC codes")
+    lineage = (
+        {
+            str(x["predecessor_cik"]): str(x["successor_cik"])
+            for x in store.read_table("entity_lineage", con=con)
+        }
+        if store.has_table("entity_lineage", con)
+        else {}
+    )
+    owners, historical = _partition_lineage(owners, lineage)
+    log.info(
+        f"{_ts()}  {len(owners)} distinct non-member 13D owners "
+        f"({len(historical)} historical names set aside via lineage); fetching SIC codes"
+    )
     lines = _proposed_stubs(owners)
+    if historical:
+        lines.append(
+            "HISTORICAL (predecessor of a registry member per entity_lineage; not proposed)"
+        )
+        for cik, (name, succ) in sorted(historical.items()):
+            lines.append(f"  cik {cik} {name} -> historical name of CIK {succ}")
     p = store.write_export("stakes_proposed_stubs.txt", "\n".join(lines) + "\n")
     runr = results.start(
         "stakes-stubs",

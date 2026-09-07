@@ -1134,3 +1134,30 @@ def test_fix_decision_rules_from_the_20260906_classification(db):
         "ambiguous",
         {},
     )
+
+
+# ---- F1 step 4 (2026-09-06): historical names are never proposed as stubs ----
+def test_partition_lineage_sets_predecessors_aside(db):
+    owners = {"850693": "ALLERGAN INC", "555": "SOME FUND LP"}
+    lineage = {"850693": "1578845"}
+    propose, historical = stakes._partition_lineage(owners, lineage)
+    assert propose == {"555": "SOME FUND LP"}
+    assert historical == {"850693": ("ALLERGAN INC", "1578845")}
+    # empty lineage passes everything through unchanged
+    propose, historical = stakes._partition_lineage(owners, {})
+    assert propose == owners and historical == {}
+
+
+def test_manual_add_lineage_roundtrip_and_refusals(db):
+    from biointel import manual, store
+
+    row = manual.add_lineage("0000850693", "1578845", source="test", note="n")
+    assert (row["predecessor_cik"], row["successor_cik"]) == ("850693", "1578845")
+    got = store.read_table("entity_lineage", con=store.connect())
+    assert len(got) == 1 and str(got[0]["predecessor_cik"]) == "850693"
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError):
+        manual.add_lineage("850693", "850693")
+    with _pytest.raises(ValueError):
+        manual.add_lineage("abc", "1578845")
