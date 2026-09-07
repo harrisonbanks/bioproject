@@ -1533,6 +1533,195 @@ def judge_queue(qid: str, verdict: str, note: str = "", reviewer: str = "", con=
     return 0
 
 
+# ---------------------------------------------------------------- r9 specimens (rule 4.20)
+def r9_specimens(n: int = 3, seed: int = 20260907, con=None) -> int:
+    """Read-only step 1 of gate r9: dump the date-relevant text of N real
+    documents drawn deterministically from the OPEN as_of queue entries (the
+    route-A event-date miss family, confirmed 60/60 on 2026-09-06), to one
+    attachable export. No rule is written until these are read (rule 4.20;
+    specimens go into tests verbatim, never abbreviated). No network: cached
+    captures only."""
+    import random as _r
+
+    con = con or store.connect()
+    entries = [
+        q
+        for q in store.read_table("review_queue", con=con)
+        if str(q["status"]) == "open"
+        and str(q["field"]) == "as_of"
+        and str(q["source"]) == "m2_crosscheck"
+    ]
+    if not entries:
+        print("no open as_of queue entries; nothing to sample")
+        return 1
+    entries.sort(key=lambda q: str(q["queue_id"]))
+    _r.seed(seed)
+    picked = _r.sample(entries, min(n, len(entries)))
+    caps = _active_doc_caps(con)
+    out: list[str] = [
+        f"R9 SPECIMENS ({len(picked)} of {len(entries)} open as_of entries, seed {seed}). "
+        "Rules are written ONLY against these excerpts; each becomes a verbatim test."
+    ]
+    dumped = 0
+    for i, q in enumerate(picked, 1):
+        cap = caps.get(str(q["doc_id"]))
+        header = (
+            f"==== SPECIMEN {i}  {q['queue_id']}  doc F{str(q['doc_id'])[:12]}  "
+            f"accession {q['accession']}  filed {str(q['filing_date'])[:10]}  "
+            f"stored as_of {str(q['as_of'])[:10]}  routeB {q['other_value']} ===="
+        )
+        if not cap:
+            out.append(header + "\n(no active document capture; skipped)")
+            continue
+        ext = "." + str(cap.get("ext") or "htm")
+        try:
+            text = normalize_text(
+                library.store_path(str(cap["capture_id"]), ext).read_text(
+                    encoding="utf-8", errors="replace"
+                )
+            )
+        except OSError:
+            out.append(header + "\n(capture unreadable; skipped)")
+            continue
+        parts = [header, "--- head (first 4000 chars) ---", text[:4000]]
+        for m in _re.finditer(r"Date\s+of\s+Event", text, _re.IGNORECASE):
+            lo, hi = max(0, m.start() - 1200), min(len(text), m.end() + 1200)
+            parts.append(f"--- window around 'Date of Event' at {m.start()} ---")
+            parts.append(text[lo:hi])
+        out.append("\n".join(parts)[:24000])
+        dumped += 1
+    p = store.write_export("r9_specimens.txt", "\n\n".join(out) + "\n")
+    runr = results.start(
+        "stakes-r9-specimens",
+        "stakes r9-specimens",
+        ["review_queue", "captures"],
+        {"rule_version": RULE_VERSION, "n": n, "seed": seed},
+    )
+    runr.metric("_", "open_as_of_entries", len(entries))
+    runr.metric("_", "specimens_dumped", dumped)
+    runr.artefact(p)
+    run_id = results.finish(runr, note="rule 4.20: specimens before any r9 regex; read-only")
+    print(f"R9-SPECIMENS dumped {dumped} of {len(picked)} picked; open as_of {len(entries)} -> {p}")
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
+def r9_repair(con=None) -> int:
+    """Gate r9 repair, no network: for every row excluded as an `as_of`
+    dispute, re-read its cached document under the r9 rules and, ONLY where
+    the r9 extraction and route B independently agree on the same event date
+    (the two-route standard the F1 archaeology used), rewrite the row's
+    as_of, append the event evidence to its span, clear `disputed`, and flip
+    the matching open queue entry to judged. Row-driven, so id-collision
+    sibling rows repair too. Everything else stays queued for the human:
+    routes disagreeing, no extraction, unreadable captures, and repairs
+    whose target key already exists (an amendment already sits at that
+    event date — a key collision the database would refuse wholesale)."""
+    con = con or store.connect()
+    log.info(f"{_ts()}  r9-repair: reading tables")
+    rows = store.read_table("equity_stakes", con=con)
+    cols = store.table_columns("equity_stakes", con)
+    caps = _active_doc_caps(con)
+    existing_keys = {
+        (str(r["holder_key"]), str(r["issuer_key"]), str(r["as_of"])[:10]) for r in rows
+    }
+    counters = {
+        "rows_disputed_as_of": 0,
+        "repaired": 0,
+        "routes_disagree": 0,
+        "no_extraction": 0,
+        "key_collision": 0,
+        "unreadable": 0,
+        "entries_closed": 0,
+    }
+    repaired_keys: dict[tuple, str] = {}
+    lines: list[str] = []
+    for r in rows:
+        if str(r.get("disputed") or "") != "as_of":
+            continue
+        counters["rows_disputed_as_of"] += 1
+        cap = caps.get(str(r["doc_id"]))
+        if not cap:
+            counters["unreadable"] += 1
+            continue
+        ext = "." + str(cap.get("ext") or "htm")
+        try:
+            text = normalize_text(
+                library.store_path(str(cap["capture_id"]), ext).read_text(
+                    encoding="utf-8", errors="replace"
+                )
+            )
+        except OSError:
+            counters["unreadable"] += 1
+            continue
+        flat = _RULE_RUNS.sub(" ", text)
+        m = _EVENT_BEFORE.search(flat) or _EVENT_AFTER.search(flat)
+        r9_date = _iso(m.group(1)) if m else ""
+        b_date = route_b_event_date(text)
+        if not r9_date:
+            counters["no_extraction"] += 1
+            continue
+        if not b_date or r9_date != b_date:
+            counters["routes_disagree"] += 1
+            continue
+        old_key = (str(r["holder_key"]), str(r["issuer_key"]), str(r["as_of"])[:10])
+        new_key = (old_key[0], old_key[1], r9_date)
+        if new_key in existing_keys:
+            counters["key_collision"] += 1
+            continue
+        existing_keys.discard(old_key)
+        existing_keys.add(new_key)
+        span_add = " || r9: " + " ".join(m.group(0).split())
+        r["span"] = (str(r.get("span") or "") + span_add)[:500]
+        r["as_of"] = r9_date
+        r["disputed"] = ""
+        counters["repaired"] += 1
+        repaired_keys[old_key] = r9_date
+        lines.append(
+            f"{old_key[0]} -> {old_key[1]}  as_of {old_key[2]} => {r9_date}  "
+            f"doc F{str(r['doc_id'])[:12]}"
+        )
+    if counters["repaired"]:
+        store.write_table("equity_stakes", rows, cols, con=con)
+        flips = []
+        for q in store.read_table("review_queue", con=con):
+            if (
+                str(q["status"]) == "open"
+                and str(q["field"]) == "as_of"
+                and (str(q["holder_key"]), str(q["issuer_key"]), str(q["as_of"])[:10])
+                in repaired_keys
+            ):
+                flips.append({"queue_id": str(q["queue_id"]), "status": "judged"})
+        counters["entries_closed"] = (
+            store.update_rows("review_queue", flips, con=con) if flips else 0
+        )
+    p = store.write_export("r9_repaired.txt", "\n".join(lines) + "\n")
+    runr = results.start(
+        "stakes-r9-repair",
+        "stakes r9-repair",
+        ["equity_stakes", "captures", "review_queue"],
+        {"rule_version": RULE_VERSION},
+    )
+    for k, v in counters.items():
+        runr.metric("_", k, v)
+    runr.artefact(p)
+    run_id = results.finish(
+        runr,
+        note=(
+            "machine repair on two-route agreement only (r9 extraction == route B); "
+            "no candidate_reviews rows written (the fix-direction precedent); "
+            "disagreements stay queued for the human"
+        ),
+    )
+    print(
+        "R9-REPAIR "
+        + " ".join(f"{k} {v}" for k, v in counters.items())
+        + f"; -> {p}"
+    )
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
 def _partition_lineage(
     owners: dict[str, str], lineage: dict[str, str]
 ) -> tuple[dict[str, str], dict[str, tuple[str, str]]]:
@@ -1626,6 +1815,10 @@ def cli(argv: list[str]) -> int:
         return verify_direction(limit=lim, probe=probe_mode)
     if sub == "fix-direction":
         return fix_direction()
+    if sub == "r9-repair":
+        return r9_repair()
+    if sub == "r9-specimens":
+        return r9_specimens(int(argv[1]) if len(argv) > 1 and argv[1].isdigit() else 3)
     if sub == "queue":
         since = argv[argv.index("--since") + 1] if "--since" in argv else None
         until = argv[argv.index("--until") + 1] if "--until" in argv else None
@@ -1644,7 +1837,8 @@ def cli(argv: list[str]) -> int:
     print(
         "usage: stakes probe|run [SINCE]|rebuild|verify-direction [--probe|N]|fix-direction|"
         "check-probe SINCE UNTIL|crosscheck [N] [--since D] [--until D]|"
-        "queue [--since D] [--until D]|judge-queue QID VERDICT [--note T]|sample [N]|precision"
+        "queue [--since D] [--until D]|judge-queue QID VERDICT [--note T]|r9-specimens [N]|r9-repair|"
+        "sample [N]|precision"
     )
     return 1
 
@@ -1658,8 +1852,11 @@ _EVENT_BEFORE = _re.compile(
     rf"(({_MONTHS})\s+\d{{1,2}},?\s+\d{{4}})\s*\(Date of Event Which Requires Filing",
     _re.IGNORECASE,
 )
+# r9 (2026-09-07, specimen 0000932471-24-000840): a label-first cover page
+# prints "(Date of Event Which Requires Filing of this Statement) September
+# 30, 2024" — the closing paren sits between label and date.
 _EVENT_AFTER = _re.compile(
-    rf"Date of Event Which Requires Filing of this Statement\s*:?\s*(({_MONTHS})\s+\d{{1,2}},?\s+\d{{4}})",
+    rf"Date of Event Which Requires Filing of this Statement\s*\)?\s*:?\s*(({_MONTHS})\s+\d{{1,2}},?\s+\d{{4}})",
     _re.IGNORECASE,
 )
 _ISSUER = _re.compile(r"([A-Za-z0-9&.,'()\- ]{3,80}?)\s*\(Name of Issuer\)", _re.IGNORECASE)
@@ -1815,7 +2012,14 @@ def parse_cover(text: str) -> dict:
         m = _ISSUER_AFTER.search(text)
         if m:
             out["issuer_name"] = " ".join(m.group(1).split())
-    m = _EVENT_BEFORE.search(text) or _EVENT_AFTER.search(text)
+    # r9 (2026-09-07): four of five queue specimens (0001306550-23-009534,
+    # 0000950133-01-000483, 0000919574-03-000317, 0000834237-20-006711) print
+    # a dashed rule line BETWEEN the date and "(Date of Event ...)" — the r5
+    # rule-run flattening was never applied to the event-date search, so
+    # route A fell back to the filing date on ~5,400 rows. Search the
+    # flattened text.
+    flat = _RULE_RUNS.sub(" ", text)
+    m = _EVENT_BEFORE.search(flat) or _EVENT_AFTER.search(flat)
     if m:
         out["event_date"] = _iso(m.group(1))
         out["event_span"] = " ".join(m.group(0).split())[:200]
@@ -1859,7 +2063,7 @@ def parse_cover(text: str) -> dict:
 # r4 structured 13D tag set (percentOfClass, aggregateAmountOwned, issuerCIK,
 # issuerCUSIP, dateOfEvent, reportingPersonCIK).
 RULE_VERSION = (
-    "F1-r8"  # r8: off-party name-index hits and off-party members are not issuers (2026-09-06)
+    "F1-r9"  # r9: event dates read through rule runs and label-first parens (2026-09-07)
 )
 
 

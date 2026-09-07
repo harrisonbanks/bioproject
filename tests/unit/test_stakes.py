@@ -1795,3 +1795,187 @@ def test_queue_marks_every_sibling_row_on_id_collision(db, monkeypatch, tmp_path
     assert all(str(r["disputed"]) == "as_of" for r in store.read_table("equity_stakes"))
     assert stakes.queue() == 0  # rebuild: nothing queued, nothing re-marked
     assert "queued_new 0 disputes_marked 0" in capsys.readouterr().out
+
+
+# ---- r9 step 1 (2026-09-07): specimens before any regex (rule 4.20) ----
+def test_r9_specimens_dumps_verbatim_windows_from_open_as_of_entries(
+    db, monkeypatch, tmp_path, capsys
+):
+    _seed_m3_world(tmp_path, monkeypatch)
+    assert stakes.queue() == 0
+    capsys.readouterr()
+    assert stakes.r9_specimens(3) == 0
+    out = capsys.readouterr().out
+    assert "R9-SPECIMENS dumped 1" in out  # the one as_of entry in the world
+    text = (config.EXPORTS / "r9_specimens.txt").read_text(encoding="utf-8")
+    assert "stored as_of 2015-01-05  routeB 2014-12-31" in text
+    assert "window around 'Date of Event'" in text
+    assert "December 31, 2014 (Date of Event Which Requires Filing" in text  # verbatim
+    # judged entries never sampled: judge THE as_of entry, rerun, nothing to dump
+    q = next(
+        str(r["queue_id"])
+        for r in store.read_table("review_queue")
+        if str(r["field"]) == "as_of"
+    )
+    assert stakes.judge_queue(q, "unsure") == 0
+    assert stakes.r9_specimens(3) == 1
+
+
+# ---- r9 (2026-09-07): event dates through rule runs; verbatim specimens ----
+_R9_DASH_2023 = (
+    "Common Stock -------------------------------------------------------- "
+    "(Title of Class of Securities) 03753U106 "
+    "-------------------------------------------------------- (CUSIP Number) "
+    "June 30, 2023 -------------------------------------------------------- "
+    "(Date of Event Which Requires Filing of this Statement) Check the "
+    "appropriate box to designate the rule pursuant to which this Schedule is "
+    "filed: [X] Rule 13d-1(b)"
+)
+_R9_DASH_2001 = (
+    "(Title of Class of Securities 98975L108 "
+    "--------------------------------------------------------------------------------"
+    " (CUSIP Number) January 1, 2001 "
+    "--------------------------------------------------------------------------------"
+    " (Date of Event Which Requires Filing of this Statement) Check the "
+    "appropriate box to designate the rule pursuant to which this Schedule is "
+    "filed: [ ] Rule 13d-1(b) [X] Rule 13d-1(c)"
+)
+_R9_DASH_2019 = (
+    "WELL MEDICAL INC -------------------------------------------------------- "
+    "(Name of Issuer) Common Stock "
+    "-------------------------------------------------------- (Title of Class "
+    "of Securities) 774374102 "
+    "-------------------------------------------------------- (CUSIP Number) "
+    "December 31, 2019 -------------------------------------------------------- "
+    "(Date of Event Which Requires Filing of this Statement) Check the "
+    "appropriate box"
+)
+_R9_LABEL_FIRST_2024 = (
+    "(Name of Issuer) Amylyx Pharmaceuticals Inc (Title of Class of "
+    "Securities) Common Stock (CUSIP Number) 03237H101 (Date of Event Which "
+    "Requires Filing of this Statement) September 30, 2024 Check the "
+    "appropriate box to designate the rule pursuant to which this Schedule is "
+    "filed: X Rule 13d-1(b)"
+)
+
+
+def test_r9_event_date_layouts_from_the_five_specimens():
+    """Verbatim windows from the 2026-09-07 specimen dump (rule 4.20). Four
+    dash-run-before-label documents and one label-first document; the r8
+    rules extracted nothing from any of them (route A fell back to the
+    filing date). The percent row appended after each window is harness,
+    satisfying parse_cover's not-a-cover-page guard; the windows themselves
+    are untouched."""
+    tail = (
+        " PERCENT OF CLASS REPRESENTED BY AMOUNT IN ROW (9) 5.0% "
+        "12 TYPE OF REPORTING PERSON CO"
+    )
+    for text, want in (
+        (_R9_DASH_2023, "2023-06-30"),
+        (_R9_DASH_2001, "2001-01-01"),
+        (_R9_DASH_2019, "2019-12-31"),
+        (_R9_LABEL_FIRST_2024, "2024-09-30"),
+    ):
+        got = stakes.parse_cover(text + tail)
+        assert got.get("event_date") == want, text[:60]
+
+
+def test_r9_repair_two_route_agreement_only(db, monkeypatch, tmp_path, capsys):
+    """Repairs ONLY where r9 extraction equals route B: the dashed specimen
+    row is repaired (as_of rewritten, span appended, disputed cleared, queue
+    entry judged); a row whose document yields no r9 date stays queued; a
+    repair whose target key already exists is refused (key_collision); a
+    second repair run is a no-op."""
+    scols = (
+        list(schema.EQUITY_STAKE_COLS)
+        + list(schema.EQUITY_STAKE_F1_COLS)
+        + list(schema.EQUITY_STAKE_M1_COLS)
+    )
+    docs = {
+        "p" * 64: _R9_DASH_2019 + " PERCENT OF CLASS REPRESENTED BY AMOUNT IN ROW (9) "
+        "5.0% 12 TYPE OF REPORTING PERSON CO",  # repairable
+        "q" * 64: "no event label here at all "
+        "PERCENT OF CLASS REPRESENTED BY AMOUNT IN ROW (9) 5.0% 12 TYPE OF "
+        "REPORTING PERSON CO December 31, 2019 near Date of Event words",  # r9 silent
+        "r" * 64: _R9_DASH_2019 + " PERCENT OF CLASS REPRESENTED BY AMOUNT IN ROW (9) "
+        "5.0% 12 TYPE OF REPORTING PERSON CO",  # target key occupied
+    }
+    rows, crows = [], []
+    ccols = list(schema.CAPTURE_COLS)
+    for i, (sha, _txt) in enumerate(docs.items()):
+        r = dict.fromkeys(scols, "")
+        r.update(
+            {
+                "holder_key": f"CIK:{i + 1}",
+                "issuer_key": "CIK:900",
+                "percent": "5.0",
+                "as_of": "2020-02-06",
+                "doc_id": sha,
+                "accession": f"000{i}-20-000001",
+                "filing_date": "2020-02-06",
+                "form": "SC 13G/A",
+                "span": "5.0%",
+                "disputed": "as_of",
+            }
+        )
+        rows.append(r)
+        c = dict.fromkeys(ccols, "")
+        c.update(
+            {"capture_id": sha, "ref_id": f"R{i}", "kind": "fetched_html", "ext": "htm", "status": "active"}
+        )
+        crows.append(c)
+        (tmp_path / f"{sha}.htm").write_text(docs[sha], encoding="utf-8")
+    blocker = dict.fromkeys(scols, "")
+    blocker.update(
+        {
+            "holder_key": "CIK:3",
+            "issuer_key": "CIK:900",
+            "percent": "4.0",
+            "as_of": "2019-12-31",  # occupies row 3's repair target key
+            "doc_id": "s" * 64,
+            "accession": "0003-19-000009",
+            "filing_date": "2020-01-02",
+            "form": "SC 13G",
+        }
+    )
+    rows.append(blocker)
+    store.write_table("equity_stakes", rows, scols)
+    store.write_table("captures", crows, ccols)
+    monkeypatch.setattr(
+        stakes.library, "store_path", lambda sha, ext: tmp_path / f"{sha}{ext}"
+    )
+    qcols = list(schema.REVIEW_QUEUE_COLS)
+    qrow = dict.fromkeys(qcols, "")
+    qrow.update(
+        {
+            "queue_id": "Qr9test0000000001",
+            "source": "m2_crosscheck",
+            "field": "as_of",
+            "doc_id": "p" * 64,
+            "accession": "0000-20-000001",
+            "holder_key": "CIK:1",
+            "issuer_key": "CIK:900",
+            "as_of": "2020-02-06",
+            "filing_date": "2020-02-06",
+            "stored_value": "2020-02-06",
+            "other_value": "2019-12-31",
+            "queued_at": "2026-09-07T00:00:00+00:00",
+            "status": "open",
+        }
+    )
+    store.write_table("review_queue", [qrow], qcols)
+    assert stakes.r9_repair() == 0
+    out = capsys.readouterr().out
+    assert (
+        "R9-REPAIR rows_disputed_as_of 3 repaired 1 routes_disagree 0 "
+        "no_extraction 1 key_collision 1" in out
+    )
+    byid = {str(r["doc_id"])[:1]: r for r in store.read_table("equity_stakes")}
+    p = byid["p"]
+    assert str(p["as_of"])[:10] == "2019-12-31" and str(p["disputed"]) == ""
+    assert "|| r9: December 31, 2019" in str(p["span"])
+    assert str(byid["q"]["disputed"]) == "as_of"  # r9 silent: stays for the human
+    assert str(byid["r"]["disputed"]) == "as_of"  # collision: refused, stays queued
+    assert str(store.read_table("review_queue")[0]["status"]) == "judged"
+    assert stakes.r9_repair() == 0  # second run: nothing left to repair
+    assert "repaired 0" in capsys.readouterr().out
