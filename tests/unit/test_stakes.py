@@ -1586,3 +1586,161 @@ def test_run_crosschecks_exactly_the_fresh_rows(db, monkeypatch, tmp_path):
     assert len(lines) == 1 and lines[0].startswith("F" + "f" * 12)
     assert stakes.run() == 0  # second run: no fresh rows
     assert len(list(config.EXPORTS.glob("stakes_run_crosscheck_*.txt"))) == 1
+
+
+# ---- M3 (2026-09-07): standing judge queue; no expiry (operator ruling) ----
+def _seed_m3_world(tmp_path, monkeypatch):
+    """One M1-disputed direction row (header cached: subject 100, filed by
+    999777, so the stored orientation is the fix class) and one clean row
+    whose document conflicts with route B on as_of."""
+    hdr = tmp_path / "hdr.txt"
+    hdr.write_text(_SUBMISSION, encoding="utf-8")
+    scols = (
+        list(schema.EQUITY_STAKE_COLS)
+        + list(schema.EQUITY_STAKE_F1_COLS)
+        + list(schema.EQUITY_STAKE_M1_COLS)
+    )
+    inv = dict.fromkeys(scols, "")
+    inv.update(
+        {
+            "holder_key": "CIK:100",
+            "issuer_key": "CIK:999777",
+            "percent": "5.1",
+            "as_of": "2015-04-08",
+            "doc_id": "g" * 64,
+            "accession": "0001-15-000002",
+            "filing_date": "2015-04-08",
+            "form": "SC 13D/A",
+            "disputed": "fix",
+        }
+    )
+    datec = dict.fromkeys(scols, "")
+    datec.update(
+        {
+            "holder_key": "CIK:5",
+            "issuer_key": "CIK:900",
+            "percent": "5.0",
+            "as_of": "2015-01-05",  # document states 2014-12-31 -> as_of conflict
+            "doc_id": "j" * 64,
+            "accession": "0001-15-000009",
+            "filing_date": "2015-01-06",
+            "form": "SC 13G/A",
+        }
+    )
+    store.write_table("equity_stakes", [inv, datec], scols)
+    ccols = list(schema.CAPTURE_COLS)
+    c = dict.fromkeys(ccols, "")
+    c.update(
+        {
+            "capture_id": "j" * 64,
+            "ref_id": "R9",
+            "kind": "fetched_html",
+            "ext": "htm",
+            "status": "active",
+        }
+    )
+    store.write_table("captures", [c], ccols)
+    (tmp_path / ("j" * 64 + ".htm")).write_text(_XC_AGREE, encoding="utf-8")
+
+    def fake_capture(h, con, header=False, **kw):
+        return ("b" * 64, ".txt", "cached") if header else None
+
+    monkeypatch.setattr(stakes, "_capture", fake_capture)
+    monkeypatch.setattr(
+        stakes.library,
+        "store_path",
+        lambda sha, ext: hdr if sha.startswith("b") else tmp_path / f"{sha}{ext}",
+    )
+
+
+def test_queue_builds_from_both_sources_and_is_idempotent(db, monkeypatch, tmp_path, capsys):
+    _seed_m3_world(tmp_path, monkeypatch)
+    assert stakes.queue() == 0
+    out = capsys.readouterr().out
+    assert "QUEUE queued_new 2 disputes_marked 1 open_total 2" in out
+    q = {str(r["field"]): r for r in store.read_table("review_queue")}
+    assert set(q) == {"direction", "as_of"}
+    assert str(q["direction"]["source"]) == "m1_header"
+    assert str(q["as_of"]["source"]) == "m2_crosscheck"
+    assert str(q["as_of"]["other_value"]) == "2014-12-31"
+    rows = {str(r["doc_id"])[:1]: r for r in store.read_table("equity_stakes")}
+    assert str(rows["j"]["disputed"]) == "as_of"  # newly marked, now excluded
+    assert stakes.queue() == 0  # idempotent: nothing re-queues
+    assert "queued_new 0" in capsys.readouterr().out
+    assert len(store.read_table("review_queue")) == 2
+
+
+def test_judge_correct_and_unsure_no_expiry(db, monkeypatch, tmp_path, capsys):
+    """correct promotes the row to clean; unsure keeps it excluded AND
+    re-judgeable (no expiry, operator ruling); every verdict is appended."""
+    _seed_m3_world(tmp_path, monkeypatch)
+    assert stakes.queue() == 0
+    capsys.readouterr()
+    q = {str(r["field"]): str(r["queue_id"]) for r in store.read_table("review_queue")}
+    assert stakes.judge_queue(q["as_of"], "unsure", note="warrants-vs-common") == 0
+    rows = {str(r["doc_id"])[:1]: r for r in store.read_table("equity_stakes")}
+    assert str(rows["j"]["disputed"]) == "as_of"  # unsure: still excluded
+    assert stakes.judge_queue(q["as_of"], "correct") == 0  # re-judgeable forever
+    rows = {str(r["doc_id"])[:1]: r for r in store.read_table("equity_stakes")}
+    assert str(rows["j"]["disputed"]) == ""  # promoted to clean
+    reviews = [
+        r for r in store.read_table("candidate_reviews") if str(r["candidate_id"]).startswith("M")
+    ]
+    assert len(reviews) == 2  # append-only: both verdicts on the record
+    assert len(store.read_table("review_queue")) == 2  # nothing ever deleted
+
+
+def test_judge_wrong_corrects_direction_and_value(db, monkeypatch, tmp_path, capsys):
+    """wrong on a direction dispute swaps the keys per the cached header;
+    wrong on an as_of conflict writes the route-B value into the key column
+    via the wholesale rewrite; both clear disputed; row count unchanged."""
+    _seed_m3_world(tmp_path, monkeypatch)
+    assert stakes.queue() == 0
+    capsys.readouterr()
+    q = {str(r["field"]): str(r["queue_id"]) for r in store.read_table("review_queue")}
+    assert stakes.judge_queue(q["direction"], "wrong") == 0
+    assert stakes.judge_queue(q["as_of"], "wrong") == 0
+    rows = store.read_table("equity_stakes")
+    assert len(rows) == 2
+    byid = {str(r["doc_id"])[:1]: r for r in rows}
+    g = byid["g"]  # header: subject 100, filed by 999777 -> corrected orientation
+    assert g["holder_key"] == "CIK:999777" and g["issuer_key"] == "CIK:100"
+    assert str(g["disputed"]) == ""
+    j = byid["j"]
+    assert str(j["as_of"])[:10] == "2014-12-31" and str(j["disputed"]) == ""
+
+
+def test_late_verdict_equals_same_day(db, monkeypatch, tmp_path, capsys):
+    """GATEM M3 exit criterion: a row judged after arbitrary intervening
+    activity (queue rebuilds, other verdicts) produces the same final
+    equity_stakes state as one judged immediately."""
+    _seed_m3_world(tmp_path, monkeypatch)
+    assert stakes.queue() == 0
+    capsys.readouterr()
+    q = {str(r["field"]): str(r["queue_id"]) for r in store.read_table("review_queue")}
+    # replica A: judge the as_of conflict immediately
+    assert stakes.judge_queue(q["as_of"], "wrong") == 0
+    state_a = sorted(
+        (str(r["holder_key"]), str(r["issuer_key"]), str(r["as_of"])[:10], str(r["percent"]), str(r["disputed"]))
+        for r in store.read_table("equity_stakes")
+    )
+    # replica B: same world, but the verdict lands late, after queue
+    # rebuilds and an unrelated verdict in between
+    store.drop_table("review_queue")
+    store.drop_table("candidate_reviews")
+    _seed_m3_world(tmp_path, monkeypatch)
+    assert stakes.queue() == 0
+    q = {str(r["field"]): str(r["queue_id"]) for r in store.read_table("review_queue")}
+    assert stakes.queue() == 0  # intervening rebuild re-queues nothing
+    assert stakes.judge_queue(q["direction"], "unsure") == 0  # unrelated verdict
+    assert stakes.queue() == 0  # judged rows never re-queue (no expiry, no loss)
+    assert stakes.judge_queue(q["as_of"], "wrong") == 0  # the LATE verdict
+    # undo the unrelated unsure's absence in replica A by ignoring direction
+    state_b = sorted(
+        (str(r["holder_key"]), str(r["issuer_key"]), str(r["as_of"])[:10], str(r["percent"]), str(r["disputed"]))
+        for r in store.read_table("equity_stakes")
+    )
+    # compare only the judged row's final state plus the untouched clean shape
+    a_j = [s for s in state_a if s[3] == "5.0"]
+    b_j = [s for s in state_b if s[3] == "5.0"]
+    assert a_j == b_j == [("CIK:5", "CIK:900", "2014-12-31", "5.0", "")]

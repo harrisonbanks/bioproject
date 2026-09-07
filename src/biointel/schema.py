@@ -61,7 +61,7 @@ SCORE_ACQUIRER_SIDE_MARKETCAP = 7.5e10
 SCORE_TARGET_CAP_BAND = (3e8, 4e10)
 FEATURES_FINANCIALS_STALENESS_DAYS = 400
 
-SCHEMA_VERSION = "0.15"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.16"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -537,6 +537,23 @@ EQUITY_STAKE_F1_COLS = (
 # the judge queue (M3) gets the class for free. Rows with a non-blank value are
 # excluded from every enforced model read (store._guard_rows).
 EQUITY_STAKE_M1_COLS = ("disputed",)
+# Gate M3 (scope approved 2026-09-07; operator ruling: NO EXPIRY — nothing is
+# ever discarded, an unsure row stays excluded and re-judgeable forever). The
+# standing judge queue: every M1 header dispute and every M2 value-vs-value
+# conflict becomes one row here, idempotently (queue_id is deterministic on
+# source|doc_id|field). Verdicts land in candidate_reviews stamped as_of the
+# verdict date, append-only; the queue row's status flips to judged but the
+# row is never deleted. `disputed` on equity_stakes carries either an M1
+# action (fix|ambiguous|benign) or an M2 field name (percent|as_of); any
+# non-blank value excludes the row from enforced model reads until judged.
+REVIEW_QUEUE_COLS = (
+    "queue_id", "source", "field", "doc_id", "accession",
+    "holder_key", "issuer_key", "as_of", "filing_date",
+    "stored_value", "other_value", "queued_at", "status",
+)
+REVIEW_QUEUE_SOURCES = ("m1_header", "m2_crosscheck")
+REVIEW_QUEUE_FIELDS = ("direction", "percent", "as_of")
+REVIEW_QUEUE_STATUSES = ("open", "judged")
 STATED_PRIORITY_COLS = ("entity_key", "stated_at", "category", "statement", "doc_id", "span")
 # Expert-hypothesis store (decisions of record: docs/20260903_v1_Hypothesis_
 # Store_Decisions.md). One table holds past and future entries alike; they
@@ -1159,6 +1176,27 @@ TABLES: tuple[Table, ...] = (
         "historical names are never proposed as new companies",
         key=("predecessor_cik",),
         types={"effective_date": "date"},
+    ),
+    Table(
+        "silver/review_queue.csv",
+        REVIEW_QUEUE_COLS,
+        "stakes queue / judge-queue (M3, 2026-09-07): standing judge queue over "
+        "M1 header disputes and M2 value-vs-value conflicts; no expiry (operator "
+        "ruling) — rows flip open -> judged and are never deleted",
+        key=("queue_id",),
+        types={
+            "as_of": "date",
+            "filing_date": "date",
+            "queued_at": "datetime",
+            "source": "enum",
+            "field": "enum",
+            "status": "enum",
+        },
+        enums={
+            "source": REVIEW_QUEUE_SOURCES,
+            "field": REVIEW_QUEUE_FIELDS,
+            "status": REVIEW_QUEUE_STATUSES,
+        },
     ),
     Table("silver/benchmarks.csv", BENCHMARK_COLS, "gate 2.9 (F9)", planned=True),
 )

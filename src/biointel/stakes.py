@@ -834,17 +834,14 @@ def fix_direction(con=None) -> int:
 
 
 # ---------------------------------------------------------------- M1 ingest-time header check
-def _header_check(row: dict, con) -> str:
-    """One row's write-time ruling against SEC's SGML header, for gate M1.
-    Acquires the submission header exactly the way verify-direction does
-    (cached in the library first; issuer-CIK path, then holder-CIK), then
-    rules via the EXISTING parse_header + _fix_decision, unchanged (scope of
-    record 2026-09-07). Returns the action: "match", "fix", "ambiguous",
-    "benign", or "no_header" (no accession, no CIK path, or the header could
-    not be read)."""
+def _header_fields(row: dict, con) -> tuple[set, set] | None:
+    """Acquire the row's submission header (cached-first, the verify-direction
+    path) and return ({subject CIKs}, {filed-by CIKs}), or None when no header
+    can be read. Shared by the M1 write-time check and the M3 judge's
+    direction correction."""
     acc = str(row.get("accession") or "")
     if not acc:
-        return "no_header"
+        return None
     text = None
     for key in ("issuer_key", "holder_key"):
         c = str(row[key])[4:] if str(row[key]).startswith("CIK:") else ""
@@ -869,13 +866,24 @@ def _header_check(row: dict, con) -> str:
             if text is not None:
                 break
     if text is None:
-        return "no_header"
+        return None
     hdr = parse_header(text)
+    return {c for c, _n in hdr["subject"]}, {c for c, _n in hdr["filed_by"]}
+
+
+def _header_check(row: dict, con) -> str:
+    """One row's write-time ruling against SEC's SGML header, for gate M1.
+    Rules via the EXISTING parse_header + _fix_decision, unchanged (scope of
+    record 2026-09-07). Returns the action: "match", "fix", "ambiguous",
+    "benign", or "no_header" (no accession, no CIK path, or the header could
+    not be read)."""
+    fields = _header_fields(row, con)
+    if fields is None:
+        return "no_header"
+    subj, filers = fields
     h = str(row["holder_key"])[4:] if str(row["holder_key"]).startswith("CIK:") else ""
     iss = str(row["issuer_key"])[4:] if str(row["issuer_key"]).startswith("CIK:") else ""
-    action, _fields = _fix_decision(
-        h, iss, {c for c, _n in hdr["subject"]}, {c for c, _n in hdr["filed_by"]}
-    )
+    action, _fields = _fix_decision(h, iss, subj, filers)
     return action
 
 
@@ -1113,12 +1121,16 @@ def _active_doc_caps(con) -> dict[str, dict]:
     return caps
 
 
-def _crosscheck_rows(rows: list[dict], caps: dict[str, dict]) -> tuple[dict, list[str]]:
+def _crosscheck_rows(
+    rows: list[dict], caps: dict[str, dict]
+) -> tuple[dict, list[str], list[dict]]:
     """Route-B check of percent and event date over the given rows. M2 queue
     rule of record (2026-09-07, codifying the 2026-09-06 family ruling):
     only VALUE-vs-VALUE conflicts queue — route-B silence is a coverage gap,
     counted in route_b_no_pct / route_b_no_date and never exported. Lines
-    carry the filing date so a full export can be restricted to a window."""
+    carry the filing date so a full export can be restricted to a window.
+    Also returns one structured conflict dict per disputed FIELD (a row can
+    conflict on both), which the M3 standing queue consumes."""
     counters = {
         "rows": len(rows),
         "xml_skipped": 0,
@@ -1130,6 +1142,7 @@ def _crosscheck_rows(rows: list[dict], caps: dict[str, dict]) -> tuple[dict, lis
         "route_b_no_date": 0,
     }
     out: list[str] = []
+    conflicts: list[dict] = []
     for i, r in enumerate(rows, 1):
         if i % 5000 == 0:
             log.info(f"{_ts()}  {i}/{len(rows)} rows; agree {counters['agree_both']}")
@@ -1169,12 +1182,30 @@ def _crosscheck_rows(rows: list[dict], caps: dict[str, dict]) -> tuple[dict, lis
             counters["pct_disagree"] += 1
         if date_conflict:
             counters["date_disagree"] += 1
+        for field, stored, other, hit_ in (
+            ("percent", str(r["percent"]), b_pct, pct_conflict),
+            ("as_of", stored_date, b_date, date_conflict),
+        ):
+            if hit_:
+                conflicts.append(
+                    {
+                        "field": field,
+                        "stored_value": stored,
+                        "other_value": str(other),
+                        "doc_id": str(r["doc_id"]),
+                        "accession": str(r.get("accession") or ""),
+                        "holder_key": str(r["holder_key"]),
+                        "issuer_key": str(r["issuer_key"]),
+                        "as_of": str(r["as_of"])[:10],
+                        "filing_date": str(r.get("filing_date") or "")[:10],
+                    }
+                )
         out.append(
             f"F{str(r['doc_id'])[:12]}  filed {str(r.get('filing_date') or '')[:10]}  "
             f"stored pct {r['percent']} routeB {b_pct}  | stored as_of "
             f"{stored_date} routeB {b_date}  | {r['holder_key']} -> {r['issuer_key']} {r.get('form')}"
         )
-    return counters, out
+    return counters, out, conflicts
 
 
 def crosscheck(
@@ -1198,7 +1229,7 @@ def crosscheck(
     caps = _active_doc_caps(con)
     if limit:
         rows = rows[:limit]
-    counters, out = _crosscheck_rows(rows, caps)
+    counters, out, _conflicts = _crosscheck_rows(rows, caps)
     name = (
         f"stakes_crosscheck_disagreements_{since or 'start'}_{until or 'end'}.txt"
         if (since or until)
@@ -1226,6 +1257,259 @@ def crosscheck(
         f"pct disagree {counters['pct_disagree']} date disagree {counters['date_disagree']}; "
         f"route B silent pct {counters['route_b_no_pct']} date {counters['route_b_no_date']}; -> {p}"
     )
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
+# ---------------------------------------------------------------- M3 standing judge queue
+# Scope approved 2026-09-07; operator ruling: NO EXPIRY — nothing is ever
+# discarded; an unsure row stays excluded and re-judgeable forever. Queue rows
+# flip open -> judged and are never deleted; verdicts are append-only in
+# candidate_reviews, stamped as_of the verdict date (no backdating what the
+# system knew).
+
+
+def _queue_id(source: str, doc_id: str, field: str) -> str:
+    return "Q" + hashlib.sha256(f"{source}|{doc_id}|{field}".encode()).hexdigest()[:16]
+
+
+def _m1_queue_entries(rows: list[dict]) -> list[dict]:
+    """One direction-dispute entry per row whose M1 `disputed` value is an
+    action class (fix|ambiguous|benign). M2 field names in `disputed` belong
+    to the crosscheck source and are not re-queued here."""
+    out = []
+    for r in rows:
+        d = str(r.get("disputed") or "")
+        if d not in ("fix", "ambiguous", "benign"):
+            continue
+        out.append(
+            {
+                "queue_id": _queue_id("m1_header", str(r["doc_id"]), "direction"),
+                "source": "m1_header",
+                "field": "direction",
+                "doc_id": str(r["doc_id"]),
+                "accession": str(r.get("accession") or ""),
+                "holder_key": str(r["holder_key"]),
+                "issuer_key": str(r["issuer_key"]),
+                "as_of": str(r["as_of"])[:10],
+                "filing_date": str(r.get("filing_date") or "")[:10],
+                "stored_value": f"{r['holder_key']}->{r['issuer_key']}",
+                "other_value": d,
+                "status": "open",
+            }
+        )
+    return out
+
+
+def _enqueue(entries: list[dict], con) -> tuple[int, int]:
+    """Append the entries not already queued (any status — a judged dispute
+    never re-queues; no expiry). For every m2 entry actually queued, set the
+    row's `disputed` to the conflicted field so enforced model reads exclude
+    it until judged. Returns (queued, disputes_marked)."""
+    from biointel import schema as _schema
+
+    existing = (
+        {str(q["queue_id"]) for q in store.read_table("review_queue", con=con)}
+        if store.has_table("review_queue", con)
+        else set()
+    )
+    now = library._now()
+    fresh = []
+    for e in entries:
+        if e["queue_id"] in existing:
+            continue
+        existing.add(e["queue_id"])
+        row = dict.fromkeys(_schema.REVIEW_QUEUE_COLS, "")
+        row.update(e)
+        row["queued_at"] = now
+        fresh.append(row)
+    if fresh:
+        store.append_rows("review_queue", fresh, list(_schema.REVIEW_QUEUE_COLS), con=con)
+    marks = [
+        {
+            "holder_key": e["holder_key"],
+            "issuer_key": e["issuer_key"],
+            "as_of": e["as_of"],
+            "disputed": e["field"],
+        }
+        for e in fresh
+        if e["source"] == "m2_crosscheck"
+    ]
+    marked = store.update_rows("equity_stakes", marks, con=con) if marks else 0
+    return len(fresh), marked
+
+
+def queue(since: str | None = None, until: str | None = None, con=None) -> int:
+    """Build/refresh the standing judge queue from both dispute sources:
+    M1 `disputed` rows (direction) and M2 value-vs-value crosscheck
+    conflicts (percent / as_of; the check is re-run over the window from
+    cached captures — exports are never read back, P16). Idempotent: a
+    dispute already queued or judged never re-queues. Newly queued M2
+    conflicts get the row's `disputed` set to the field, excluding it from
+    enforced model reads until judged. Prints every open entry (the
+    worksheet flow), then counts."""
+    con = con or store.connect()
+    log.info(f"{_ts()}  queue: reading equity_stakes")
+    # The live table gains `disputed` at the first M-era `stakes run`; a
+    # queue run may come first, so the declared column is added here too
+    # (idempotent) before any dispute is marked.
+    if store.has_table("equity_stakes", con):
+        store.add_columns("equity_stakes", ["disputed"], con=con)
+    rows = store.read_table("equity_stakes", con=con)
+    if since:
+        rows = [r for r in rows if str(r.get("filing_date") or "")[:10] >= since]
+    if until:
+        rows = [r for r in rows if str(r.get("filing_date") or "")[:10] <= until]
+    entries = _m1_queue_entries(rows)
+    log.info(f"{_ts()}  {len(entries)} M1 disputes; running route-B over {len(rows)} rows")
+    _c, _lines, conflicts = _crosscheck_rows(rows, _active_doc_caps(con))
+    for c in conflicts:
+        c["queue_id"] = _queue_id("m2_crosscheck", c["doc_id"], c["field"])
+        c["source"] = "m2_crosscheck"
+        c["status"] = "open"
+        entries.append(c)
+    queued, marked = _enqueue(entries, con)
+    open_rows = [
+        q for q in store.read_table("review_queue", con=con) if str(q["status"]) == "open"
+    ]
+    for q in open_rows:
+        print(
+            f"{q['queue_id']}  {q['source']:<13} {q['field']:<9} "
+            f"stored {q['stored_value']} | other {q['other_value']}  "
+            f"{q['holder_key']} -> {q['issuer_key']}  as_of {str(q['as_of'])[:10]}"
+        )
+    runr = results.start(
+        "stakes-queue",
+        "stakes queue",
+        ["equity_stakes", "captures", "review_queue"],
+        {"rule_version": RULE_VERSION, "since": since or "", "until": until or ""},
+    )
+    runr.metric("_", "queued_new", queued)
+    runr.metric("_", "disputes_marked", marked)
+    runr.metric("_", "open_total", len(open_rows))
+    run_id = results.finish(
+        runr, note="standing judge queue refreshed (M3); no expiry per operator ruling"
+    )
+    print(f"QUEUE queued_new {queued} disputes_marked {marked} open_total {len(open_rows)}")
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
+def _rewrite_stake_row(key: tuple, mutate, con) -> bool:
+    """Wholesale read-modify-write of one equity_stakes row identified by its
+    declared key (holder_key, issuer_key, as_of[:10]) — the only lawful path
+    when a correction changes key columns (update_rows refuses those by
+    design; the fix_direction precedent). Returns True when a row matched."""
+    rows = store.read_table("equity_stakes", con=con)
+    cols = store.table_columns("equity_stakes", con)
+    hit = False
+    for r in rows:
+        if (str(r["holder_key"]), str(r["issuer_key"]), str(r["as_of"])[:10]) == key:
+            mutate(r)
+            hit = True
+    if hit:
+        store.write_table("equity_stakes", rows, cols, con=con)
+    return hit
+
+
+def judge_queue(qid: str, verdict: str, note: str = "", reviewer: str = "", con=None) -> int:
+    """Record a verdict on one queue entry, append-only, stamped as_of now.
+    correct  -> the stored value stands: clear the row's `disputed`.
+    wrong    -> correct the row (direction from the cached SGML header via
+                _fix_decision; percent/as_of from the route-B value on the
+                queue entry), record the correction, clear `disputed`.
+    unsure   -> the row stays excluded with the reason; re-judgeable forever
+                (no expiry, operator ruling 2026-09-07).
+    A judged entry can be judged again; nothing is ever deleted."""
+    from biointel import schema as _schema
+
+    if verdict not in ("correct", "wrong", "unsure"):
+        print("verdict must be correct|wrong|unsure")
+        return 1
+    con = con or store.connect()
+    q = next(
+        (r for r in store.read_table("review_queue", con=con) if str(r["queue_id"]) == qid),
+        None,
+    )
+    if q is None:
+        print(f"{qid}: not in review_queue")
+        return 1
+    key = (str(q["holder_key"]), str(q["issuer_key"]), str(q["as_of"])[:10])
+    correction = ""
+    if verdict == "correct":
+        _rewrite_stake_row(key, lambda r: r.update({"disputed": ""}), con)
+    elif verdict == "wrong":
+        if str(q["field"]) == "direction":
+            fields = _header_fields(
+                {
+                    "accession": q["accession"],
+                    "holder_key": q["holder_key"],
+                    "issuer_key": q["issuer_key"],
+                    "form": "",
+                    "filing_date": q["filing_date"],
+                },
+                con,
+            )
+            if fields is None:
+                print(f"{qid}: header unavailable; correction refused, entry left open")
+                return 1
+            subj, filers = fields
+            h = str(q["holder_key"])[4:] if str(q["holder_key"]).startswith("CIK:") else ""
+            iss = str(q["issuer_key"])[4:] if str(q["issuer_key"]).startswith("CIK:") else ""
+            action, fix = _fix_decision(h, iss, subj, filers)
+            if action != "fix":
+                print(
+                    f"{qid}: header rules {action}, not a single correction; "
+                    "entry left open - judge with unsure or correct instead"
+                )
+                return 1
+            correction = f"{fix['holder_key']}->{fix['issuer_key']}"
+            _rewrite_stake_row(key, lambda r: r.update({**fix, "disputed": ""}), con)
+        else:
+            field = str(q["field"])
+            newval = str(q["other_value"])
+            correction = f"{field}={newval}"
+            _rewrite_stake_row(key, lambda r: r.update({field: newval, "disputed": ""}), con)
+    now = library._now()
+    # review_id must be unique per verdict even when two verdicts on the same
+    # entry land within one clock second (caught in the M3 replica run): a
+    # deterministic per-entry sequence number, never the timestamp.
+    cand = f"M{qid[1:]}"
+    prior = (
+        sum(
+            1
+            for r in store.read_table("candidate_reviews", con=con)
+            if str(r["candidate_id"]) == cand
+        )
+        if store.has_table("candidate_reviews", con)
+        else 0
+    )
+    review = dict.fromkeys(_schema.CANDIDATE_REVIEW_COLS, "")
+    review.update(
+        {
+            "review_id": f"{qid}-v{prior + 1}",
+            "candidate_id": cand,
+            "rule_version": RULE_VERSION,
+            "verdict": verdict,
+            "reviewer": reviewer or library.ADDED_BY_DEFAULT,
+            "reviewed_at": now,
+        }
+    )
+    if "note" in review:
+        review["note"] = (note + (f" | corrected {correction}" if correction else "")).strip()
+    store.append_rows("candidate_reviews", [review], list(_schema.CANDIDATE_REVIEW_COLS), con=con)
+    store.update_rows("review_queue", [{"queue_id": qid, "status": "judged"}], con=con)
+    runr = results.start(
+        "stakes-judge-queue",
+        "stakes judge-queue",
+        ["review_queue", "equity_stakes", "candidate_reviews"],
+        {"rule_version": RULE_VERSION, "queue_id": qid, "verdict": verdict},
+    )
+    runr.metric("_", "corrected", 1 if correction else 0)
+    run_id = results.finish(
+        runr, note=f"{verdict} on {qid}" + (f"; corrected {correction}" if correction else "")
+    )
+    print(f"JUDGED {qid} {verdict}" + (f" corrected {correction}" if correction else ""))
     log.info(f"run {run_id} recorded")
     return 0
 
@@ -1323,6 +1607,16 @@ def cli(argv: list[str]) -> int:
         return verify_direction(limit=lim, probe=probe_mode)
     if sub == "fix-direction":
         return fix_direction()
+    if sub == "queue":
+        since = argv[argv.index("--since") + 1] if "--since" in argv else None
+        until = argv[argv.index("--until") + 1] if "--until" in argv else None
+        return queue(since=since, until=until)
+    if sub == "judge-queue":
+        if len(argv) < 3:
+            print("usage: stakes judge-queue QID correct|wrong|unsure [--note TEXT]")
+            return 1
+        note = argv[argv.index("--note") + 1] if "--note" in argv else ""
+        return judge_queue(argv[1], argv[2], note=note)
     if sub == "check-probe":
         if len(argv) < 3:
             print("usage: stakes check-probe SINCE UNTIL")
@@ -1330,7 +1624,8 @@ def cli(argv: list[str]) -> int:
         return check_probe(argv[1], argv[2])
     print(
         "usage: stakes probe|run [SINCE]|rebuild|verify-direction [--probe|N]|fix-direction|"
-        "check-probe SINCE UNTIL|crosscheck [N] [--since D] [--until D]|sample [N]|precision"
+        "check-probe SINCE UNTIL|crosscheck [N] [--since D] [--until D]|"
+        "queue [--since D] [--until D]|judge-queue QID VERDICT [--note T]|sample [N]|precision"
     )
     return 1
 
@@ -1975,12 +2270,24 @@ def run(since: str = "2001-01-01") -> int:
     # value-vs-value conflicts go to the export, silences are counted.
     xc_counters: dict = {}
     xc_path = None
+    queued_new = 0
     if written_rows:
         log.info(f"{_ts()}  M2 crosscheck over {len(written_rows)} fresh rows")
-        xc_counters, xc_lines = _crosscheck_rows(written_rows, _active_doc_caps(con))
+        xc_counters, xc_lines, xc_conflicts = _crosscheck_rows(
+            written_rows, _active_doc_caps(con)
+        )
         xc_path = store.write_export(
             f"stakes_run_crosscheck_{run_stamp}.txt", "\n".join(xc_lines) + "\n"
         )
+        # M3: this pass's disputes join the standing queue immediately —
+        # M1-disputed fresh rows (direction) and M2 conflicts (field values).
+        entries = _m1_queue_entries(written_rows)
+        for c in xc_conflicts:
+            c["queue_id"] = _queue_id("m2_crosscheck", c["doc_id"], c["field"])
+            c["source"] = "m2_crosscheck"
+            c["status"] = "open"
+            entries.append(c)
+        queued_new, _marked = _enqueue(entries, con)
     stub_lines = _proposed_stubs(thirteen_d_owners)
     p = store.write_export("stakes_proposed_stubs.txt", "\n".join(stub_lines) + "\n")
     runr = results.start(
@@ -1990,6 +2297,7 @@ def run(since: str = "2001-01-01") -> int:
         runr.metric("_", k, v)
     for k, v in xc_counters.items():
         runr.metric("_", f"xc_{k}", v)
+    runr.metric("_", "queued_new", queued_new)
     if xc_path is not None:
         runr.artefact(xc_path)
     runr.metric("_", "proposed_stubs", max(0, len(stub_lines) - 1))
@@ -2114,9 +2422,31 @@ def precision() -> int:
             if r.get("rule_version") == RULE_VERSION and str(r["candidate_id"]).startswith("F"):
                 verdicts[str(r["candidate_id"])[1:]] = r["verdict"]
     judged = {k: v for k, v in verdicts.items() if v in ("correct", "wrong")}
-    if not judged:
-        print("no F-prefixed verdicts at rule " + RULE_VERSION)
+    # M3: M-prefixed verdicts (queue judgements) are measured separately —
+    # their wrong rows are CORRECTED in place at judge time, never retired.
+    # A later verdict on the same queue entry supersedes (append-only log,
+    # last write counts for the measurement).
+    m_verdicts: dict[str, str] = {}
+    if store.has_table("candidate_reviews", con):
+        for r in sorted(
+            store.read_table("candidate_reviews", con=con),
+            key=lambda x: str(x.get("reviewed_at") or ""),
+        ):
+            if r.get("rule_version") == RULE_VERSION and str(r["candidate_id"]).startswith(
+                "M"
+            ):
+                m_verdicts[str(r["candidate_id"])] = str(r["verdict"])
+    m_judged = {k: v for k, v in m_verdicts.items() if v in ("correct", "wrong")}
+    if not judged and not m_judged:
+        print("no F- or M-prefixed verdicts at rule " + RULE_VERSION)
         return 1
+    if not judged:
+        mk = sum(1 for v in m_judged.values() if v == "correct")
+        print(
+            f"M-era precision {mk}/{len(m_judged)}; no F-prefixed verdicts at rule "
+            + RULE_VERSION
+        )
+        return 0
     k = sum(1 for v in judged.values() if v == "correct")
     nn = len(judged)
     lo, hi = _wilson(k, nn)
@@ -2137,6 +2467,10 @@ def precision() -> int:
     runr.metric("_", "wilson_lo", lo)
     runr.metric("_", "wilson_hi", hi)
     runr.metric("_", "retired_wrong_rows", retired)
+    mk = sum(1 for v in m_judged.values() if v == "correct")
+    runr.metric("_", "m_correct", mk)
+    runr.metric("_", "m_judged", len(m_judged))
+    runr.metric("_", "m_unsure", sum(1 for v in m_verdicts.values() if v == "unsure"))
     run_id = results.finish(
         runr, note=f"four-field pass rule (Q5); {retired} judged-wrong rows retired"
     )
