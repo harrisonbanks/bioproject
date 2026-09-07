@@ -833,6 +833,112 @@ def fix_direction(con=None) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- M1 ingest-time header check
+def _header_check(row: dict, con) -> str:
+    """One row's write-time ruling against SEC's SGML header, for gate M1.
+    Acquires the submission header exactly the way verify-direction does
+    (cached in the library first; issuer-CIK path, then holder-CIK), then
+    rules via the EXISTING parse_header + _fix_decision, unchanged (scope of
+    record 2026-09-07). Returns the action: "match", "fix", "ambiguous",
+    "benign", or "no_header" (no accession, no CIK path, or the header could
+    not be read)."""
+    acc = str(row.get("accession") or "")
+    if not acc:
+        return "no_header"
+    text = None
+    for key in ("issuer_key", "holder_key"):
+        c = str(row[key])[4:] if str(row[key]).startswith("CIK:") else ""
+        if not c:
+            continue
+        hit = {
+            "url": _submission_url(c, acc),
+            "adsh": acc,
+            "doc": f"{acc}.txt",
+            "cik": c,
+            "ciks": [c],
+            "name": "",
+            "form": str(row.get("form") or ""),
+            "file_date": str(row.get("filing_date") or ""),
+        }
+        got = _capture(hit, con, header=True)
+        if got:
+            try:
+                text = _read_head(library.store_path(got[0], got[1]))
+            except OSError:
+                text = None
+            if text is not None:
+                break
+    if text is None:
+        return "no_header"
+    hdr = parse_header(text)
+    h = str(row["holder_key"])[4:] if str(row["holder_key"]).startswith("CIK:") else ""
+    iss = str(row["issuer_key"])[4:] if str(row["issuer_key"]).startswith("CIK:") else ""
+    action, _fields = _fix_decision(
+        h, iss, {c for c, _n in hdr["subject"]}, {c for c, _n in hdr["filed_by"]}
+    )
+    return action
+
+
+def check_probe(since: str, until: str) -> int:
+    """M1 probe (rule 4.20, no-write): run the ingest path over [since,
+    until] and print, for every row it WOULD write, the header ruling from
+    _header_check — one line per row, exact counts at the end. Writes no
+    stake rows and records no run (the verify-direction --probe precedent);
+    documents and headers not yet in the library are captured there as the
+    normal cache path does. Existing-key rows are NOT skipped: a replayed
+    month must still produce decisions, or the probe proves nothing. The
+    pasted output is the evidence that gates the M1 wiring."""
+    reset_capture_index()
+    reset_name_index()
+    con = store.connect()
+    counters = {
+        "filings_seen": 0,
+        "fetch_failures": 0,
+        "parse_failures_html": 0,
+        "parse_failures_xml": 0,
+        "row_rejects": 0,
+        "name_fallback": 0,
+        "orient_subject": 0,
+        "orient_filer": 0,
+        "orient_unresolved": 0,
+        "efts_errors": 0,
+        "capped_members": 0,
+        "members_done": 0,
+    }
+    decisions = {"match": 0, "fix": 0, "ambiguous": 0, "benign": 0, "no_header": 0}
+    seen: set[tuple] = set()
+    for cik, _ticker, _name in _member_ciks():
+        rows = _collect_member(cik, since, until, con, counters)
+        counters["filings_seen"] += len(rows)
+        for r in rows:
+            k = (r["holder_key"], r["issuer_key"], str(r["as_of"])[:10])
+            if k in seen:
+                continue
+            seen.add(k)
+            action = _header_check(r, con)
+            decisions[action] += 1
+            print(
+                f"{action.upper():<9} {r['accession']}  {r['holder_key']} -> "
+                f"{r['issuer_key']}  {r.get('form', '')}  "
+                f"({str(r.get('owner_name') or '')[:40]})"
+            )
+        counters["members_done"] += 1
+        if counters["members_done"] % 25 == 0:
+            log.info(
+                f"{_ts()}  {counters['members_done']} members; decided {sum(decisions.values())}; "
+                f"non-match {sum(decisions.values()) - decisions['match']}"
+            )
+    flush_note_backfill(con)
+    print(
+        "CHECK-PROBE "
+        + " ".join(f"{k} {v}" for k, v in decisions.items())
+        + f"; rows_decided {sum(decisions.values())}; filings_seen {counters['filings_seen']}; "
+        f"parse_failures h/x {counters['parse_failures_html']}/{counters['parse_failures_xml']}; "
+        f"row_rejects {counters['row_rejects']}; efts_errors {counters['efts_errors']}"
+    )
+    return 0
+
+
 _SUBMISSION_MARKERS = ("<SEC-DOCUMENT>", "-----BEGIN PRIVACY-ENHANCED MESSAGE-----", "<SEC-HEADER>")
 
 
@@ -1175,8 +1281,14 @@ def cli(argv: list[str]) -> int:
         return verify_direction(limit=lim, probe=probe_mode)
     if sub == "fix-direction":
         return fix_direction()
+    if sub == "check-probe":
+        if len(argv) < 3:
+            print("usage: stakes check-probe SINCE UNTIL")
+            return 1
+        return check_probe(argv[1], argv[2])
     print(
-        "usage: stakes probe|run [SINCE]|rebuild|verify-direction [--probe|N]|fix-direction|sample [N]|precision"
+        "usage: stakes probe|run [SINCE]|rebuild|verify-direction [--probe|N]|fix-direction|"
+        "check-probe SINCE UNTIL|sample [N]|precision"
     )
     return 1
 
@@ -1766,6 +1878,11 @@ def run(since: str = "2001-01-01") -> int:
         "efts_errors": 0,
         "capped_members": 0,
         "members_done": 0,
+        "check_match": 0,
+        "check_fix": 0,
+        "check_ambiguous": 0,
+        "check_benign": 0,
+        "check_no_header": 0,
     }
     member_ciks = {str(int(c)) for c, _t, _n in _member_ciks()}
     for cik, _ticker, _name in _member_ciks():
@@ -1778,6 +1895,16 @@ def run(since: str = "2001-01-01") -> int:
                 counters["rows_skipped_existing"] += 1
                 continue
             existing.add(k)
+            # M1 (scope of record 2026-09-07): every new row is checked against
+            # SEC's SGML header at write time via the existing parse_header +
+            # _fix_decision, unchanged. Agreeing rows write as today; disagreeing
+            # rows write with `disputed` set to the action, which excludes them
+            # from every enforced model read until judged (M3). A row whose
+            # header cannot be acquired writes clean and is counted — the scope
+            # marks disagreement, not absence (probe: no_header 0 of 849).
+            action = _header_check(r, con)
+            counters[f"check_{action}"] += 1
+            r["disputed"] = "" if action in ("match", "no_header") else action
             fresh.append(r)
         if fresh:
             store.append_rows("equity_stakes", fresh, cols, con=con)
@@ -1812,7 +1939,8 @@ def run(since: str = "2001-01-01") -> int:
         note=(
             f"rule {RULE_VERSION}; one row per filing (lead filer); as_of = cover-page event "
             "date, else filing date; exits written at stated percent (Q4); stubs proposed, "
-            "never auto-added (Q3)"
+            "never auto-added (Q3); M1 header check at write time (disputed rows excluded "
+            "from enforced model reads until judged)"
         ),
     )
     log.info(f"rows written {counters['rows_written']}; proposed stubs -> {p}")

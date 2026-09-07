@@ -61,7 +61,7 @@ SCORE_ACQUIRER_SIDE_MARKETCAP = 7.5e10
 SCORE_TARGET_CAP_BAND = (3e8, 4e10)
 FEATURES_FINANCIALS_STALENESS_DAYS = 400
 
-SCHEMA_VERSION = "0.14"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.15"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -531,6 +531,12 @@ EQUITY_STAKE_COLS = ("holder_key", "issuer_key", "percent", "as_of", "doc_id", "
 EQUITY_STAKE_F1_COLS = (
     "form", "filing_date", "shares", "owner_name", "accession", "cusip", "item4_text",
 )
+# Gate M1 (scope of record 2026-09-07; probe evidence 20260907_M1_probe_evidence.txt):
+# ingest-time header verification. Blank = the row agreed with SEC's SGML header at
+# write time; otherwise the _fix_decision action ("fix" | "ambiguous" | "benign") so
+# the judge queue (M3) gets the class for free. Rows with a non-blank value are
+# excluded from every enforced model read (store._guard_rows).
+EQUITY_STAKE_M1_COLS = ("disputed",)
 STATED_PRIORITY_COLS = ("entity_key", "stated_at", "category", "statement", "doc_id", "span")
 # Expert-hypothesis store (decisions of record: docs/20260903_v1_Hypothesis_
 # Store_Decisions.md). One table holds past and future entries alike; they
@@ -1055,7 +1061,7 @@ TABLES: tuple[Table, ...] = (
         "silver/equity_stakes.csv",
         EQUITY_STAKE_COLS,
         "dossier-seed (L2); stakes adapter (L3); stakes run (F1)",
-        optional=EQUITY_STAKE_F1_COLS,  # gate F1 (Q2): analyst-standard context
+        optional=EQUITY_STAKE_F1_COLS + EQUITY_STAKE_M1_COLS,  # F1 (Q2) + M1 header check
         key=("holder_key", "issuer_key", "as_of"),
         types={"percent": "float", "as_of": "date"},
     ),

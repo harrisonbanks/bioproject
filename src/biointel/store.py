@@ -1,4 +1,4 @@
-# src/biointel/store.py
+# C:\Users\JB\Documents\dev\bioindustry\src\biointel\store.py
 """Bronze layer: fetch and store raw API responses before any parsing.
 
 Why: Power Query re-fetches on every refresh and stores only the parsed,
@@ -330,6 +330,13 @@ def _guard_rows(name: str, header: list[str], out: list[dict]) -> list[dict]:
         label, inputs = _ENFORCE
         if name not in inputs:
             raise InputViolation(f"{label} read undeclared table {name!r}")
+        # M1/M3 (scope of record 2026-09-07): while a model's declared inputs
+        # are enforced, rows a write-time check marked disputed are invisible —
+        # the pipeline runs on clean rows; accumulation costs coverage, never
+        # accuracy. Non-enforced reads (CLI, crosscheck, the judge tooling)
+        # see every row.
+        if "disputed" in header:
+            out = [r for r in out if not str(r.get("disputed") or "")]
         cols = inputs[name]
         if cols is not None:
             allowed = frozenset(cols)

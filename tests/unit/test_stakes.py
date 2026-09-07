@@ -1161,3 +1161,241 @@ def test_manual_add_lineage_roundtrip_and_refusals(db):
         manual.add_lineage("850693", "850693")
     with _pytest.raises(ValueError):
         manual.add_lineage("abc", "1578845")
+
+
+# ---- M1 probe (2026-09-07): write-time header ruling per row ----
+def test_header_check_rulings_per_20260906_classes(db, monkeypatch, tmp_path):
+    """_header_check acquires the cached header the way verify-direction
+    does and rules via parse_header + _fix_decision UNCHANGED (M1 scope of
+    record): an agreeing row is "match", the inverted class is "fix", a
+    non-inverted disagreement is "benign", and a row whose header cannot be
+    acquired or read is "no_header"."""
+    hdr_file = tmp_path / "hdr.txt"
+    hdr_file.write_text(_SUBMISSION, encoding="utf-8")
+    monkeypatch.setattr(stakes, "_capture", lambda h, con, **kw: ("a" * 64, ".txt", "cached"))
+    monkeypatch.setattr(stakes.library, "store_path", lambda sha, ext: hdr_file)
+    con = store.connect()
+    base = {"accession": "0001-15-000001", "form": "SC 13D/A", "filing_date": "2015-04-07"}
+    # _SUBMISSION states subject 100 (Mylan), filed by 999777 (Abbott)
+    ok = {**base, "holder_key": "CIK:999777", "issuer_key": "CIK:100"}
+    assert stakes._header_check(ok, con) == "match"
+    inv = {**base, "holder_key": "CIK:100", "issuer_key": "CIK:999777"}
+    assert stakes._header_check(inv, con) == "fix"
+    fr = {**base, "holder_key": "CIK:555", "issuer_key": "CIK:100"}
+    assert stakes._header_check(fr, con) == "benign"  # filer-of-record class
+    nm = {**base, "holder_key": "NAME:someone", "issuer_key": "CIK:999777"}
+    assert stakes._header_check(nm, con) == "benign"  # NAME rows carry no CIK
+    no_acc = {"holder_key": "CIK:1", "issuer_key": "CIK:2", "accession": ""}
+    assert stakes._header_check(no_acc, con) == "no_header"
+    monkeypatch.setattr(stakes, "_capture", lambda h, con, **kw: None)
+    assert stakes._header_check(ok, con) == "no_header"
+
+
+def test_check_probe_prints_rulings_and_writes_no_rows(db, monkeypatch, capsys, tmp_path):
+    """check-probe runs the ingest path over a bounded window, prints one
+    ruling per would-be row plus exact counts, and writes NO equity_stakes
+    rows (no-write probe, rule 4.20). parse_cover is faked here: its 24
+    layouts have their own tests; this test proves the probe's plumbing."""
+    _companies((1, "AAA", "100", "Mylan N.V."))
+    hdr_file = tmp_path / "hdr.txt"
+    hdr_file.write_text(_SUBMISSION, encoding="utf-8")
+    doc_file = tmp_path / "doc.txt"
+    doc_file.write_text("cover text", encoding="utf-8")
+
+    def fake_search(q, forms, start, end, cik=None, page_from=0):
+        if forms == stakes.STAKE_FORMS and cik == "100" and page_from == 0:
+            return {
+                "hits": {
+                    "hits": [
+                        {
+                            "_id": "0001-15-000001:d.htm",
+                            "_source": {
+                                "ciks": ["0000000100", "0000999777"],
+                                "display_names": ["N1 (AAA)", "Abbott Laboratories"],
+                                "file_date": "2015-04-07",
+                                "form": "SC 13D/A",
+                            },
+                        }
+                    ],
+                    "total": {"value": 1},
+                }
+            }
+        return {"hits": {"hits": [], "total": {"value": 0}}}
+
+    def fake_capture(h, con, header=False, **kw):
+        return ("b" * 64, ".txt", "cached") if header else ("f" * 64, ".htm", "text/html")
+
+    monkeypatch.setattr(stakes, "search", fake_search)
+    monkeypatch.setattr(stakes, "_capture", fake_capture)
+    monkeypatch.setattr(
+        stakes.library,
+        "store_path",
+        lambda sha, ext: hdr_file if sha.startswith("b") else doc_file,
+    )
+    monkeypatch.setattr(
+        stakes,
+        "parse_cover",
+        lambda text: {
+            "issuer_name": "Mylan N.V.",
+            "owner_name": "Abbott Laboratories",
+            "percent": "15.32",
+            "event_date": "2015-04-06",
+        },
+    )
+    assert stakes.check_probe("2015-04-01", "2015-04-30") == 0
+    out = capsys.readouterr().out
+    assert "MATCH" in out and "0001-15-000001" in out
+    assert "CHECK-PROBE match 1 fix 0 ambiguous 0 benign 0 no_header 0" in out
+    assert store.read_table("equity_stakes") == []  # no-write: the table was never created
+
+
+# ---- M1 wiring (2026-09-07): disputed at write time; enforced reads exclude ----
+_SELF_FILING_HDR = _SUBMISSION.replace(
+    "ABBOTT LABORATORIES\n\t\tCENTRAL INDEX KEY:\t\t\t0000999777",
+    "MYLAN N.V.\n\t\tCENTRAL INDEX KEY:\t\t\t0000000100",
+)
+
+
+def test_run_marks_header_contradicted_rows_disputed(db, monkeypatch, tmp_path):
+    """The M1 exit criteria against the INGEST path: an agreeing row writes
+    with disputed blank; a header-contradicted row (the fix class) writes
+    with disputed="fix"; an issuer-agent self-filing header (subject ==
+    filer, the GSK/Lappe pattern) writes disputed="ambiguous"; the Allergan
+    off-party pattern writes NO row at all (r8, unchanged). Idempotent on a
+    second run. parse_cover is faked per document: its layouts have their
+    own tests; this proves the write-time wiring."""
+    _companies((1, "AAA", "100", "Mylan N.V."))
+    hdr_a = tmp_path / "hdr_a.txt"
+    hdr_a.write_text(_SUBMISSION, encoding="utf-8")  # subject 100, filed by 999777
+    hdr_b = tmp_path / "hdr_b.txt"
+    hdr_b.write_text(_SELF_FILING_HDR, encoding="utf-8")  # subject 100, filed by 100
+    docs = {
+        "f" * 64: {  # agreeing: owner Abbott, issuer Mylan -> holder 999777, issuer 100
+            "issuer_name": "Mylan N.V.",
+            "owner_name": "Abbott Laboratories",
+            "percent": "15.32",
+            "event_date": "2015-04-06",
+        },
+        "g" * 64: {  # inverted: member reads as the owner -> holder 100, issuer 999777
+            "issuer_name": "Abbott Laboratories",
+            "owner_name": "Mylan N.V.",
+            "percent": "5.1",
+            "event_date": "2015-04-08",
+        },
+        "h" * 64: {  # self-filing header will rule this one ambiguous
+            "issuer_name": "Abbott Laboratories",
+            "owner_name": "Mylan N.V.",
+            "percent": "6.2",
+            "event_date": "2015-04-09",
+        },
+        "i" * 64: {  # Allergan pattern: off-party name, off-party member -> no row
+            "issuer_name": "Allergan, Inc.",
+            "owner_name": "Wellington Management Company, LLP",
+            "percent": "5.2",
+            "event_date": "2015-04-10",
+        },
+    }
+    hits = [
+        ("0001-15-000001", "f" * 64, ["0000000100", "0000999777"]),
+        ("0001-15-000002", "g" * 64, ["0000000100", "0000999777"]),
+        ("0001-15-000004", "h" * 64, ["0000000100", "0000999777"]),
+        ("0001-15-000003", "i" * 64, ["0000850693", "0000902219"]),
+    ]
+
+    def fake_search(q, forms, start, end, cik=None, page_from=0):
+        if forms == stakes.STAKE_FORMS and cik == "100" and page_from == 0:
+            return {
+                "hits": {
+                    "hits": [
+                        {
+                            "_id": f"{adsh}:d.htm",
+                            "_source": {
+                                "ciks": ciks,
+                                "display_names": ["N1 (AAA)", "Other"],
+                                "file_date": "2015-04-07",
+                                "form": "SC 13D/A",
+                            },
+                        }
+                        for adsh, _sha, ciks in hits
+                    ],
+                    "total": {"value": len(hits)},
+                }
+            }
+        return {"hits": {"hits": [], "total": {"value": 0}}}
+
+    sha_by_adsh = {adsh: sha for adsh, sha, _c in hits}
+
+    def fake_capture(h, con, header=False, **kw):
+        if header:
+            return (("c" if h["adsh"] == "0001-15-000004" else "b") * 64, ".txt", "cached")
+        return (sha_by_adsh[h["adsh"]], ".htm", "text/html")
+
+    def fake_store_path(sha, ext):
+        if sha.startswith("b"):
+            return hdr_a
+        if sha.startswith("c"):
+            return hdr_b
+        p = tmp_path / f"{sha[:2]}.txt"
+        p.write_text(sha[:1], encoding="utf-8")  # content = sha's first char
+        return p
+
+    monkeypatch.setattr(stakes, "search", fake_search)
+    monkeypatch.setattr(stakes, "_capture", fake_capture)
+    monkeypatch.setattr(stakes.library, "store_path", fake_store_path)
+    monkeypatch.setattr(
+        stakes, "parse_cover", lambda text: dict(docs[text[:1] * 64]) if text else {}
+    )
+    monkeypatch.setattr(stakes, "_owner_sic", lambda cik: "2834")
+    assert stakes.run() == 0
+    rows = {str(r["accession"]): r for r in store.read_table("equity_stakes")}
+    assert set(rows) == {"0001-15-000001", "0001-15-000002", "0001-15-000004"}
+    # Allergan off-party pattern wrote nothing at all (r8 at the ingest path)
+    assert "0001-15-000003" not in rows
+    a = rows["0001-15-000001"]
+    assert a["holder_key"] == "CIK:999777" and a["issuer_key"] == "CIK:100"
+    assert str(a["disputed"]) == ""  # agreeing row writes as today
+    b = rows["0001-15-000002"]
+    assert b["holder_key"] == "CIK:100" and b["issuer_key"] == "CIK:999777"
+    assert str(b["disputed"]) == "fix"  # header-contradicted -> disputed
+    c = rows["0001-15-000004"]
+    assert str(c["disputed"]) == "ambiguous"  # self-filing header -> disputed
+    n1 = len(store.read_table("equity_stakes"))
+    assert stakes.run() == 0  # second run: same world, no duplicates
+    assert len(store.read_table("equity_stakes")) == n1
+
+
+def test_enforced_reads_exclude_disputed_rows(db):
+    """M1/M3: while a model's declared inputs are enforced, disputed rows
+    are invisible; every non-enforced read still sees them (the judge and
+    the crosscheck must)."""
+    cols = (
+        list(schema.EQUITY_STAKE_COLS)
+        + list(schema.EQUITY_STAKE_F1_COLS)
+        + list(schema.EQUITY_STAKE_M1_COLS)
+    )
+    base = dict.fromkeys(cols, "")
+    r_clean = {
+        **base,
+        "holder_key": "CIK:1",
+        "issuer_key": "CIK:2",
+        "percent": "5.0",
+        "as_of": "2015-01-01",
+        "doc_id": "d1",
+    }
+    r_disp = {
+        **base,
+        "holder_key": "CIK:2",
+        "issuer_key": "CIK:1",
+        "percent": "6.0",
+        "as_of": "2015-01-02",
+        "doc_id": "d2",
+        "disputed": "fix",
+    }
+    store.write_table("equity_stakes", [r_clean, r_disp], cols)
+    assert len(store.read_table("equity_stakes")) == 2  # non-enforced: every row
+    with store.enforce("m1-test", {"equity_stakes": None}):
+        got = store.read_table("equity_stakes")
+    assert len(got) == 1 and got[0]["holder_key"] == "CIK:1"
+    with store.enforce("m1-test", {"equity_stakes": ("holder_key", "issuer_key", "percent")}):
+        got = store.read_table("equity_stakes")
+    assert len(got) == 1 and got[0]["percent"] == "5.0"
