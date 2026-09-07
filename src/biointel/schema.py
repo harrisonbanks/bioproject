@@ -61,7 +61,7 @@ SCORE_ACQUIRER_SIDE_MARKETCAP = 7.5e10
 SCORE_TARGET_CAP_BAND = (3e8, 4e10)
 FEATURES_FINANCIALS_STALENESS_DAYS = 400
 
-SCHEMA_VERSION = "0.17"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.18"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -566,6 +566,20 @@ REVIEW_PROPOSAL_COLS = (
 )
 PROPOSAL_VERDICTS = ("correct", "wrong", "unsure", "abstain")
 STATED_PRIORITY_COLS = ("entity_key", "stated_at", "category", "statement", "doc_id", "span")
+# Gate F2 Q2/Q3 (rulings closed 2026-09-03; landed 2026-09-07 with the first
+# rule delivery; version numbering in the scope doc predates gates M/r9, so
+# the same columns land at 0.17 -> 0.18). Q3: one fixed category enum, the
+# P4 objective dimensions (source: Design Principles P4); therapeutic-area
+# sub-values await a SOURCED taxonomy (P20 — nothing is picked) and until
+# then the TA itself is evidenced by the judged sentence. The enum binds
+# stated_priorities now; assets.category joins when the deal-aspects half
+# maps its live values.
+PRIORITY_CATEGORIES = (
+    "pipeline_gap", "therapeutic_area", "mechanism_modality", "platform",
+    "data", "geography", "financial", "defensive",
+)
+STATED_PRIORITY_F2_COLS = ("source_type", "section")
+PRIORITY_SOURCE_TYPES = ("earnings_call", "10k_strategy", "investor_day")
 # Expert-hypothesis store (decisions of record: docs/20260903_v1_Hypothesis_
 # Store_Decisions.md). One table holds past and future entries alike; they
 # differ only in `as_of`, which is the ARTIFACT date when one exists and the
@@ -1110,9 +1124,15 @@ TABLES: tuple[Table, ...] = (
     Table(
         "silver/stated_priorities.csv",
         STATED_PRIORITY_COLS,
-        "dossier-seed (L2); library sources",
+        "dossier-seed (L2); library sources; priorities collect (F2)",
+        optional=STATED_PRIORITY_F2_COLS,  # F2 Q2: per-tier provenance
         key=("entity_key", "stated_at", "category"),
-        types={"stated_at": "date"},
+        # Q3's vocabulary is FIXED above; the CHECK constraint on category
+        # defers to the consume stage, after the dossier seed's pre-Q3
+        # values are mapped into it (live rows exist; enforcing first broke
+        # six seed-writing tests on 2026-09-07 — the gate refused).
+        types={"stated_at": "date", "source_type": "enum"},
+        enums={"source_type": ("",) + PRIORITY_SOURCE_TYPES},
     ),
     Table(
         "silver/assets.csv",

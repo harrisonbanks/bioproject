@@ -32,6 +32,7 @@ a probe is for — and are replaced or confirmed by what comes back.
 from __future__ import annotations
 
 import logging
+import re
 import time
 
 import requests
@@ -202,8 +203,172 @@ def probe() -> int:
     return 0 if captured else 1
 
 
+
+
+# ---------------------------------------------------------------- F2 stage 2: rules (10k_strategy + investor_day tiers)
+# Written ONLY against the 2026-09-07 probe bundle (4 captures; rule 4.20).
+# The earnings_call tier returned 0 hits on the probe's query hypothesis and
+# has NO rules yet: probe_calls() below re-probes that tier with replacement
+# hypotheses, and its rules are written only against what comes back.
+# Rule version for the priorities families; the analyser-side a3 agenda
+# (doc-type guards, fee tiers) lands with the deal-aspects half of F2.
+RULE_VERSION_F2 = "L3-a3-p1"
+
+# 10-K slicing, from the three probe 10-Ks: the TOC and inline
+# cross-references both mention "Item 1A" long before the section body
+# (Akorn's own M&A paragraph cites it), so the LAST "ITEM 1A ... RISK
+# FACTORS" match is the exclusion boundary, and the extraction start is the
+# end of the LAST table-of-contents signature (an Item-1 mention followed
+# within 90 chars by another Item line).
+_ITEM1A_RF = re.compile(r"Item\s*1A\b[^A-Za-z]{0,12}Risk\s+Factors", re.IGNORECASE)
+
+
+def item1_slice(text: str) -> str:
+    """The Item 1 (Business) region of a 10-K, or "" when the document
+    cannot be sliced — extraction refuses rather than guesses (F1 rule)."""
+    ends = [m.start() for m in _ITEM1A_RF.finditer(text)]
+    if not ends:
+        return ""
+    end = ends[-1]
+    start = 0
+    for m in re.finditer(r"Item\s*1\b", text[:end], re.IGNORECASE):
+        if re.search(r"Item\s*\d", text[m.end() : m.end() + 90], re.IGNORECASE):
+            start = m.end()
+    return text[start:end]
+
+
+# One rule per specimen family; the guard regex must ALSO match inside the
+# sentence for the category to be assigned (never a bare anchor).
+PRIORITY_RULES = (
+    # Akorn 10-K 2015 (03fdcee3d8f8): "We seek to acquire businesses assets
+    # and products that we believe complement our existing business ..."
+    ("pipeline_gap", re.compile(r"\bWe\s+(?:actively\s+)?seek\s+to\s+acquire\b[^.]{10,300}\.", re.IGNORECASE), None),
+    # BMY 10-K 2019 (62ab199b8ecc): "Our four strategic priorities are to
+    # ... in-licensing or acquiring investigational compounds ..."
+    ("pipeline_gap", re.compile(r"\bstrategic priorities are to\b[^.]{0,500}\.", re.IGNORECASE), re.compile(r"acquir|in-licens", re.IGNORECASE)),
+    # Tenax 10-K 2018 (e49b72a0ef3e): "Our principal business objective is
+    # to identify, develop, and commercialize novel therapeutic products
+    # for disease indications ..."
+    ("therapeutic_area", re.compile(r"\bprincipal (?:business )?objective is to\b[^.]{10,300}\.", re.IGNORECASE), re.compile(r"therapeutic|disease|clinical", re.IGNORECASE)),
+    # BMY 10-K 2019: "... continue to further build a leading franchise in IO ..."
+    ("therapeutic_area", re.compile(r"[^.]{0,420}\bleading franchise in\b[^.]{0,420}\.", re.IGNORECASE), None),  # r6 lesson: the window must fit the real specimen (BMY sentence ~430 chars)
+    # TXMD investor-day 8-K (662c4aab01a8): "... committed to advancing
+    # women's health with new treatments ..."
+    ("therapeutic_area", re.compile(r"[^.]{0,120}\bcommitted to advancing\s+[^.]{0,60}?health\b[^.]{0,200}\.", re.IGNORECASE), None),
+)
+
+
+def extract_priorities(text: str, source_type: str) -> list[dict]:
+    """Stated-priority sentences for the two tiers with probe specimens.
+    10-Ks are sliced to Item 1 first (section "Item 1"); an unsliceable
+    10-K yields nothing, counted by the caller. Exhibits scan whole
+    (section "exhibit"). One row per distinct sentence."""
+    if source_type == "10k_strategy":
+        body, section = item1_slice(text), "Item 1"
+        if not body:
+            return []
+    else:
+        body, section = text, "exhibit"
+    out: list[dict] = []
+    seen: set[str] = set()
+    for category, rule, guard in PRIORITY_RULES:
+        for m in rule.finditer(body):
+            sent = " ".join(m.group(0).split())[:500]
+            if guard and not guard.search(sent):
+                continue
+            if sent in seen:
+                continue
+            seen.add(sent)
+            out.append(
+                {"category": category, "sentence": sent, "section": section,
+                 "source_type": source_type}
+            )
+    return out
+
+
+# ---------------------------------------------------------------- earnings-tier probe v2
+# The stage-1 hypothesis ('"earnings call" transcript') returned 0 hits
+# across 12 companies and both windows (bundle of record, 2026-09-07).
+# Replacement hypotheses — UNSOURCED by construction, that is what a probe
+# is for: transcripts carry an operator-led Q&A, so the phrases below are
+# transcript-specific in a way the failed query was not.
+CALL_QUERIES = ('"question-and-answer session"', '"prepared remarks"')
+CALLS_BUNDLE = "priorities_probe_calls_bundle.txt"
+
+
+def probe_calls() -> int:
+    """Stage-1 re-probe of the earnings_call tier only; captures up to
+    PER_TYPE_CAPTURES per replacement query, one bundle, records the run,
+    STOPS. Earnings-tier rules are written only against this bundle."""
+    con = store.connect()
+    manifest: list[str] = []
+    bundle: list[str] = []
+    captured = 0
+    members = _member_ciks()[:COMPANIES_TRIED_PER_TYPE]
+    for query in CALL_QUERIES:
+        picked: list[dict] = []
+        for start, end in PROBE_WINDOWS:
+            for cik, ticker, _name in members:
+                if len(picked) >= PER_TYPE_CAPTURES:
+                    break
+                payload = search(query, "8-K", start, end, cik=cik)
+                if payload.get("error"):
+                    manifest.append(f"  {query!r} cik {cik} ({ticker}): EFTS error {payload['error']}")
+                    continue
+                for h in hits_of(payload):
+                    if h["url"] and h not in picked:
+                        picked.append(h)
+                        break
+            if len(picked) >= PER_TYPE_CAPTURES:
+                break
+        if not picked:
+            manifest.append(
+                f"  earnings_call query {query!r}: 0 hits across {len(members)} companies "
+                f"and {len(PROBE_WINDOWS)} windows — hypothesis dead, a finding"
+            )
+            continue
+        for h in picked[:PER_TYPE_CAPTURES]:
+            got = _capture(h, "earnings_call", con)
+            if not got:
+                manifest.append(f"  FETCH-FAILED earnings_call {h['form']} {h['file_date']} {h['url']}")
+                continue
+            sha, ext, ctype = got
+            captured += 1
+            manifest.append(
+                f"  earnings_call {h['form']:<5} filed {h['file_date']}  cik {h['cik']} "
+                f"({h['name'][:36]})  query {query!r}  ext {ext} ctype {ctype}  sha {sha[:12]}"
+            )
+            p = library.store_path(sha, ext)
+            try:
+                text = normalize_text(p.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                text = "(unreadable as text)"
+            bundle.append(
+                "=" * 78 + f"\nCAPTURE {sha}  earnings_call  {h['form']}  filed {h['file_date']}"
+                f"  query {query!r}  url {h['url']}\n" + "=" * 78 + "\n" + text[:BUNDLE_CHARS]
+            )
+    head = [f"PRIORITIES CALLS PROBE — {captured} captured across {len(CALL_QUERIES)} replacement queries"]
+    head.extend(manifest)
+    p = store.write_export(CALLS_BUNDLE, "\n".join(head) + "\n\n" + "\n\n".join(bundle) + "\n")
+    run = results.start(
+        "priorities-probe-calls", "priorities probe-calls", ["companies"],
+        {"queries": len(CALL_QUERIES), "per_query": PER_TYPE_CAPTURES},
+    )
+    run.metric("_", "captured", captured)
+    run.metric("_", "manifest_lines", len(manifest))
+    run.artefact(p)
+    run_id = results.finish(run, note="earnings-tier re-probe; hypotheses replaced on the 0-hit finding")
+    for line in head:
+        log.info(line)
+    log.info(f"bundle -> {p}")
+    log.info(f"run {run_id} recorded")
+    return 0 if captured else 1
+
+
 def cli(argv: list[str]) -> int:
     if argv and argv[0] == "probe":
         return probe()
-    print("usage: priorities probe   (F2 stage 1; later stages land after the captures are read)")
+    if argv and argv[0] == "probe-calls":
+        return probe_calls()
+    print("usage: priorities probe|probe-calls   (F2; extraction stages land as captures are read)")
     return 1
