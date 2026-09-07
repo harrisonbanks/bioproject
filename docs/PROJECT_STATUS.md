@@ -2,6 +2,36 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.17. Supersedes v1.16. M1 CLOSED (2026-09-07), commit 1e4418b,
+248 tests:
+- Probe (rule 4.20, no-write): `stakes check-probe 2015-02-01 2015-02-28`
+  ruled 849 would-be rows against SEC's SGML header — match 847, fix 1,
+  ambiguous 0, benign 1, no_header 0; filings_seen 873, parse failures
+  h/x 23/0, row_rejects 6, efts_errors 0; 38 minutes, SEC-rate-bound
+  (evidence 20260907_M1_probe_evidence.txt). The one fix-class specimen
+  (accession 0000059478-15-000094, Lilly Ventures Fund I) is exactly the
+  class M1 exists to catch at row one; the benign is a NAME-holder row.
+- Wiring: `disputed` optional column on equity_stakes (EQUITY_STAKE_M1_COLS,
+  SCHEMA_VERSION 0.15). `stakes run` rules every fresh row at write time via
+  the EXISTING parse_header + _fix_decision, unchanged: agreeing rows write
+  as before with disputed blank; disagreeing rows write disputed =
+  fix|ambiguous|benign (the class rides free for the M3 judge); a row whose
+  header cannot be acquired writes clean and is counted (five check_* run
+  metrics; probe measured no_header 0 of 849). Headers cached-first, inside
+  the existing rate budget.
+- Enforcement: while a model's declared inputs are enforced, rows with
+  disputed set are invisible (store._guard_rows); every non-enforced read
+  (CLI, crosscheck, judge tooling) sees every row. The live table carries
+  no disputed column until the next `stakes run` adds it via add_columns,
+  so the thirteen fingerprints are untouched by construction; the
+  settled-loop re-check after the first M-era run proves it on-machine.
+- Tests 244 -> 248 (probe rulings per the 2026-09-06 classes; probe
+  plumbing writes nothing; ingest-path exit criteria incl. self-filing ->
+  ambiguous and Allergan off-party -> no row; enforced-read exclusion).
+  Ruff unchanged at exactly 3 pre-existing findings.
+- M1 exit criteria of record all met with pasted evidence; M2 (scheduled
+  crosscheck of new rows) is next and needs its own scope -> go -> build.
+
 Version 1.16. Supersedes v1.15. F1 CLOSED (2026-09-06/07), commits
 9564753 … the F1-close commit, 244 tests:
 - `verify-direction` finished: 40,617 match / 520 mismatch / 0 no-header of
