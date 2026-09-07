@@ -1301,11 +1301,13 @@ def _m1_queue_entries(rows: list[dict]) -> list[dict]:
     return out
 
 
-def _enqueue(entries: list[dict], con) -> tuple[int, int]:
+def _enqueue(entries: list[dict], con) -> int:
     """Append the entries not already queued (any status — a judged dispute
-    never re-queues; no expiry). For every m2 entry actually queued, set the
-    row's `disputed` to the conflicted field so enforced model reads exclude
-    it until judged. Returns (queued, disputes_marked)."""
+    never re-queues; no expiry). Returns the number queued. Marking rows
+    disputed is _mark_disputes' job, deliberately OUTSIDE the id dedup:
+    distinct rows sharing one document and field collapse to one queue
+    entry, but every conflicted row must be excluded (the 27-row gap the
+    2026-09-07 live build exposed)."""
     from biointel import schema as _schema
 
     existing = (
@@ -1325,18 +1327,34 @@ def _enqueue(entries: list[dict], con) -> tuple[int, int]:
         fresh.append(row)
     if fresh:
         store.append_rows("review_queue", fresh, list(_schema.REVIEW_QUEUE_COLS), con=con)
-    marks = [
-        {
-            "holder_key": e["holder_key"],
-            "issuer_key": e["issuer_key"],
-            "as_of": e["as_of"],
-            "disputed": e["field"],
-        }
-        for e in fresh
-        if e["source"] == "m2_crosscheck"
-    ]
-    marked = store.update_rows("equity_stakes", marks, con=con) if marks else 0
-    return len(fresh), marked
+    return len(fresh)
+
+
+def _mark_disputes(conflicts: list[dict], rows: list[dict], con) -> int:
+    """Set `disputed` to the conflicted field on EVERY M2-conflicted row
+    whose disputed is currently blank — never overwriting an M1 action, and
+    idempotent (already-marked rows are skipped, so a rebuild marks 0).
+    Applied per row regardless of queue-id collisions."""
+    current = {
+        (str(r["holder_key"]), str(r["issuer_key"]), str(r["as_of"])[:10]): str(
+            r.get("disputed") or ""
+        )
+        for r in rows
+    }
+    marks = []
+    for c in conflicts:
+        key = (c["holder_key"], c["issuer_key"], c["as_of"])
+        if current.get(key, "") == "":
+            current[key] = c["field"]
+            marks.append(
+                {
+                    "holder_key": c["holder_key"],
+                    "issuer_key": c["issuer_key"],
+                    "as_of": c["as_of"],
+                    "disputed": c["field"],
+                }
+            )
+    return store.update_rows("equity_stakes", marks, con=con) if marks else 0
 
 
 def queue(since: str | None = None, until: str | None = None, con=None) -> int:
@@ -1368,7 +1386,8 @@ def queue(since: str | None = None, until: str | None = None, con=None) -> int:
         c["source"] = "m2_crosscheck"
         c["status"] = "open"
         entries.append(c)
-    queued, marked = _enqueue(entries, con)
+    queued = _enqueue(entries, con)
+    marked = _mark_disputes(conflicts, rows, con)
     open_rows = [
         q for q in store.read_table("review_queue", con=con) if str(q["status"]) == "open"
     ]
@@ -2287,7 +2306,8 @@ def run(since: str = "2001-01-01") -> int:
             c["source"] = "m2_crosscheck"
             c["status"] = "open"
             entries.append(c)
-        queued_new, _marked = _enqueue(entries, con)
+        queued_new = _enqueue(entries, con)
+        _mark_disputes(xc_conflicts, written_rows, con)
     stub_lines = _proposed_stubs(thirteen_d_owners)
     p = store.write_export("stakes_proposed_stubs.txt", "\n".join(stub_lines) + "\n")
     runr = results.start(

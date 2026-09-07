@@ -1744,3 +1744,54 @@ def test_late_verdict_equals_same_day(db, monkeypatch, tmp_path, capsys):
     a_j = [s for s in state_a if s[3] == "5.0"]
     b_j = [s for s in state_b if s[3] == "5.0"]
     assert a_j == b_j == [("CIK:5", "CIK:900", "2014-12-31", "5.0", "")]
+
+
+def test_queue_marks_every_sibling_row_on_id_collision(db, monkeypatch, tmp_path, capsys):
+    """The 2026-09-07 live build's 27-row gap: two rows sharing one document
+    and conflicted field collapse to ONE queue entry (right for judging),
+    but BOTH rows must be marked disputed and excluded; a rebuild marks 0."""
+    scols = (
+        list(schema.EQUITY_STAKE_COLS)
+        + list(schema.EQUITY_STAKE_F1_COLS)
+        + list(schema.EQUITY_STAKE_M1_COLS)
+    )
+    rows = []
+    for i, holder in enumerate(("CIK:5", "NAME:five llc")):
+        r = dict.fromkeys(scols, "")
+        r.update(
+            {
+                "holder_key": holder,
+                "issuer_key": "CIK:900",
+                "percent": "5.0",
+                "as_of": f"2015-01-0{i + 5}",
+                "doc_id": "j" * 64,  # SAME document for both rows
+                "accession": "0001-15-000009",
+                "filing_date": "2015-01-06",
+                "form": "SC 13G/A",
+            }
+        )
+        rows.append(r)
+    store.write_table("equity_stakes", rows, scols)
+    ccols = list(schema.CAPTURE_COLS)
+    c = dict.fromkeys(ccols, "")
+    c.update(
+        {
+            "capture_id": "j" * 64,
+            "ref_id": "R9",
+            "kind": "fetched_html",
+            "ext": "htm",
+            "status": "active",
+        }
+    )
+    store.write_table("captures", [c], ccols)
+    (tmp_path / ("j" * 64 + ".htm")).write_text(_XC_AGREE, encoding="utf-8")
+    monkeypatch.setattr(
+        stakes.library, "store_path", lambda sha, ext: tmp_path / f"{sha}{ext}"
+    )
+    assert stakes.queue() == 0
+    out = capsys.readouterr().out
+    # both rows conflict on as_of vs 2014-12-31: one entry, two marks
+    assert "QUEUE queued_new 1 disputes_marked 2 open_total 1" in out
+    assert all(str(r["disputed"]) == "as_of" for r in store.read_table("equity_stakes"))
+    assert stakes.queue() == 0  # rebuild: nothing queued, nothing re-marked
+    assert "queued_new 0 disputes_marked 0" in capsys.readouterr().out
