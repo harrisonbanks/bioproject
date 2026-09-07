@@ -2,6 +2,39 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.20. Supersedes v1.19. r9 CLOSED (2026-09-07), commit c489eb2,
+259 tests, RULE_VERSION F1-r9:
+- Rule 4.20 honored end to end: five specimens dumped deterministically
+  from the open as_of queue (run 20260907T151724) BEFORE any rule; four
+  are one family — a dashed rule line between the date and "(Date of
+  Event ...)" (accessions 0001306550-23-009534, 0000950133-01-000483,
+  0000919574-03-000317, 0000834237-20-006711) — and the fifth is a
+  label-first layout with a closing paren before the date
+  (0000932471-24-000840). Two minimal rules cover all five: the
+  event-date search runs on rule-run-flattened text (the r5 lesson,
+  never before applied to dates), and _EVENT_AFTER tolerates the
+  closing paren. All five windows locked verbatim as tests.
+- `stakes r9-repair` (no network, row-driven so the 27 M3 siblings
+  repair too; two-route standard: repair ONLY where r9 extraction ==
+  route B): rows_disputed_as_of 5,533 -> repaired 4,879 (88.2%),
+  routes_disagree 2, no_extraction 471, key_collision 181 (an amendment
+  already at the target event date; refused, left queued), unreadable
+  0, entries_closed 4,856. No candidate_reviews rows (the fix-direction
+  precedent; human verdicts stay pure).
+- Crosscheck after repair: date disagreements 5,533 -> 654, percent 57
+  unchanged, agree 25,886 -> 30,682 of 38,349 checked. Queue open
+  5,563 -> 707 (exact: 5,563 - 4,856); the first rebuild re-marked 4
+  dual-conflict rows the repair had blanked (marking doing its job),
+  the second rebuild 0/0 idempotent at 707.
+- Excluded share falls from ~13.6% to roughly 1.9% of 41,046 rows;
+  the remainder is human work (654 date + 57 percent conflicts and the
+  M1-era classes as they arrive).
+- Rule-version consequence: precision and verdicts are scoped per rule
+  version, so the measurement ledger starts fresh at F1-r9; all
+  historical runs remain in the ledger.
+- Next: M4 (LLM judge-assist, the last GATEM sub-gate) or F2 /
+  fetch-probe, each its own scope -> go -> build.
+
 Version 1.19. Supersedes v1.18. M3 CLOSED (2026-09-07), commits abd4e62 +
 099ccc8, 256 tests:
 - Operator ruling of record: NO EXPIRY — nothing is ever discarded; an
