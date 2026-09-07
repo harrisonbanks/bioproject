@@ -2,6 +2,61 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.16. Supersedes v1.15. F1 CLOSED (2026-09-06/07), commits
+9564753 … the F1-close commit, 244 tests:
+- `verify-direction` finished: 40,617 match / 520 mismatch / 0 no-header of
+  41,137 (run 20260906T031232). Mismatches classified: 434 genuine
+  inversions (173 clean swaps + 261 successor-name collisions concentrated
+  on eight predecessor entities), 86 benign (35 filer-of-record, 14
+  issuer-CIK-only, 37 NAME rows the header cannot arbitrate).
+- Root cause in orient(): the `if by_name:` branch trusted a name-index hit
+  SEC never listed as a party (_norm strips legal suffixes, so "Allergan,
+  Inc." resolves to "Allergan plc"). r8 refuses off-party name hits and
+  off-party searched members; regression tests on the Allergan and
+  self-filing patterns.
+- `stakes fix-direction` (run 20260906T040209): 434 fixed from the cached
+  SGML header, 2 issuer-agent self-filings refused (would have become
+  self-stakes), 84 benign untouched, 1 duplicate dropped; table of record
+  41,136 rows; residual mismatch export exactly 86. Commit 9564753.
+- `stakes crosscheck` on the corrected table (run 20260906T040611): 25,886
+  agree / 12,553 disagreement lines, classified into families: 6,972
+  route-B silences (coverage gaps, not evidence), 5,390 date rows (stored =
+  filing date where the document states an event date — the year-end 13G/A
+  family confirmed 60/60 by blind judging), 223 large-delta dates, 58
+  genuine percent conflicts (0.15% of both-routes-extracted rows).
+- Human judging of the disputed sample via LLM-drafted verdicts (excerpt
+  extraction + proposed verdict + human approval): 96 decided + 1 override,
+  52 semantically ambiguous rows left queued (multi-person filings,
+  warrants-vs-common, as-converted sums). `stakes precision` on the
+  disputed sample: 7/96 = 0.073 [0.036, 0.143], run 20260906T200507 —
+  the low number IS the finding (disagreements are overwhelmingly real
+  stored-value errors, dominated by the r9 date family).
+- entity_lineage (schema 0.14, manual layer, commits a1c6d54 + ba63cf3):
+  hand-entered predecessor→successor CIK pairs with SEC formerNames
+  sources. Five entered on evidence (Allergan, Endo, Perrigo, Alkermes,
+  Valeant — the last reversed vs the naive pairing); three rejected as
+  false pairs (Theravance/Innoviva spin-off, Biofrontera AG/Inc dual
+  listing, the two unrelated Catalysts). stubs() sets mapped predecessors
+  aside as historical names.
+- `stakes stubs` on the corrected table (run 20260907T044737): 1,554
+  distinct non-member 13D owners, 23 SIC-plausible, 17 approved and added
+  as private stubs (IIDs 1381–1397; Baxter, Sun Pharma, Medtronic, LabCorp,
+  Fresenius ×2, Aventis, Incyte, Lantheus and eight smaller); 6 rejected as
+  individuals, deferred to the person-holder design question.
+- Thirteen fingerprints MATCH after the full loop re-run (predict 20260907T051335,
+  pairs-full-exact ...51444, pairs-exact ...51603, develop ...51611, tune
+  ...51653) — also closing L4-P, the store extension, and the constants
+  annotation pass, all previously code-done awaiting this proof.
+- Gate M scoped and committed (4fc8498,
+  docs/20260906_v1_GATEM_Maintained_Accuracy_Scope.md): ingest-time header
+  verification, scheduled crosscheck, standing judge queue (disputed rows
+  excluded from model inputs, never blocking), LLM judge-assist as proposer
+  with recorded provenance. r9 (event-date repair, ~5,400 rows) named there
+  as a deferred gate under rule 4.20.
+- Known gaps recorded, not built: relation types beyond merged_into
+  (spin-off, subsidiary); `add --stub` CLI token-loop defect (worked around
+  via pipeline.add_company_stub); individual 13D holders as entities.
+
 Version 1.15. Supersedes v1.14. F1 close in progress (2026-09-04/05),
 commits 01323da … 281e880 plus the next K-block commit, 232 tests:
 - Collector complete: 37,772 rows (r1), re-parse +4,918 (r6), then the
