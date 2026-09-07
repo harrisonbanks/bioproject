@@ -2,6 +2,33 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.18. Supersedes v1.17. M2 CLOSED (2026-09-07), commit 6644e4a,
+251 tests:
+- Queue rule of record: only VALUE-vs-VALUE conflicts queue; route-B
+  silence is a coverage gap, counted (route_b_no_pct / route_b_no_date)
+  and never exported — codifying the 2026-09-06 family ruling. The full
+  export under the new rule (run 20260907T134138): agree 25,886 / checked
+  38,349 of 41,046 rows; pct conflicts 57, date conflicts 5,533; silences
+  3,893 pct / 6,122 date. The 2026-09-06 export (with silences) is
+  superseded state. Row count 41,046 = 41,136 minus the 90 judged-wrong
+  rows the recorded precision run retired.
+- Window: `stakes crosscheck [N] [--since D] [--until D]` filters by
+  filing_date and writes a window-named export; lines carry
+  `filed YYYY-MM-DD`. Exit criterion proven on the live table: the
+  February 2015 window's 48 lines equal the full run restricted to that
+  month, exactly (M2 REPLAY EQUAL: True, run 20260907T134141).
+- Run integration: `stakes run` ends every pass by crosschecking EXACTLY
+  the rows it wrote (shared core _crosscheck_rows / _active_doc_caps),
+  recording xc_* metrics in the same run record and writing a run-stamped
+  export (stakes_run_crosscheck_<stamp>.txt).
+- Tests 248 -> 251 (silence never queues while a value conflict does;
+  windowed equals full-restricted exactly; a run crosschecks precisely its
+  fresh rows and a fresh-row-free second run writes nothing). Ruff
+  unchanged at exactly 3. No schema change (the queue table is M3's).
+- Known interaction, recorded: new year-end 13G/A rows keep producing
+  date-family conflicts until r9 lands; accumulation costs coverage,
+  never accuracy.
+
 Version 1.17. Supersedes v1.16. M1 CLOSED (2026-09-07), commit 1e4418b,
 248 tests:
 - Probe (rule 4.20, no-write): `stakes check-probe 2015-02-01 2015-02-28`
