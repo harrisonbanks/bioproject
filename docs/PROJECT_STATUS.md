@@ -2,6 +2,46 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.19. Supersedes v1.18. M3 CLOSED (2026-09-07), commits abd4e62 +
+099ccc8, 256 tests:
+- Operator ruling of record: NO EXPIRY — nothing is ever discarded; an
+  unsure row stays excluded and re-judgeable forever; queue rows flip
+  open -> judged and are never deleted; verdicts are append-only.
+- review_queue table (SCHEMA_VERSION 0.16): one row per dispute,
+  queue_id deterministic on source|doc_id|field, sources m1_header
+  (direction) and m2_crosscheck (percent / as_of). `stakes queue`
+  builds idempotently from both sources (M2 conflicts re-derived from
+  cached captures — exports are never read back, P16) and prints the
+  worksheet; `stakes run` queues its own fresh disputes per pass
+  (queued_new metric).
+- `stakes judge-queue QID correct|wrong|unsure [--note T]`: correct
+  promotes to clean; wrong corrects — direction from the cached SGML
+  header via _fix_decision (refused unless the header rules a single
+  correction), percent/as_of from the route-B value, key columns via the
+  wholesale rewrite path fix-direction established; unsure stays
+  excluded. Verdicts land in candidate_reviews stamped at verdict time;
+  `stakes precision` gains M-era counts (wrong rows corrected in place,
+  never retired). GATEM exit criterion proven as a unit test: a late
+  verdict equals a same-day verdict in final table state.
+- Live build of record: 5,563 queue entries (all m2_crosscheck — the
+  historical 86 benign residuals were classified 2026-09-06 and
+  deliberately never marked; M1 marks at write time only), idempotent
+  rebuild 0/0. The 27-entry difference from the 5,590 crosscheck
+  conflict fields was id-collision siblings (distinct rows sharing one
+  document and field); the amendment (099ccc8) marks every sibling row
+  disputed outside the dedup — live proof: disputes_marked 27, then 0.
+- Two defects caught in container diligence before delivery: a
+  clock-second review_id collision on rapid verdicts (now a per-entry
+  sequence number) and a first-run crash when `stakes queue` precedes
+  the first M-era `stakes run` (disputed column now added idempotently
+  at queue start).
+- Coverage consequence, by design: ~5,590 rows (dominated by the r9
+  date family) are excluded from enforced model reads until judged or
+  repaired by r9 — coverage, never accuracy. No fingerprinted model
+  reads equity_stakes, so fingerprints are unaffected.
+- Next: M4 (LLM judge-assist, proposer only) or r9, each its own
+  scope -> go -> build.
+
 Version 1.18. Supersedes v1.17. M2 CLOSED (2026-09-07), commit 6644e4a,
 251 tests:
 - Queue rule of record: only VALUE-vs-VALUE conflicts queue; route-B
