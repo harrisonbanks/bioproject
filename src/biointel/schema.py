@@ -61,7 +61,7 @@ SCORE_ACQUIRER_SIDE_MARKETCAP = 7.5e10
 SCORE_TARGET_CAP_BAND = (3e8, 4e10)
 FEATURES_FINANCIALS_STALENESS_DAYS = 400
 
-SCHEMA_VERSION = "0.16"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.17"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -554,6 +554,17 @@ REVIEW_QUEUE_COLS = (
 REVIEW_QUEUE_SOURCES = ("m1_header", "m2_crosscheck")
 REVIEW_QUEUE_FIELDS = ("direction", "percent", "as_of")
 REVIEW_QUEUE_STATUSES = ("open", "judged")
+# Gate M4 (scope approved 2026-09-07; operator rulings: model CONFIGURABLE,
+# default the stronger current mid-tier model, cap 200 calls/run). The LLM is
+# a PROPOSER, never the verdict: proposals are stored here with full
+# provenance, displayed beside the queue, never auto-applied; `precision`
+# counts human verdicts only. abstain is mandatory for two-values-in-one-box
+# cases (codifying the 52-row refusal of 2026-09-06).
+REVIEW_PROPOSAL_COLS = (
+    "proposal_id", "queue_id", "model_id", "prompt_version",
+    "excerpt_hash", "verdict", "reason", "created_at",
+)
+PROPOSAL_VERDICTS = ("correct", "wrong", "unsure", "abstain")
 STATED_PRIORITY_COLS = ("entity_key", "stated_at", "category", "statement", "doc_id", "span")
 # Expert-hypothesis store (decisions of record: docs/20260903_v1_Hypothesis_
 # Store_Decisions.md). One table holds past and future entries alike; they
@@ -1176,6 +1187,16 @@ TABLES: tuple[Table, ...] = (
         "historical names are never proposed as new companies",
         key=("predecessor_cik",),
         types={"effective_date": "date"},
+    ),
+    Table(
+        "silver/review_proposals.csv",
+        REVIEW_PROPOSAL_COLS,
+        "stakes assist (M4, 2026-09-07): LLM-drafted verdict proposals with "
+        "full provenance; proposer only, never auto-applied, excluded from "
+        "precision",
+        key=("proposal_id",),
+        types={"created_at": "datetime", "verdict": "enum"},
+        enums={"verdict": PROPOSAL_VERDICTS},
     ),
     Table(
         "silver/review_queue.csv",

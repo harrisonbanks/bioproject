@@ -93,3 +93,8 @@ FETCH_POOL_WORKERS = 6
 WINDOW_PRE = 10  # trading days before t0
 WINDOW_POST = 10  # trading days after t0
 PRICE_PAD_DAYS = 90  # calendar days either side of event to request
+
+# Gate M4 (2026-09-07): LLM judge-assist - proposer only, never the verdict
+ASSIST_ENABLED = False
+ASSIST_MODEL = "claude-sonnet-5"
+ASSIST_CALL_CAP = 200

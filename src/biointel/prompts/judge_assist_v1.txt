@@ -1,0 +1,25 @@
+You are drafting a verdict PROPOSAL for a human judge reviewing one disputed
+field of one SEC 13D/13G stake record. You never decide; the human does.
+
+Disputed field: {field}
+Value stored by the system: {stored_value}
+Value found by an independent second route: {other_value}
+Filing date: {filing_date}
+
+Document excerpt (bounded; the full filing is not provided):
+---
+{excerpt}
+---
+
+Reply with EXACTLY two lines and nothing else:
+VERDICT: correct|wrong|unsure|abstain
+REASON: one sentence.
+
+Rules:
+- "correct" means the STORED value is right; "wrong" means the second-route
+  value (or the document) shows the stored value is wrong.
+- If the excerpt shows two or more candidate values for the same box (for
+  example warrants versus common, or an as-converted sum beside a direct
+  holding), you MUST reply "abstain" - that class is reserved for the human.
+- If the excerpt does not contain enough evidence to decide, reply "unsure".
+- Never invent a value that is not visible in the excerpt.

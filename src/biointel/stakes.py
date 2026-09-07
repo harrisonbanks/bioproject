@@ -1391,11 +1391,21 @@ def queue(since: str | None = None, until: str | None = None, con=None) -> int:
     open_rows = [
         q for q in store.read_table("review_queue", con=con) if str(q["status"]) == "open"
     ]
+    proposals: dict[str, dict] = {}
+    if store.has_table("review_proposals", con):
+        for pr in store.read_table("review_proposals", con=con):
+            proposals[str(pr["queue_id"])] = pr  # written in order; last wins
     for q in open_rows:
+        pr = proposals.get(str(q["queue_id"]))
+        tail = (
+            f"  [assist {pr['model_id']}: {pr['verdict']} - {str(pr['reason'])[:60]}]"
+            if pr
+            else ""
+        )
         print(
             f"{q['queue_id']}  {q['source']:<13} {q['field']:<9} "
             f"stored {q['stored_value']} | other {q['other_value']}  "
-            f"{q['holder_key']} -> {q['issuer_key']}  as_of {str(q['as_of'])[:10]}"
+            f"{q['holder_key']} -> {q['issuer_key']}  as_of {str(q['as_of'])[:10]}" + tail
         )
     runr = results.start(
         "stakes-queue",
@@ -1815,6 +1825,18 @@ def cli(argv: list[str]) -> int:
         return verify_direction(limit=lim, probe=probe_mode)
     if sub == "fix-direction":
         return fix_direction()
+    if sub == "assist":
+        from biointel import assist as _assist
+
+        nn = next((int(a) for a in argv[1:] if a.isdigit()), None)
+        mdl = argv[argv.index("--model") + 1] if "--model" in argv else None
+        return _assist.run_assist(n=nn, model=mdl)
+    if sub == "assist-accept":
+        from biointel import assist as _assist
+
+        nn = next((int(a) for a in argv[1:] if a.isdigit()), 100)
+        mdl = argv[argv.index("--model") + 1] if "--model" in argv else None
+        return _assist.accept(n=nn, model=mdl)
     if sub == "r9-repair":
         return r9_repair()
     if sub == "r9-specimens":
@@ -1837,7 +1859,7 @@ def cli(argv: list[str]) -> int:
     print(
         "usage: stakes probe|run [SINCE]|rebuild|verify-direction [--probe|N]|fix-direction|"
         "check-probe SINCE UNTIL|crosscheck [N] [--since D] [--until D]|"
-        "queue [--since D] [--until D]|judge-queue QID VERDICT [--note T]|r9-specimens [N]|r9-repair|"
+        "queue [--since D] [--until D]|judge-queue QID VERDICT [--note T]|r9-specimens [N]|r9-repair|assist [N] [--model M]|assist-accept [N] [--model M]|"
         "sample [N]|precision"
     )
     return 1

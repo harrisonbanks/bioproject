@@ -1979,3 +1979,107 @@ def test_r9_repair_two_route_agreement_only(db, monkeypatch, tmp_path, capsys):
     assert str(store.read_table("review_queue")[0]["status"]) == "judged"
     assert stakes.r9_repair() == 0  # second run: nothing left to repair
     assert "repaired 0" in capsys.readouterr().out
+
+
+# ---- M4 (2026-09-07): LLM judge-assist — proposer only, never the verdict ----
+def _enable_assist(monkeypatch):
+    from biointel import config as _config
+
+    monkeypatch.setattr(_config, "ASSIST_ENABLED", True, raising=False)
+    monkeypatch.setattr(_config, "ASSIST_MODEL", "claude-sonnet-5", raising=False)
+    monkeypatch.setattr(_config, "ASSIST_CALL_CAP", 200, raising=False)
+
+
+def test_assist_is_proposer_only_and_idempotent(db, monkeypatch, tmp_path, capsys):
+    """Proposals land in review_proposals with full provenance; the stake
+    table and queue statuses are untouched; a re-run proposes nothing for
+    the same model+prompt version; a second model gets its own proposals."""
+    from biointel import assist
+
+    _seed_m3_world(tmp_path, monkeypatch)
+    assert stakes.queue() == 0
+    capsys.readouterr()
+    _enable_assist(monkeypatch)
+    monkeypatch.setattr(
+        assist, "_call_api", lambda prompt, model: "VERDICT: wrong\nREASON: doc states 2014-12-31."
+    )
+    before_rows = store.read_table("equity_stakes")
+    before_q = [(str(r["queue_id"]), str(r["status"])) for r in store.read_table("review_queue")]
+    assert assist.run_assist() == 0
+    out = capsys.readouterr().out
+    # the as_of entry proposes; the direction entry's doc has no capture in
+    # this world and is counted, not guessed on
+    assert "proposed 1" in out and "no_capture 1" in out
+    props = store.read_table("review_proposals")
+    assert len(props) == 1
+    assert all(str(p["model_id"]) == "claude-sonnet-5" for p in props)
+    assert all(str(p["prompt_version"]) == "judge_assist_v1" for p in props)
+    assert all(str(p["verdict"]) == "wrong" and str(p["excerpt_hash"]) for p in props)
+    assert store.read_table("equity_stakes") == before_rows  # proposer only
+    after_q = [(str(r["queue_id"]), str(r["status"])) for r in store.read_table("review_queue")]
+    assert after_q == before_q
+    assert assist.run_assist() == 0  # idempotent per model+prompt
+    assert "proposed 0" in capsys.readouterr().out
+    assert assist.run_assist(model="claude-haiku-4-5") == 0  # configurable model
+    assert len(store.read_table("review_proposals")) == 2
+
+
+def test_assist_degrades_and_enforces_gates(db, monkeypatch, tmp_path, capsys):
+    """API failure and malformed replies write nothing and are counted;
+    disabled config refuses; the queue worksheet shows the proposal."""
+    from biointel import assist
+    from biointel import config as _config
+
+    _seed_m3_world(tmp_path, monkeypatch)
+    assert stakes.queue() == 0
+    capsys.readouterr()
+    monkeypatch.setattr(_config, "ASSIST_ENABLED", False, raising=False)
+    assert assist.run_assist() == 1  # off by default: refused
+    _enable_assist(monkeypatch)
+    monkeypatch.setattr(assist, "_call_api", lambda prompt, model: None)
+    assert assist.run_assist() == 0
+    assert "api_failures 1 no_capture 1" in capsys.readouterr().out
+    assert not store.has_table("review_proposals") or store.read_table("review_proposals") == []
+    monkeypatch.setattr(assist, "_call_api", lambda prompt, model: "gibberish with no verdict")
+    assert assist.run_assist() == 0
+    assert "malformed 1" in capsys.readouterr().out
+    assert not store.has_table("review_proposals") or store.read_table("review_proposals") == []
+    monkeypatch.setattr(
+        assist, "_call_api", lambda prompt, model: "VERDICT: abstain\nREASON: two values in one box."
+    )
+    assert assist.run_assist() == 0
+    capsys.readouterr()
+    assert stakes.queue() == 0  # worksheet shows the proposal beside the entry
+    assert "[assist claude-sonnet-5: abstain" in capsys.readouterr().out
+
+
+def test_assist_accept_measures_against_r9_ground_truth(db, monkeypatch, tmp_path, capsys):
+    """The acceptance gate samples judged entries whose row r9 repaired
+    (truth: the stored value was wrong) and records per-model agreement."""
+    from biointel import assist
+
+    _seed_m3_world(tmp_path, monkeypatch)
+    assert stakes.queue() == 0
+    capsys.readouterr()
+    # simulate the r9 repair on the as_of entry's row
+    q = next(
+        r for r in store.read_table("review_queue") if str(r["field"]) == "as_of"
+    )
+    def _fix(r):
+        r.update({"as_of": "2014-12-31", "disputed": "", "span": str(r.get("span") or "") + " || r9: December 31, 2014"})
+    stakes._rewrite_stake_row(
+        (str(q["holder_key"]), str(q["issuer_key"]), str(q["as_of"])[:10]), _fix, store.connect()
+    )
+    store.update_rows("review_queue", [{"queue_id": str(q["queue_id"]), "status": "judged"}])
+    _enable_assist(monkeypatch)
+    monkeypatch.setattr(
+        assist, "_call_api", lambda prompt, model: "VERDICT: wrong\nREASON: event date differs."
+    )
+    assert assist.accept(n=10) == 0
+    out = capsys.readouterr().out
+    assert "agreement 1/1 = 1.000" in out
+    monkeypatch.setattr(
+        assist, "_call_api", lambda prompt, model: "VERDICT: correct\nREASON: looks fine."
+    )
+    assert assist.accept(n=10, model="claude-haiku-4-5") == 0
+    assert "agreement 0/1 = 0.000" in capsys.readouterr().out
