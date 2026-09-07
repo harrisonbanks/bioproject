@@ -31,6 +31,7 @@ a probe is for — and are replaced or confirmed by what comes back.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -365,10 +366,258 @@ def probe_calls() -> int:
     return 0 if captured else 1
 
 
+
+
+# ---------------------------------------------------------------- F2 stage 3: the collector (two live tiers)
+# Operator rulings (2026-09-07): enumeration via the complete per-company
+# SEC submissions JSON, never a phrase filter (D1); the FULL 10-K history
+# per company, incrementally forever (D2) — every run computes the desired
+# set, diffs against the library, downloads only what is missing. A new
+# member gets its whole back-history; nothing is ever fetched twice.
+# The investor_day tier keeps the evidenced EFTS phrase query: 8-Ks cannot
+# be enumerated by form alone, the phrase IS that tier's discriminator, and
+# Q1's per-tier measurement carries its bias honestly.
+COLLECT_SINCE = "2015-01-01"
+SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik10}.json"
+ARCHIVE_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}/{doc}"
+
+
+def _capture_index(con) -> tuple[dict, dict]:
+    """ONE pass over references and captures (the F1 2026-09-04 lesson —
+    the probe's per-hit table scan is retired): url -> reference row, and
+    ref_id -> active capture row."""
+    by_url: dict[str, dict] = {}
+    by_ref: dict[str, dict] = {}
+    if store.has_table("references", con):
+        for r in store.read_table("references", con=con):
+            if r.get("url"):
+                by_url[str(r["url"])] = r
+    if store.has_table("captures", con):
+        for c in store.read_table("captures", con=con):
+            if str(c.get("status")) == "active":
+                by_ref[str(c["ref_id"])] = c
+    return by_url, by_ref
+
+
+def _capture_doc(
+    url: str,
+    meta: dict,
+    source_type: str,
+    by_url: dict,
+    by_ref: dict,
+    con,
+    prefetched: dict | None = None,
+) -> tuple[str, str, str] | None:
+    """Capture one document with the collector's OWN reference identity:
+    the upsert carries url + a tool-scoped source_key and deliberately OMITS
+    sec_accession, so the identifier ladder's accession rung can never
+    attach this capture to another tool's reference (mine-pdufa shares
+    accessions with 8-Ks; the sec 9 defect class, closed here the way
+    headers closed it). The accession stays in note and source_key for
+    provenance. Returns (sha, ext, how) or None."""
+    ref = by_url.get(url)
+    if ref is not None:
+        cap = by_ref.get(str(ref["ref_id"]))
+        if cap is not None:
+            return str(cap["capture_id"]), "." + str(cap.get("ext") or "htm"), "cached"
+    got = (prefetched or {}).get(url) or _fetch(url)
+    if not got:
+        return None
+    data, ext, _ctype = got
+    ref_id, _ = library.upsert_reference(
+        {
+            "ref_type": "sec_filing",
+            "url": url,
+            "title": f"{meta.get('name', '')} {meta['form']} {meta['file_date']}".strip(),
+            "publisher": "SEC EDGAR",
+            "published_at": meta["file_date"],
+            "source_system": TOOL,
+            "source_key": f"{TOOL}:{meta['adsh']}:{meta.get('doc', '')}",
+            "note": (
+                f"captured by {TOOL};source_type={source_type};form={meta['form']}"
+                f";accession={meta['adsh']};cik={meta.get('cik', '')}"
+                f";file_date={meta['file_date']}"
+            ),
+        },
+        con,
+    )
+    sha, dst, _new = library.put_bytes(data, ext)
+    library.add_capture(ref_id, sha, dst, "fetched_html", TOOL, con)
+    if meta.get("cik"):
+        library.add_link(ref_id, "CIK", str(meta["cik"]), "subject", con)
+    by_url[url] = {"ref_id": ref_id, "url": url}
+    by_ref[str(ref_id)] = {"ref_id": ref_id, "capture_id": sha, "ext": ext.lstrip("."), "status": "active"}
+    return sha, ext, "fetched"
+
+
+def _tenk_wanted(cik: str, name: str, since: str, until: str) -> list[dict]:
+    """Every plain 10-K this company filed in the window, from the complete
+    submissions JSON (D1). Amendments (10-K/A) are excluded: they carry
+    exhibits and certifications, not a rewritten Item 1."""
+    url = SUBMISSIONS_URL.format(cik10=str(cik).zfill(10))
+    got = _fetch(url)
+    if not got:
+        return []
+    try:
+        sub = json.loads(got[0].decode("utf-8", errors="replace"))
+    except (ValueError, UnicodeDecodeError):
+        return []
+    recent = (sub.get("filings") or {}).get("recent") or {}
+    forms = recent.get("form") or []
+    accs = recent.get("accessionNumber") or []
+    dates = recent.get("filingDate") or []
+    docs = recent.get("primaryDocument") or []
+    out: list[dict] = []
+    for i, form in enumerate(forms):
+        if str(form).strip() != "10-K":
+            continue
+        fdate = str(dates[i])[:10] if i < len(dates) else ""
+        if not (since <= fdate <= until):
+            continue
+        acc = str(accs[i]) if i < len(accs) else ""
+        doc = str(docs[i]) if i < len(docs) else ""
+        if not acc or not doc:
+            continue
+        out.append(
+            {
+                "adsh": acc,
+                "doc": doc,
+                "form": "10-K",
+                "file_date": fdate,
+                "cik": str(cik),
+                "name": name,
+                "url": ARCHIVE_URL.format(cik=int(cik), acc=acc.replace("-", ""), doc=doc),
+            }
+        )
+    return out
+
+
+def _investor_day_wanted(cik: str, name: str, since: str, until: str) -> list[dict]:
+    """Investor-day 8-K hits via the evidenced phrase query (probe bundle
+    2026-09-07); EFTS pagination kept to the first page per company — the
+    tier is rare by nature and per-tier measurement carries it."""
+    payload = search('"investor day"', "8-K", since, until, cik=cik)
+    if payload.get("error"):
+        return []
+    out = []
+    for h in hits_of(payload):
+        if h.get("url"):
+            h = dict(h)
+            h["name"] = h.get("name") or name
+            out.append(h)
+    return out
+
+
+def collect(
+    tier: str | None = None,
+    since: str = COLLECT_SINCE,
+    until: str | None = None,
+    limit: int | None = None,
+) -> int:
+    """F2 stage 3: incremental collection of the two live tiers across the
+    member universe, with the offline-analyzer pattern inline: every
+    captured document runs extract_priorities immediately and per-tier
+    parse rates land as run metrics. NO stated_priorities writes — the
+    writer is stage 4, after the parse rates are seen."""
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+
+    con = store.connect()
+    until = until or _dt.now(tz=_tz.utc).date().isoformat()
+    tiers = [tier] if tier else ["10k_strategy", "investor_day"]
+    by_url, by_ref = _capture_index(con)
+    members = _member_ciks()
+    if limit:
+        members = members[:limit]
+    stats = {
+        t: {"wanted": 0, "cached": 0, "fetched": 0, "failed": 0, "docs_with_rows": 0, "rows": 0}
+        for t in tiers
+    }
+    report: list[str] = []
+    for t in tiers:
+        for cik, ticker, name in members:
+            wanted = (
+                _tenk_wanted(cik, name, since, until)
+                if t == "10k_strategy"
+                else _investor_day_wanted(cik, name, since, until)
+            )
+            stats[t]["wanted"] += len(wanted)
+            missing = [w for w in wanted if w["url"] not in by_url or by_ref.get(str(by_url[w["url"]].get("ref_id"))) is None]
+            prefetched = _pool_prefetch([w["url"] for w in missing])
+            for w in wanted:
+                got = _capture_doc(w["url"], w, t, by_url, by_ref, con, prefetched)
+                if got is None:
+                    stats[t]["failed"] += 1
+                    report.append(f"  FETCH-FAILED {t} {w['form']} {w['file_date']} {w['url']}")
+                    continue
+                sha, ext, how = got
+                stats[t][how] += 1
+                try:
+                    text = normalize_text(
+                        library.store_path(sha, ext).read_text(encoding="utf-8", errors="replace")
+                    )
+                except OSError:
+                    continue
+                rows = extract_priorities(text, t)
+                if rows:
+                    stats[t]["docs_with_rows"] += 1
+                    stats[t]["rows"] += len(rows)
+            log.info(f"collect {t} {ticker or cik}: wanted {len(wanted)}")
+    head = ["PRIORITIES COLLECT " + " | ".join(
+        f"{t}: wanted {s['wanted']} cached {s['cached']} fetched {s['fetched']} "
+        f"failed {s['failed']} docs_with_rows {s['docs_with_rows']} rows {s['rows']}"
+        for t, s in stats.items()
+    )]
+    p = store.write_export("priorities_collect_report.txt", "\n".join(head + report) + "\n")
+    runr = results.start(
+        "priorities-collect",
+        "priorities collect",
+        ["companies", "references", "captures"],
+        {"tiers": ",".join(tiers), "since": since, "until": until, "limit": limit or 0,
+         "rule_version": RULE_VERSION_F2},
+    )
+    for t, s in stats.items():
+        for k, v in s.items():
+            runr.metric(t, k, v)
+    runr.artefact(p)
+    run_id = results.finish(runr, note="incremental collector; parse rates inline; no table writes (writer is stage 4)")
+    print(head[0])
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
+def _pool_prefetch(urls: list[str]) -> dict[str, tuple[bytes, str, str]]:
+    """Parallel prefetch through the enabled pool; {} when disabled and the
+    serial _fetch path carries each document unchanged."""
+    if not getattr(config, "FETCH_POOL_ENABLED", False) or not urls:
+        return {}
+    from biointel import fetchpool
+
+    exts = {"application/pdf": ".pdf", "text/plain": ".txt", "application/xml": ".xml", "text/xml": ".xml"}
+    pool = fetchpool.FetchPool(rate=config.FETCH_POOL_RATE, workers=config.FETCH_POOL_WORKERS)
+    out: dict[str, tuple[bytes, str, str]] = {}
+    for res in pool.fetch_all(urls):
+        if res.status == 200 and res.content is not None:
+            ctype = (res.content_type or "").split(";")[0].strip().lower()
+            out[res.url] = (res.content, exts.get(ctype, ".htm"), ctype)
+    return out
+
+
 def cli(argv: list[str]) -> int:
     if argv and argv[0] == "probe":
         return probe()
     if argv and argv[0] == "probe-calls":
         return probe_calls()
-    print("usage: priorities probe|probe-calls   (F2; extraction stages land as captures are read)")
+    if argv and argv[0] == "collect":
+        kw: dict = {}
+        if "--tier" in argv:
+            kw["tier"] = argv[argv.index("--tier") + 1]
+        if "--since" in argv:
+            kw["since"] = argv[argv.index("--since") + 1]
+        if "--until" in argv:
+            kw["until"] = argv[argv.index("--until") + 1]
+        if "--limit" in argv:
+            kw["limit"] = int(argv[argv.index("--limit") + 1])
+        return collect(**kw)
+    print("usage: priorities probe|probe-calls|collect [--tier T] [--since D] [--until D] [--limit N]")
     return 1

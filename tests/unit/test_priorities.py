@@ -2,6 +2,8 @@
 """Gate F2 stage-2 tests: Item-1 slicing and priority-sentence rules,
 locked against VERBATIM blocks of the 2026-09-07 probe bundle (rule 4.20)."""
 
+import pytest as _pytest
+
 from biointel import priorities, schema
 from biointel.priorities import PRIORITY_RULES, extract_priorities, item1_slice
 
@@ -95,3 +97,104 @@ def test_probe_samples_two_eras():
 def test_cli_usage_without_network(capsys):
     assert priorities.cli([]) == 1
     assert "priorities probe" in capsys.readouterr().out
+
+
+# ---- F2 stage 3 (2026-09-07): the collector - drift fixes proven ----
+@_pytest.fixture
+def f2db(tmp_path, monkeypatch):
+    """Self-sufficient DB fixture (mirrors test_stakes.db) so these tests
+    never depend on a conftest the container replica cannot verify."""
+    from biointel import config as _config
+    from biointel import store as _store
+
+    monkeypatch.setattr(_config, "DATA", tmp_path)
+    monkeypatch.setattr(_config, "DUCKDB", tmp_path / "t.duckdb")
+    monkeypatch.setattr(_config, "EXPORTS", tmp_path / "exports")
+    monkeypatch.setattr(_config, "BRONZE", tmp_path / "bronze")
+    _store.close()
+    yield _store.connect(tmp_path / "t.duckdb")
+    _store.close()
+
+
+def _collect_world(monkeypatch, tmp_path):
+    import json as _json
+
+    from biointel import config as _config
+    from biointel import library as _library
+    from biointel import priorities as _p
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    cols = list(_schema.COMPANY_COLS)
+    r = dict.fromkeys(cols, "")
+    r.update({"IID": "1", "Name": "N1", "Ticker": "AAA", "CIK": "100"})
+    _store.write_table("companies", [r], cols)
+    sub = {"filings": {"recent": {
+        "form": ["10-K", "10-K/A", "10-K", "8-K"],
+        "accessionNumber": ["0001-16-000001", "0001-16-000002", "0001-20-000003", "0001-20-000009"],
+        "filingDate": ["2016-02-20", "2016-03-01", "2020-02-25", "2020-05-05"],
+        "primaryDocument": ["a10k.htm", "a10ka.htm", "b10k.htm", "c8k.htm"],
+    }}}
+    doc = ("Item 1. Business 4 Item 1A. Risk Factors 12 "
+           "ITEM 1 BUSINESS We seek to acquire businesses assets and products that fill pipeline gaps. "
+           "Item 1A - Risk Factors Risks Related to everything.")
+    fetches = []
+    def fake_fetch(url):
+        fetches.append(url)
+        if "data.sec.gov" in url:
+            return _json.dumps(sub).encode(), ".json", "application/json"
+        return doc.encode(), ".htm", "text/html"
+    monkeypatch.setattr(_p, "_fetch", fake_fetch)
+    monkeypatch.setattr(_p, "search", lambda *a, **k: {"hits": {"hits": []}, "total": {"value": 0}})
+    monkeypatch.setattr(_library, "store_path", lambda sha, ext: tmp_path / f"{sha}{ext}")
+    def fake_put(data, ext):
+        import hashlib as _h
+        sha = _h.sha256(data).hexdigest()
+        (tmp_path / f"{sha}{ext}").write_bytes(data)
+        return sha, str(tmp_path / f"{sha}{ext}"), True
+    monkeypatch.setattr(_library, "put_bytes", fake_put)
+    upserts = []
+    def fake_upsert(fields, con):
+        upserts.append(fields)
+        rid = f"R{len(upserts)}"
+        rcols = list(_schema.REFERENCE_COLS)
+        row = dict.fromkeys(rcols, "")
+        row.update({c: str(fields.get(c, "")) for c in rcols if c in fields})
+        row["ref_id"] = rid
+        _store.append_rows("references", [row], rcols, con=con)
+        return rid, True
+    monkeypatch.setattr(_library, "upsert_reference", fake_upsert)
+    def fake_add_capture(ref_id, sha, dst, kind, tool, con):
+        ccols = list(_schema.CAPTURE_COLS)
+        c = dict.fromkeys(ccols, "")
+        c.update({"capture_id": sha, "ref_id": ref_id, "kind": kind, "ext": "htm", "status": "active"})
+        _store.append_rows("captures", [c], ccols, con=con)
+    monkeypatch.setattr(_library, "add_capture", fake_add_capture)
+    monkeypatch.setattr(_library, "add_link", lambda *a, **k: None)
+    monkeypatch.setattr(_config, "FETCH_POOL_ENABLED", False, raising=False)
+    return _p, fetches, upserts
+
+
+def test_collect_is_incremental_and_excludes_amendments(f2db, monkeypatch, tmp_path, capsys):
+    p, fetches, _upserts = _collect_world(monkeypatch, tmp_path)
+    assert p.collect(tier="10k_strategy") == 0
+    out1 = capsys.readouterr().out
+    assert "wanted 2 cached 0 fetched 2" in out1          # two plain 10-Ks; the /A is excluded
+    assert "docs_with_rows 2 rows 2" in out1              # inline analyzer counted
+    assert len([u for u in fetches if "Archives" in u]) == 2
+    assert p.collect(tier="10k_strategy") == 0            # the incremental re-run
+    out2 = capsys.readouterr().out
+    assert "wanted 2 cached 2 fetched 0" in out2          # nothing re-downloaded
+    assert len([u for u in fetches if "Archives" in u]) == 2
+
+
+def test_collect_references_omit_the_accession_key(f2db, monkeypatch, tmp_path, capsys):
+    """The sec-9 ladder fix: the upsert dict must NOT carry sec_accession
+    (it rides in note and source_key), so another tool's reference can
+    never be matched by accession."""
+    p, _fetches, upserts = _collect_world(monkeypatch, tmp_path)
+    assert p.collect(tier="10k_strategy") == 0
+    capsys.readouterr()
+    assert upserts and all("sec_accession" not in f for f in upserts)
+    assert all("accession=0001-" in f["note"] for f in upserts)
+    assert all(f["source_key"].startswith("priorities-probe:") for f in upserts)
