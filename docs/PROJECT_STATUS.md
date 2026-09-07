@@ -2,6 +2,15 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.22. Supersedes v1.21. fetch-pool ENABLED (2026-09-07):
+- `fetch-probe 5 200` (run 20260907T171738): 200/200 ok, 0 backoffs, 0
+  retries, 0 errors, rate held 5.0 -> 5.0, observed 4.1/s, mean latency
+  0.674 s, status histogram {200: 200}. Clean pass; FETCH_POOL_ENABLED
+  flipped True with the probe numbers recorded at the flip line.
+- Effect: collection jobs (F2 next) fetch in parallel within SEC's
+  limit; the serial fetcher remains the fallback path, unchanged.
+- Standing constraint unchanged: no two SEC jobs run at once.
+
 Version 1.21. Supersedes v1.20. M4 CLOSED — GATE M COMPLETE (2026-09-07),
 commit b891281, 262 tests:
 - Operator rulings of record: model CONFIGURABLE (config.ASSIST_MODEL,

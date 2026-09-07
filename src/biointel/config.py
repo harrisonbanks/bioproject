@@ -87,7 +87,7 @@ SEC_RATE_LIMIT = 0.11  # seconds between SEC calls (limit is 10/sec)
 # Parallel fetch pool (decisions of record 2026-09-05). OFF until
 # `fetch-probe` passes on real SEC at the chosen rate; then flip ENABLED.
 # Ceiling is aggregate across all workers and holds in every 1-second window.
-FETCH_POOL_ENABLED = False
+FETCH_POOL_ENABLED = True  # flipped 2026-09-07: fetch-probe 5 200 -> 200/200 ok, 0 backoffs, 4.1/s observed (run 20260907T171738)
 FETCH_POOL_RATE = 5.0  # requests/second, half SEC's published 10/s limit
 FETCH_POOL_WORKERS = 6
 WINDOW_PRE = 10  # trading days before t0
