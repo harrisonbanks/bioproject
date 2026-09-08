@@ -534,6 +534,8 @@ def collect(
         for t in tiers
     }
     report: list[str] = []
+    total = len(members) * len(tiers)
+    done = 0
     for t in tiers:
         for cik, ticker, name in members:
             wanted = (
@@ -562,7 +564,12 @@ def collect(
                 if rows:
                     stats[t]["docs_with_rows"] += 1
                     stats[t]["rows"] += len(rows)
-            log.info(f"collect {t} {ticker or cik}: wanted {len(wanted)}")
+            done += 1
+            print(
+                f"collect {t} {done}/{total} {ticker or cik}: wanted {len(wanted)} "
+                f"cached {stats[t]['cached']} fetched {stats[t]['fetched']} failed {stats[t]['failed']}",
+                flush=True,
+            )
     head = ["PRIORITIES COLLECT " + " | ".join(
         f"{t}: wanted {s['wanted']} cached {s['cached']} fetched {s['fetched']} "
         f"failed {s['failed']} docs_with_rows {s['docs_with_rows']} rows {s['rows']}"
