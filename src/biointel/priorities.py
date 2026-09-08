@@ -235,7 +235,12 @@ def item1_slice(text: str) -> str:
     for m in re.finditer(r"Item\s*1\b", text[:end], re.IGNORECASE):
         if re.search(r"Item\s*\d", text[m.end() : m.end() + 90], re.IGNORECASE):
             start = m.end()
-    return text[start:end]
+    body = text[start:end]
+    # Round 3 (seed 124242): an 82-char stub slice and an XBRL tag-soup
+    # document both got through; both are refusals, not material.
+    if len(body) < 500 or body.count("us-gaap:") + body.count("xbrli:") > 8:
+        return ""
+    return body
 
 
 # One rule per specimen family; the guard regex must ALSO match inside the
@@ -256,6 +261,9 @@ PRIORITY_RULES = (
     # TXMD investor-day 8-K (662c4aab01a8): "... committed to advancing
     # women's health with new treatments ..."
     ("therapeutic_area", re.compile(r"[^.]{0,120}\bcommitted to advancing\s+[^.]{0,60}?health\b[^.]{0,200}\.", re.IGNORECASE), None),
+    # Round 3 (seed 124242), Nomad 2019: seeking partners is structurally a
+    # partnering priority whatever the disease area - fixed category.
+    ("pipeline_gap", re.compile(r"seeking partners[^.]{5,240}", re.IGNORECASE), None),
 )
 
 
@@ -275,7 +283,7 @@ _CAT_MAP = (
     ("platform", _reC(r"\bplatform\b|\bmodalit|\btechnolog")),
     ("therapeutic_area", _reC(
         r"oncolog|immuno|derm|cancer|\bdisease|indication|therap|patients|"
-        r"allerg|cardiovas|neuro|\brare\b|obesity"
+        r"allerg|cardiovas|neuro|\brare\b|obesity|\btreat"
     )),
 )
 
@@ -298,6 +306,13 @@ _DECLARATIONS = (
     _reC(r"we aim to [^.]{10,300}\."),
     # Oric 2024: constrained intend-to (in-licensing / strategic partnering only)
     _reC(r"we (?:intend|plan) to (?:in-licens|acquir|licens|evaluate strategic partner)[^.]{0,300}\."),
+    # Round 3 (seed 124242) - identity declarations (Immuneering 2023, Phio
+    # 2021): the FLS laundry lists never carry this form.
+    _reC(r"company developing [^.]{10,280}\."),
+    # Omeros 2019 / BioVie 2018: purpose tail excludes FLS boilerplate.
+    _reC(r"(?:committed to|focused on)[^.]{0,60}?developing and commercializing [^.]{10,240}\."),
+    # Travere 2022: "our mission to address the unmet needs of patients ..."
+    _reC(r"our mission[^.]{5,280}\."),
 )
 
 

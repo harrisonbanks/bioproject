@@ -18,7 +18,7 @@ _TXMD = "d combination bio-identical option,\u201d said Dawn Halkuff, Chief Comm
 
 
 def test_rule_count_is_locked_to_the_specimen_families():
-    assert len(PRIORITY_RULES) == 5  # one per probe specimen family
+    assert len(PRIORITY_RULES) == 6  # five probe families + the round-3 partners rule
 
 
 def test_priority_category_enum_is_fixed_to_the_p4_dimensions():
@@ -136,8 +136,9 @@ def _collect_world(monkeypatch, tmp_path):
         "primaryDocument": ["a10k.htm", "a10ka.htm", "b10k.htm", "c8k.htm"],
     }}}
     doc = ("Item 1. Business 4 Item 1A. Risk Factors 12 "
-           "ITEM 1 BUSINESS We seek to acquire businesses assets and products that fill pipeline gaps. "
-           "Item 1A - Risk Factors Risks Related to everything.")
+           "ITEM 1 BUSINESS We seek to acquire businesses assets and products. "
+           + "Harness filler prose clearing the round-3 five-hundred-character stub floor. " * 8
+           + "Item 1A - Risk Factors Risks Related to everything.")
     fetches = []
     def fake_fetch(url):
         fetches.append(url)
@@ -223,7 +224,11 @@ def test_round2_declaration_rules_fire_on_the_miss_specimens():
     specs = _json.loads(
         (_pl.Path(__file__).parent / "fixtures" / "f2_round2_specs.json").read_text()
     )
-    head = "Item 1. Business 4 Item 1A. Risk Factors 9 ITEM 1 BUSINESS "
+    head = (
+        "Item 1. Business 4 Item 1A. Risk Factors 9 ITEM 1 BUSINESS "
+        + "Filler prose about the reporting entity, harness only, clearing the "
+        "five-hundred-character stub floor the round-3 slicer guard enforces. " * 8
+    )
     tail = " Item 1A - Risk Factors Risks Related to stuff."
     for key, (want_cat, want_frag) in _R2_SPECS.items():
         got = extract_priorities(head + specs[key] + tail, "10k_strategy")
@@ -236,7 +241,11 @@ def test_round2_declaration_rules_fire_on_the_miss_specimens():
 
 
 def test_generic_intend_to_stays_excluded():
-    head = "Item 1. Business 4 Item 1A. Risk Factors 9 ITEM 1 BUSINESS "
+    head = (
+        "Item 1. Business 4 Item 1A. Risk Factors 9 ITEM 1 BUSINESS "
+        + "Filler prose about the reporting entity, harness only, clearing the "
+        "five-hundred-character stub floor the round-3 slicer guard enforces. " * 8
+    )
     tail = " Item 1A - Risk Factors Risks Related to stuff."
     noise = "We intend to enroll 210 patients at approximately 20 transplant centers."
     assert extract_priorities(head + noise + tail, "10k_strategy") == []
