@@ -909,6 +909,159 @@ def write(con=None) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- F2 stage 5: blind sample, judge, precision (Q5)
+# Q5 of record: unit = one extracted sentence; a row passes only if company,
+# date, category and sentence are all correct; 60 per source tier, Wilson
+# interval per tier, sample size a parameter. Verdict gating is implemented
+# as judge-then-retire (the F1 stakes precedent, stated in docs): rows were
+# written in bulk, and a judged-wrong row is deleted from the table, so
+# judged-wrong rows never survive. The earnings_call tier is a recorded
+# coverage hole; the two live tiers are measured.
+def _row_key(r: dict) -> str:
+    import hashlib as _h
+
+    return "S" + _h.sha256(
+        f"{r['entity_key']}|{str(r['stated_at'])[:10]}|{r['category']}".encode()
+    ).hexdigest()[:16]
+
+
+def sample(n: int = 60, tier: str | None = None, seed: int | None = None, con=None) -> int:
+    """Print a seeded blind worksheet of n rows per live tier (or one tier):
+    key, company, date, category, sentence, and the source document URL.
+    Prints only; verdicts arrive via `priorities judge`."""
+    import random as _r
+
+    con = con or store.connect()
+    seed = seed if seed is not None else _dt_seed()
+    rows = store.read_table("stated_priorities", con=con)
+    url_by_doc: dict[str, str] = {}
+    for ref in store.read_table("references", con=con):
+        note = str(ref.get("note") or "")
+        if f"captured by {TOOL}" in note:
+            url_by_doc[str(ref["ref_id"])] = str(ref.get("url") or "")
+    cap_ref = {
+        str(c["capture_id"]): str(c["ref_id"])
+        for c in store.read_table("captures", con=con)
+        if str(c.get("status")) == "active"
+    }
+    tiers = [tier] if tier else ["10k_strategy", "investor_day"]
+    judged = {
+        str(r["candidate_id"])
+        for r in (
+            store.read_table("candidate_reviews", con=con)
+            if store.has_table("candidate_reviews", con)
+            else []
+        )
+        if str(r.get("rule_version")) == RULE_VERSION_F2
+    }
+    shown = 0
+    for t in tiers:
+        pool = [
+            r
+            for r in rows
+            if str(r.get("source_type")) == t and _row_key(r) not in judged
+        ]
+        _r.seed(seed)
+        _r.shuffle(pool)
+        print(f"--- {t}: {min(n, len(pool))} of {len(pool)} unjudged rows (seed {seed}) ---")
+        for r in pool[:n]:
+            url = url_by_doc.get(cap_ref.get(str(r["doc_id"]), ""), "(no url)")
+            print(
+                f"{_row_key(r)}  {r['entity_key']:<12} {str(r['stated_at'])[:10]} "
+                f"{r['category']:<17} {str(r['statement'])[:180]}"
+            )
+            print(f"    doc: {url}")
+            shown += 1
+    print(f"WORKSHEET rows {shown}; judge with: priorities judge KEY correct|wrong|unsure [--note T]")
+    return 0
+
+
+def judge(key: str, verdict: str, note: str = "", con=None) -> int:
+    """Record one human verdict against a sampled row (rule-version scoped);
+    a `wrong` verdict retires the row from stated_priorities immediately."""
+    from biointel import schema as _schema
+
+    if verdict not in _schema.REVIEW_VERDICTS:
+        print(f"verdict must be one of {_schema.REVIEW_VERDICTS}")
+        return 1
+    con = con or store.connect()
+    rows = store.read_table("stated_priorities", con=con)
+    hit = next((r for r in rows if _row_key(r) == key), None)
+    if hit is None:
+        print(f"no stated_priorities row with key {key}")
+        return 1
+    existing = (
+        store.read_table("candidate_reviews", con=con)
+        if store.has_table("candidate_reviews", con)
+        else []
+    )
+    seq = 1 + sum(1 for r in existing if str(r["candidate_id"]) == key)
+    row = {
+        "review_id": f"{key}-v{seq}",
+        "candidate_id": key,
+        "rule_version": RULE_VERSION_F2,
+        "verdict": verdict,
+        "reviewer": "operator",
+        "note": note[:300],
+        "reviewed_at": library._now(),
+    }
+    store.append_rows(
+        "candidate_reviews", [row], list(_schema.CANDIDATE_REVIEW_COLS), con=con
+    )
+    retired = 0
+    if verdict == "wrong":
+        keep = [r for r in rows if _row_key(r) != key]
+        cols = list(_schema.STATED_PRIORITY_COLS) + list(_schema.STATED_PRIORITY_F2_COLS)
+        store.write_table("stated_priorities", keep, cols, con=con)
+        retired = 1
+    print(f"JUDGED {key} {verdict}; retired {retired}")
+    return 0
+
+
+def precision(con=None) -> int:
+    """Per-tier precision over this rule version's verdicts, Wilson 95%."""
+    from biointel.efts import _wilson
+
+    con = con or store.connect()
+    rows = {
+        _row_key(r): str(r.get("source_type") or "")
+        for r in store.read_table("stated_priorities", con=con)
+    }
+    verdicts = [
+        r
+        for r in (
+            store.read_table("candidate_reviews", con=con)
+            if store.has_table("candidate_reviews", con)
+            else []
+        )
+        if str(r.get("rule_version")) == RULE_VERSION_F2
+    ]
+    tiers: dict[str, dict[str, int]] = {}
+    tier_of: dict[str, str] = dict(rows)
+    for v in verdicts:
+        t = tier_of.get(str(v["candidate_id"]), "retired")
+        d = tiers.setdefault(t if t else "retired", {"correct": 0, "wrong": 0, "unsure": 0})
+        d[str(v["verdict"])] = d.get(str(v["verdict"]), 0) + 1
+    runr = results.start(
+        "priorities-precision", "priorities precision", ["candidate_reviews"],
+        {"rule_version": RULE_VERSION_F2},
+    )
+    for t, d in sorted(tiers.items()):
+        k, w = d.get("correct", 0), d.get("wrong", 0)
+        nn = k + w
+        lo, hi = _wilson(k, nn) if nn else (0.0, 0.0)
+        print(
+            f"PRECISION {t}: {k}/{nn} correct"
+            + (f" = {k / nn:.3f} (wilson {lo:.3f}-{hi:.3f})" if nn else "")
+            + f"; unsure {d.get('unsure', 0)}"
+        )
+        for m, v in (("correct", k), ("wrong", w), ("unsure", d.get("unsure", 0))):
+            runr.metric(t, m, v)
+    run_id = results.finish(runr, note=f"Q5 measurement at {RULE_VERSION_F2}")
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
 def cli(argv: list[str]) -> int:
     if argv and argv[0] == "probe":
         return probe()
@@ -921,6 +1074,15 @@ def cli(argv: list[str]) -> int:
         return reextract()
     if argv and argv[0] == "write":
         return write()
+    if argv and argv[0] == "sample":
+        nn = next((int(a) for a in argv[1:] if a.isdigit()), 60)
+        tt = argv[argv.index("--tier") + 1] if "--tier" in argv else None
+        return sample(nn, tier=tt)
+    if argv and argv[0] == "judge" and len(argv) >= 3:
+        nt = argv[argv.index("--note") + 1] if "--note" in argv else ""
+        return judge(argv[1], argv[2], note=nt)
+    if argv and argv[0] == "precision":
+        return precision()
     if argv and argv[0] == "collect":
         kw: dict = {}
         if "--tier" in argv:

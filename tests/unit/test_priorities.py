@@ -298,3 +298,41 @@ def test_write_longest_wins_overflow_preserved_idempotent(f2db, monkeypatch, tmp
     assert "We seek to acquire businesses assets and products." in ov  # runner-up preserved
     assert _p.write() == 0  # idempotent re-run
     assert len(_store.read_table("stated_priorities")) == 1
+
+
+# ---- F2 stage 5 (2026-09-08): sample / judge / precision (Q5) ----
+def test_judge_wrong_retires_and_precision_reports(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import priorities as _p
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    cols = list(_schema.STATED_PRIORITY_COLS) + list(_schema.STATED_PRIORITY_F2_COLS)
+    rows = []
+    for i, cat in enumerate(["pipeline_gap", "therapeutic_area"]):
+        r = dict.fromkeys(cols, "")
+        r.update({
+            "entity_key": f"CIK:{i + 1}", "stated_at": "2020-02-25", "category": cat,
+            "statement": f"sentence {i}", "doc_id": "d" * 64, "span": f"sentence {i}",
+            "source_type": "10k_strategy", "section": "Item 1",
+        })
+        rows.append(r)
+    _store.write_table("stated_priorities", rows, cols)
+    _store.write_table("references", [], list(_schema.REFERENCE_COLS))
+    _store.write_table("captures", [], list(_schema.CAPTURE_COLS))
+    assert _p.sample(5) == 0
+    out = capsys.readouterr().out
+    assert "10k_strategy: 2 of 2 unjudged rows" in out
+    k0 = _p._row_key(rows[0])
+    assert k0 in out
+    assert _p.judge(k0, "wrong", note="wrong company") == 0
+    assert len(_store.read_table("stated_priorities")) == 1  # retired
+    k1 = _p._row_key(rows[1])
+    assert _p.judge(k1, "correct") == 0
+    capsys.readouterr()
+    assert _p.sample(5) == 0
+    assert "1 of 0 unjudged" not in capsys.readouterr().out  # judged rows leave the pool
+    assert _p.precision() == 0
+    out = capsys.readouterr().out
+    assert "PRECISION 10k_strategy: 1/1 correct = 1.000" in out
+    assert "PRECISION retired: 0/1 correct" in out
+    assert _p.judge("Sdeadbeef00000000", "correct") == 1  # unknown key refused

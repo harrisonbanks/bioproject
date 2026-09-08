@@ -2,6 +2,47 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.24. Supersedes v1.23. F2 STAGES 3-5 BUILT AND COMMITTED
+(2026-09-07/08, commits 56115ef, 9881bed, 6c7614a, 592ee09, acca82d,
+5dc0fb0, plus stage 5 in this delivery), suite 273:
+- COLLECTOR (stage 3, operator rulings D1 complete-list / D2 full
+  history, incremental forever): submissions-JSON enumeration, plain
+  10-Ks only, diff-against-library so nothing fetches twice; capture
+  index built once per pass; collector references OMIT the accession
+  key (sec-9 ladder fix). FULL COLLECTION of record: 6,945 10-Ks + 513
+  investor-day documents, 0 failures, ~8 h pooled (16:44-23:23
+  2026-09-07). Progress gauge added after the run flew blind (flushed
+  done/total line; the silent run's logger had no handler - defect
+  mine, recorded).
+- MISS LOOP (stage 3b) + RULE ROUNDS 2-3, capture-first throughout:
+  round 2 (5 declaration families, ordered keyword category map,
+  generic intend-to excluded) lifted 10-K coverage 100 -> 2,768 docs;
+  round 3 (identity/mission families, treat keyword, fixed-category
+  partners rule; slicer refuses XBRL tag soup and sub-500-char stubs)
+  -> 3,500 of 6,500 (54%), rows 6,757; investor_day 6 -> 82 docs /
+  108 rows. Gain decelerating (+2,668 then +732): RULES FROZEN at
+  L3-a3-p1 per the pre-stated criterion.
+- WRITER (stage 4): live stated_priorities was EMPTY (diagnostic of
+  record - the legacy-category worry was fixtures only); F2 columns
+  added live (M1 pattern); ONE ROW PER (entity, stated_at, category),
+  longest sentence wins, 2,221 runner-ups preserved verbatim in
+  stated_priorities_overflow.txt; idempotent replace. TABLE OF RECORD:
+  4,644 rows (WRITE run 2026-09-08; 6,865 raw - 2,221 overflow, exact).
+- SAMPLE/JUDGE/PRECISION (stage 5, Q5): seeded blind worksheet with doc
+  URLs, 60/tier default, judged rows leave the pool; verdicts in
+  candidate_reviews scoped to L3-a3-p1; verdict gating implemented as
+  judge-then-retire (the F1 stakes precedent; extraction wrote in
+  bulk) - a judged-wrong row is deleted immediately; per-tier Wilson
+  precision. Two live tiers measured; earnings_call stays the recorded
+  coverage hole.
+- Container-diligence lesson of the day, mine: two edit scripts
+  reported success on asserts the unedited file satisfied; all edits
+  now land via str_replace or whole-span rewrites and are verified by
+  a separate process against the disk before any success claim.
+- NEXT: operator judges the blind samples (~120 rows, assist can
+  draft); `priorities precision` seals the tier numbers; then the
+  deal-aspects half (analyser L3-a3 + ~129 deals) closes gate F2.
+
 Version 1.23. Supersedes v1.22. F2 STAGE 2 CLOSED (2026-09-07), commit
 594a63c, 267 tests:
 - Probe of record (bundle 2026-09-07): 4 captures — three 10-K Item 1
