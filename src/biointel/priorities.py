@@ -610,11 +610,148 @@ def _pool_prefetch(urls: list[str]) -> dict[str, tuple[bytes, str, str]]:
     return out
 
 
+
+
+# ---------------------------------------------------------------- F2 stage 3b: the miss loop (offline, zero fetches)
+def sample_misses(n: int = 12, seed: int | None = None, con=None) -> int:
+    """The F1 miss loop for priorities: dump the Item 1 slice of N
+    10-K captures that yielded ZERO rows under the current rules, to one
+    bundle the operator attaches. New rule families are written only
+    against these real slices, then re-extraction runs offline against the
+    shelf. Deterministic given a seed; each cycle uses a fresh seed so
+    successive samples cover new ground."""
+    import random as _r
+
+    con = con or store.connect()
+    seed = seed if seed is not None else int(_dt_seed())
+    _by_url, by_ref = _capture_index(con)
+    docs: list[tuple[str, dict]] = []
+    for r in store.read_table("references", con=con):
+        note = str(r.get("note") or "")
+        if "source_type=10k_strategy" not in note or f"captured by {TOOL}" not in note:
+            continue
+        cap = by_ref.get(str(r["ref_id"]))
+        if cap is not None:
+            docs.append((str(r.get("title") or ""), cap))
+    _r.seed(seed)
+    _r.shuffle(docs)
+    out: list[str] = []
+    dumped = 0
+    scanned = 0
+    unsliceable = 0
+    for title, cap in docs:
+        if dumped >= n:
+            break
+        scanned += 1
+        ext = "." + str(cap.get("ext") or "htm")
+        try:
+            text = normalize_text(
+                library.store_path(str(cap["capture_id"]), ext).read_text(
+                    encoding="utf-8", errors="replace"
+                )
+            )
+        except OSError:
+            continue
+        if extract_priorities(text, "10k_strategy"):
+            continue  # a hit; the loop wants misses
+        body = item1_slice(text)
+        if not body:
+            unsliceable += 1
+            continue
+        dumped += 1
+        out.append(
+            "=" * 78 + f"\nMISS {dumped}  {title}  capture {str(cap['capture_id'])[:12]}\n"
+            + "=" * 78 + "\n" + body[:20000]
+        )
+    head = [
+        (
+            f"PRIORITIES MISS SAMPLE — {dumped} zero-row Item 1 slices "
+            f"(seed {seed}, scanned {scanned}, unsliceable {unsliceable}). "
+            "New rules are written ONLY against these; each becomes a verbatim test."
+        )
+    ]
+    p = store.write_export("priorities_miss_bundle.txt", "\n".join(head) + "\n\n" + "\n\n".join(out) + "\n")
+    runr = results.start(
+        "priorities-miss-sample", "priorities sample-misses", ["references", "captures"],
+        {"n": n, "seed": seed, "rule_version": RULE_VERSION_F2},
+    )
+    runr.metric("_", "dumped", dumped)
+    runr.metric("_", "scanned", scanned)
+    runr.metric("_", "unsliceable", unsliceable)
+    runr.artefact(p)
+    run_id = results.finish(runr, note="offline miss loop; no fetches")
+    print(f"MISS-SAMPLE dumped {dumped} scanned {scanned} unsliceable {unsliceable} seed {seed} -> {p}")
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
+def _dt_seed() -> int:
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+
+    return int(_dt.now(tz=_tz.utc).strftime("%H%M%S"))
+
+
+def reextract(con=None) -> int:
+    """Offline re-extraction over every collected capture of both live
+    tiers under the CURRENT rules: per-tier parse rates as run metrics,
+    zero fetches, minutes. The measuring stick each miss-loop cycle."""
+    con = con or store.connect()
+    _by_url, by_ref = _capture_index(con)
+    stats = {t: {"docs": 0, "docs_with_rows": 0, "rows": 0} for t in ("10k_strategy", "investor_day")}
+    for r in store.read_table("references", con=con):
+        note = str(r.get("note") or "")
+        if f"captured by {TOOL}" not in note:
+            continue
+        t = next((x for x in stats if f"source_type={x}" in note), None)
+        if t is None:
+            continue
+        cap = by_ref.get(str(r["ref_id"]))
+        if cap is None:
+            continue
+        ext = "." + str(cap.get("ext") or "htm")
+        try:
+            text = normalize_text(
+                library.store_path(str(cap["capture_id"]), ext).read_text(
+                    encoding="utf-8", errors="replace"
+                )
+            )
+        except OSError:
+            continue
+        stats[t]["docs"] += 1
+        rows = extract_priorities(text, t)
+        if rows:
+            stats[t]["docs_with_rows"] += 1
+            stats[t]["rows"] += len(rows)
+    runr = results.start(
+        "priorities-reextract", "priorities reextract", ["references", "captures"],
+        {"rule_version": RULE_VERSION_F2},
+    )
+    for t, s in stats.items():
+        for k, v in s.items():
+            runr.metric(t, k, v)
+    run_id = results.finish(runr, note="offline rule-coverage measurement; no fetches, no writes")
+    print(
+        "REEXTRACT "
+        + " | ".join(
+            f"{t}: docs {s['docs']} with_rows {s['docs_with_rows']} rows {s['rows']}"
+            for t, s in stats.items()
+        )
+    )
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
 def cli(argv: list[str]) -> int:
     if argv and argv[0] == "probe":
         return probe()
     if argv and argv[0] == "probe-calls":
         return probe_calls()
+    if argv and argv[0] == "sample-misses":
+        nn = next((int(a) for a in argv[1:] if a.isdigit()), 12)
+        return sample_misses(nn)
+    if argv and argv[0] == "reextract":
+        return reextract()
     if argv and argv[0] == "collect":
         kw: dict = {}
         if "--tier" in argv:
@@ -626,5 +763,5 @@ def cli(argv: list[str]) -> int:
         if "--limit" in argv:
             kw["limit"] = int(argv[argv.index("--limit") + 1])
         return collect(**kw)
-    print("usage: priorities probe|probe-calls|collect [--tier T] [--since D] [--until D] [--limit N]")
+    print("usage: priorities probe|probe-calls|collect [...]|sample-misses [N]|reextract")
     return 1
