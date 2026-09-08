@@ -198,3 +198,45 @@ def test_collect_references_omit_the_accession_key(f2db, monkeypatch, tmp_path, 
     assert upserts and all("sec_accession" not in f for f in upserts)
     assert all("accession=0001-" in f["note"] for f in upserts)
     assert all(f["source_key"].startswith("priorities-probe:") for f in upserts)
+
+
+# ---- F2 round 2 (2026-09-07, miss bundle seed 35225): declaration rules ----
+_R2_SPECS = {
+    "DBV_STRATEGY_BULLETS": ("therapeutic_area", "Key elements of our strategy are:"),
+    "DBV_GOAL": ("therapeutic_area", "Our goal is to change the field of immunotherapy"),
+    "ATYR_STRATEGY": ("therapeutic_area", "Our strategy is to focus initially on indications"),
+    "ATYR_AIM_PIPELINE": ("pipeline_gap", "we aim to build a proprietary pipeline"),
+    "ARCUTIS_STRATEGY": ("platform", "Our strategy is to focus on validated biological targets"),
+    "ORIC_PARTNER": ("therapeutic_area", "We intend to evaluate strategic partnerships"),
+    "BOLT_STRATEGY_BULLETS": ("pipeline_gap", "key components of our strategy are to:"),
+    "BOLT_GOAL": ("therapeutic_area", "Our goal is to become a leading immuno-oncology company"),
+}
+
+
+def test_round2_declaration_rules_fire_on_the_miss_specimens():
+    """Eight verbatim windows from the first miss bundle; every family
+    fires, categories come from the ordered keyword map, and no specimen
+    yields near-duplicate rows from overlapping families."""
+    import json as _json
+    import pathlib as _pl
+
+    specs = _json.loads(
+        (_pl.Path(__file__).parent / "fixtures" / "f2_round2_specs.json").read_text()
+    )
+    head = "Item 1. Business 4 Item 1A. Risk Factors 9 ITEM 1 BUSINESS "
+    tail = " Item 1A - Risk Factors Risks Related to stuff."
+    for key, (want_cat, want_frag) in _R2_SPECS.items():
+        got = extract_priorities(head + specs[key] + tail, "10k_strategy")
+        assert got, key
+        assert len({r["sentence"].lower()[:60] for r in got}) == len(got), key
+        assert any(
+            r["category"] == want_cat and want_frag.lower() in r["sentence"].lower()
+            for r in got
+        ), (key, got)
+
+
+def test_generic_intend_to_stays_excluded():
+    head = "Item 1. Business 4 Item 1A. Risk Factors 9 ITEM 1 BUSINESS "
+    tail = " Item 1A - Risk Factors Risks Related to stuff."
+    noise = "We intend to enroll 210 patients at approximately 20 transplant centers."
+    assert extract_priorities(head + noise + tail, "10k_strategy") == []

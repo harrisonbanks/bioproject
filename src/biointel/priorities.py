@@ -259,6 +259,48 @@ PRIORITY_RULES = (
 )
 
 
+# Round 2 (2026-09-07, miss bundle seed 35225): the corpus is dominated by
+# build-side declarations — small biotechs stating what they will build,
+# which the scope covers ("what it wants to buy or build"). Declaration-
+# anchored families only; generic "we intend to <verb>" stays excluded (the
+# misses show it is operational noise). Category is assigned by the ordered
+# keyword map below; a sentence matching no category keyword yields NO row.
+def _reC(pat: str):
+    return re.compile(pat, re.IGNORECASE)
+
+
+_CAT_MAP = (
+    ("pipeline_gap", _reC(r"acquir|in-licens|\blicens")),
+    ("pipeline_gap", _reC(r"\bpipeline\b")),
+    ("platform", _reC(r"\bplatform\b|\bmodalit|\btechnolog")),
+    ("therapeutic_area", _reC(
+        r"oncolog|immuno|derm|cancer|\bdisease|indication|therap|patients|"
+        r"allerg|cardiovas|neuro|\brare\b|obesity"
+    )),
+)
+
+
+def _category_for(sentence: str) -> str | None:
+    for cat, rx in _CAT_MAP:
+        if rx.search(sentence):
+            return cat
+    return None
+
+
+_DECLARATIONS = (
+    # DBV 2022 / Bolt 2024: "Key elements/components of our strategy are: • ..."
+    _reC(r"key (?:elements|components) of our strategy (?:is|are)(?: to)?:?\s*(?:\d+ Table of Contents )?[^.\u2022]{0,80}\u2022?[^.\u2022]{10,320}"),
+    # aTYR 2016 / Arcutis 2022: "Our strategy is to focus ..."
+    _reC(r"our strategy is to [^.]{10,340}\."),
+    # DBV / Bolt: "Our goal is to ..."
+    _reC(r"our goal is to [^.]{10,340}\."),
+    # aTYR: "we aim to build a proprietary pipeline of ..."
+    _reC(r"we aim to [^.]{10,300}\."),
+    # Oric 2024: constrained intend-to (in-licensing / strategic partnering only)
+    _reC(r"we (?:intend|plan) to (?:in-licens|acquir|licens|evaluate strategic partner)[^.]{0,300}\."),
+)
+
+
 def extract_priorities(text: str, source_type: str) -> list[dict]:
     """Stated-priority sentences for the two tiers with probe specimens.
     10-Ks are sliced to Item 1 first (section "Item 1"); an unsliceable
@@ -282,6 +324,17 @@ def extract_priorities(text: str, source_type: str) -> list[dict]:
             seen.add(sent)
             out.append(
                 {"category": category, "sentence": sent, "section": section,
+                 "source_type": source_type}
+            )
+    for rule in _DECLARATIONS:
+        for m in rule.finditer(body):
+            sent = " ".join(m.group(0).split())[:500]
+            cat = _category_for(sent)
+            if cat is None or sent in seen:
+                continue
+            seen.add(sent)
+            out.append(
+                {"category": cat, "sentence": sent, "section": section,
                  "source_type": source_type}
             )
     return out
