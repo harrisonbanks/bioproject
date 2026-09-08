@@ -387,3 +387,85 @@ def test_assist_proposals_shown_and_agreement_measured(f2db, monkeypatch, tmp_pa
     assert "ASSIST-AGREEMENT 1/1 = 1.000" in out
     monkeypatch.setattr(_config, "ASSIST_ENABLED", False, raising=False)
     assert _p.assist_sample(5) == 1  # gate holds
+
+
+# ---- F2 judging interface (2026-09-08): CSV out, verdicts back ----
+def test_worksheet_csv_prefills_ai_and_judge_batch_ingests(monkeypatch, tmp_path, capsys):
+    import csv
+
+    from biointel import assist as _assist
+    from biointel import config as _config
+    from biointel import library as _library
+    from biointel import priorities as _p
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    monkeypatch.setattr(_config, "DATA", tmp_path)
+    monkeypatch.setattr(_config, "DUCKDB", tmp_path / "w.duckdb")
+    monkeypatch.setattr(_config, "EXPORTS", tmp_path / "exports")
+    monkeypatch.setattr(_config, "BRONZE", tmp_path / "bronze")
+    _store.close()
+    cols = list(_schema.STATED_PRIORITY_COLS) + list(_schema.STATED_PRIORITY_F2_COLS)
+    rows = []
+    for i in range(2):
+        r = dict.fromkeys(cols, "")
+        r.update({
+            "entity_key": f"CIK:{i + 1}", "stated_at": "2020-02-25",
+            "category": "pipeline_gap", "statement": f"We seek to acquire assets {i}.",
+            "doc_id": chr(97 + i) * 64, "span": "x",
+            "source_type": "10k_strategy", "section": "Item 1",
+        })
+        rows.append(r)
+    _store.write_table("stated_priorities", rows, cols)
+    caps = []
+    for i in range(2):
+        c = dict.fromkeys(_schema.CAPTURE_COLS, "")
+        c.update({
+            "capture_id": chr(97 + i) * 64, "ref_id": f"R{i}",
+            "kind": "fetched_html", "ext": "htm", "status": "active",
+        })
+        caps.append(c)
+        (tmp_path / (chr(97 + i) * 64 + ".htm")).write_text(
+            f"We seek to acquire assets {i}.", encoding="utf-8"
+        )
+    _store.write_table("captures", caps, list(_schema.CAPTURE_COLS))
+    _store.write_table("references", [], list(_schema.REFERENCE_COLS))
+    comp = dict.fromkeys(_schema.COMPANY_COLS, "")
+    comp.update({"IID": "1", "Name": "N1", "Ticker": "AAA", "CIK": "1"})
+    _store.write_table("companies", [comp], list(_schema.COMPANY_COLS))
+    monkeypatch.setattr(_library, "store_path", lambda s, e: tmp_path / f"{s}{e}")
+    monkeypatch.setattr(_config, "ASSIST_ENABLED", True, raising=False)
+    monkeypatch.setattr(_config, "ASSIST_MODEL", "claude-sonnet-5", raising=False)
+    monkeypatch.setattr(
+        _assist, "_call_api",
+        lambda prompt, model: "VERDICT: wrong\nREASON: boilerplate.",
+    )
+    try:
+        assert _p.assist_sample(1, seed=3) == 0
+        assert "proposed 1" in capsys.readouterr().out
+        assert _p.worksheet(5, seed=3) == 0
+        assert "WORKSHEET-CSV 2 rows" in capsys.readouterr().out
+        wp = _config.EXPORTS / "priorities_worksheet.csv"
+        with open(wp, newline="", encoding="utf-8-sig") as fh:
+            got = list(csv.DictReader(fh))
+        assert len(got) == 2 and any(g["company"] == "N1" for g in got)
+        prefilled = [g for g in got if g["verdict"] == "wrong"]
+        assert len(prefilled) == 1 and "boilerplate" in prefilled[0]["ai_reason"]
+        for g in got:
+            if not g["verdict"]:
+                g["verdict"] = "correct"
+        with open(wp, "w", newline="", encoding="utf-8-sig") as f:
+            w = csv.DictWriter(f, fieldnames=list(got[0].keys()))
+            w.writeheader()
+            w.writerows(got)
+        assert _p.judge_batch() == 0
+        assert "recorded 2 retired 1" in capsys.readouterr().out
+        assert len(_store.read_table("stated_priorities")) == 1
+        assert _p.judge_batch() == 0
+        assert "already 2" in capsys.readouterr().out
+        assert _p.precision() == 0
+        assert "ASSIST-AGREEMENT 1/1 = 1.000" in capsys.readouterr().out
+        monkeypatch.setattr(_config, "ASSIST_ENABLED", False, raising=False)
+        assert _p.assist_sample(5) == 1
+    finally:
+        _store.close()

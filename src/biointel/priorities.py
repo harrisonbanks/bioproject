@@ -1233,6 +1233,135 @@ def _doc_text_of(capr: dict) -> str | None:
         return None
 
 
+# ---------------------------------------------------------------- F2 judging interface: spreadsheet out, verdicts back (operator ruling 2026-09-08)
+def worksheet(n: int = 60, tier: str | None = None, seed: int | None = None, con=None) -> int:
+    """Write the blind sample as a CSV a human can actually judge in
+    Excel: one row per item, the assist's draft verdict PRE-FILLED in the
+    `verdict` column (blank where no proposal exists), its reason beside
+    it, and the document URL. The human edits only `verdict` (and `note`
+    if wanted), saves, and `priorities judge-batch` ingests the file."""
+    import csv
+    import random as _r
+
+    con = con or store.connect()
+    seed = seed if seed is not None else _dt_seed()
+    rows = store.read_table("stated_priorities", con=con)
+    names = {
+        f"CIK:{int(str(c['CIK']))}": str(c["Name"])
+        for c in store.read_table("companies", con=con)
+        if str(c.get("CIK") or "").strip().isdigit()
+    }
+    url_by_doc: dict[str, str] = {}
+    for ref in store.read_table("references", con=con):
+        if f"captured by {TOOL}" in str(ref.get("note") or ""):
+            url_by_doc[str(ref["ref_id"])] = str(ref.get("url") or "")
+    cap_ref = {
+        str(c["capture_id"]): str(c["ref_id"])
+        for c in store.read_table("captures", con=con)
+        if str(c.get("status")) == "active"
+    }
+    proposals: dict[str, dict] = {}
+    if store.has_table("review_proposals", con):
+        for pr in store.read_table("review_proposals", con=con):
+            if str(pr.get("prompt_version")) == F2_PROMPT_VERSION:
+                proposals[str(pr["queue_id"])] = pr
+    judged = {
+        str(r["candidate_id"])
+        for r in (
+            store.read_table("candidate_reviews", con=con)
+            if store.has_table("candidate_reviews", con)
+            else []
+        )
+        if str(r.get("rule_version")) == RULE_VERSION_F2
+    }
+    out_path = config.EXPORTS / "priorities_worksheet.csv"
+    config.EXPORTS.mkdir(parents=True, exist_ok=True)
+    written = 0
+    with open(out_path, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f)
+        w.writerow(
+            ["key", "verdict", "ai_reason", "company", "date", "category",
+             "sentence", "doc_url", "note"]
+        )
+        for t in [tier] if tier else ["10k_strategy", "investor_day"]:
+            pool = [
+                r for r in rows
+                if str(r.get("source_type")) == t and _row_key(r) not in judged
+            ]
+            _r.seed(seed)
+            _r.shuffle(pool)
+            for r in pool[:n]:
+                key = _row_key(r)
+                pr = proposals.get(key)
+                w.writerow([
+                    key,
+                    str(pr["verdict"]) if pr else "",
+                    str(pr["reason"])[:200] if pr else "",
+                    names.get(str(r["entity_key"]), str(r["entity_key"])),
+                    str(r["stated_at"])[:10],
+                    str(r["category"]),
+                    str(r["statement"])[:400],
+                    url_by_doc.get(cap_ref.get(str(r["doc_id"]), ""), ""),
+                    "",
+                ])
+                written += 1
+    print(
+        f"WORKSHEET-CSV {written} rows (seed {seed}) -> {out_path}\n"
+        "Open in Excel, correct the `verdict` column (correct|wrong|unsure), save, then run: "
+        "priorities judge-batch"
+    )
+    return 0
+
+
+def judge_batch(path: str | None = None, con=None) -> int:
+    """Ingest the edited worksheet CSV: every row whose `verdict` column
+    holds correct|wrong|unsure is recorded through the same judge() path
+    (wrong retires the row immediately); blanks and unknown values are
+    skipped and counted; already-judged keys are skipped."""
+    import csv
+
+    con = con or store.connect()
+    p = Path(path) if path else (config.EXPORTS / "priorities_worksheet.csv")
+    if not p.exists():
+        print(f"no worksheet at {p}")
+        return 1
+    judged_already = {
+        str(r["candidate_id"])
+        for r in (
+            store.read_table("candidate_reviews", con=con)
+            if store.has_table("candidate_reviews", con)
+            else []
+        )
+        if str(r.get("rule_version")) == RULE_VERSION_F2
+    }
+    counters = {"recorded": 0, "retired": 0, "blank": 0, "invalid": 0, "already": 0, "unknown_key": 0}
+    with open(p, newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            key = str(row.get("key") or "").strip()
+            v = str(row.get("verdict") or "").strip().lower()
+            if not key:
+                continue
+            if not v:
+                counters["blank"] += 1
+                continue
+            if v not in ("correct", "wrong", "unsure"):
+                counters["invalid"] += 1
+                continue
+            if key in judged_already:
+                counters["already"] += 1
+                continue
+            rc = judge(key, v, note=str(row.get("note") or "")[:300], con=con)
+            if rc != 0:
+                counters["unknown_key"] += 1
+                continue
+            judged_already.add(key)
+            counters["recorded"] += 1
+            if v == "wrong":
+                counters["retired"] += 1
+    print("JUDGE-BATCH " + " ".join(f"{k} {v}" for k, v in counters.items()))
+    return 0
+
+
 def cli(argv: list[str]) -> int:
     if argv and argv[0] == "probe":
         return probe()
@@ -1260,6 +1389,14 @@ def cli(argv: list[str]) -> int:
         return judge(argv[1], argv[2], note=nt)
     if argv and argv[0] == "precision":
         return precision()
+    if argv and argv[0] == "worksheet":
+        nn = next((int(a) for a in argv[1:] if a.isdigit()), 60)
+        tt = argv[argv.index("--tier") + 1] if "--tier" in argv else None
+        ss = int(argv[argv.index("--seed") + 1]) if "--seed" in argv else None
+        return worksheet(nn, tier=tt, seed=ss)
+    if argv and argv[0] == "judge-batch":
+        pp = argv[1] if len(argv) > 1 and not argv[1].startswith("--") else None
+        return judge_batch(pp)
     if argv and argv[0] == "collect":
         kw: dict = {}
         if "--tier" in argv:
