@@ -35,6 +35,7 @@ import json
 import logging
 import re
 import time
+from pathlib import Path
 
 import requests
 
@@ -954,6 +955,11 @@ def sample(n: int = 60, tier: str | None = None, seed: int | None = None, con=No
         )
         if str(r.get("rule_version")) == RULE_VERSION_F2
     }
+    proposals: dict[str, dict] = {}
+    if store.has_table("review_proposals", con):
+        for pr in store.read_table("review_proposals", con=con):
+            if str(pr.get("prompt_version")) == F2_PROMPT_VERSION:
+                proposals[str(pr["queue_id"])] = pr  # last written wins
     shown = 0
     for t in tiers:
         pool = [
@@ -965,10 +971,17 @@ def sample(n: int = 60, tier: str | None = None, seed: int | None = None, con=No
         _r.shuffle(pool)
         print(f"--- {t}: {min(n, len(pool))} of {len(pool)} unjudged rows (seed {seed}) ---")
         for r in pool[:n]:
+            key = _row_key(r)
             url = url_by_doc.get(cap_ref.get(str(r["doc_id"]), ""), "(no url)")
+            pr = proposals.get(key)
+            tag = (
+                f"  [assist {pr['model_id']}: {pr['verdict']} - {str(pr['reason'])[:70]}]"
+                if pr
+                else ""
+            )
             print(
-                f"{_row_key(r)}  {r['entity_key']:<12} {str(r['stated_at'])[:10]} "
-                f"{r['category']:<17} {str(r['statement'])[:180]}"
+                f"{key}  {r['entity_key']:<12} {str(r['stated_at'])[:10]} "
+                f"{r['category']:<17} {str(r['statement'])[:180]}" + tag
             )
             print(f"    doc: {url}")
             shown += 1
@@ -1057,9 +1070,167 @@ def precision(con=None) -> int:
         )
         for m, v in (("correct", k), ("wrong", w), ("unsure", d.get("unsure", 0))):
             runr.metric(t, m, v)
+    props = {
+        str(p["queue_id"]): str(p["verdict"])
+        for p in (
+            store.read_table("review_proposals", con=con)
+            if store.has_table("review_proposals", con)
+            else []
+        )
+        if str(p.get("prompt_version")) == F2_PROMPT_VERSION
+    }
+    agree = comp = 0
+    for v in verdicts:
+        pv = props.get(str(v["candidate_id"]))
+        if pv:
+            comp += 1
+            agree += int(pv == str(v["verdict"]))
+    if comp:
+        print(f"ASSIST-AGREEMENT {agree}/{comp} = {agree / comp:.3f} (proposals vs human verdicts)")
+        runr.metric("_", "assist_agree", agree)
+        runr.metric("_", "assist_compared", comp)
     run_id = results.finish(runr, note=f"Q5 measurement at {RULE_VERSION_F2}")
     log.info(f"run {run_id} recorded")
     return 0
+
+
+# ---------------------------------------------------------------- F2 assist: LLM-drafts, human approves (permanent, operator ruling 2026-09-08)
+F2_PROMPT_VERSION = "judge_priority_v1"
+
+
+def assist_sample(n: int = 60, tier: str | None = None, seed: int | None = None, con=None) -> int:
+    """Draft one verdict proposal per sampled unjudged row via the M4
+    machinery (configurable model, cap, ASSIST_ENABLED gate, env-only key,
+    degradation on failure) and store it in review_proposals with full
+    provenance, keyed by the row's S-key. The worksheet shows proposals
+    beside rows; the human approves with `priorities judge`; `precision`
+    reports AI-vs-human agreement. Same seed default as sample() so the
+    proposal set covers the judging set."""
+    import hashlib as _h
+    import random as _r
+
+    from biointel import assist as _assist
+    from biointel import config as _config
+    from biointel import schema as _schema
+
+    if not getattr(_config, "ASSIST_ENABLED", False):
+        print("assist disabled: set ASSIST_ENABLED = True in config to use it")
+        return 1
+    con = con or store.connect()
+    model = getattr(_config, "ASSIST_MODEL", _assist.DEFAULT_MODEL)
+    cap = int(getattr(_config, "ASSIST_CALL_CAP", _assist.DEFAULT_CAP))
+    seed = seed if seed is not None else _dt_seed()
+    prompt_tpl = (Path(__file__).parent / "prompts" / f"{F2_PROMPT_VERSION}.txt").read_text(
+        encoding="utf-8"
+    )
+    names = {
+        f"CIK:{int(str(c['CIK']))}": str(c["Name"])
+        for c in store.read_table("companies", con=con)
+        if str(c.get("CIK") or "").strip().isdigit()
+    }
+    cap_ref = {
+        str(c["capture_id"]): c
+        for c in store.read_table("captures", con=con)
+        if str(c.get("status")) == "active"
+    }
+    existing = (
+        {str(p["proposal_id"]) for p in store.read_table("review_proposals", con=con)}
+        if store.has_table("review_proposals", con)
+        else set()
+    )
+    judged = {
+        str(r["candidate_id"])
+        for r in (
+            store.read_table("candidate_reviews", con=con)
+            if store.has_table("candidate_reviews", con)
+            else []
+        )
+        if str(r.get("rule_version")) == RULE_VERSION_F2
+    }
+    rows = store.read_table("stated_priorities", con=con)
+    tiers = [tier] if tier else ["10k_strategy", "investor_day"]
+    counters = {"proposed": 0, "cached": 0, "api_failures": 0, "malformed": 0, "no_doc": 0}
+    out_rows: list[dict] = []
+    for t in tiers:
+        pool = [r for r in rows if str(r.get("source_type")) == t and _row_key(r) not in judged]
+        _r.seed(seed)
+        _r.shuffle(pool)
+        for r in pool[:n]:
+            if counters["proposed"] >= cap:
+                break
+            key = _row_key(r)
+            pid = "P" + _h.sha256(f"{key}|{model}|{F2_PROMPT_VERSION}".encode()).hexdigest()[:16]
+            if pid in existing:
+                counters["cached"] += 1
+                continue
+            capr = cap_ref.get(str(r["doc_id"]))
+            text = _doc_text_of(capr) if capr else None
+            if text is None:
+                counters["no_doc"] += 1
+                continue
+            sent = str(r["statement"])
+            i = text.find(sent[:80])
+            lo = max(0, (max(i, 0)) - 1500)
+            excerpt = text[lo : (max(i, 0)) + 2500][:5000]
+            prompt = prompt_tpl.format(
+                company=names.get(str(r["entity_key"]), "(unknown)"),
+                entity_key=r["entity_key"],
+                stated_at=str(r["stated_at"])[:10],
+                category=r["category"],
+                sentence=sent,
+                excerpt=excerpt,
+            )
+            reply = _assist._call_api(prompt, model)
+            if reply is None:
+                counters["api_failures"] += 1
+                continue
+            parsed = _assist.parse_reply(reply)
+            if parsed is None or parsed[0] == "abstain":
+                counters["malformed"] += 1
+                continue
+            verdict, reason = parsed
+            prow = dict.fromkeys(_schema.REVIEW_PROPOSAL_COLS, "")
+            prow.update(
+                {
+                    "proposal_id": pid,
+                    "queue_id": key,
+                    "model_id": model,
+                    "prompt_version": F2_PROMPT_VERSION,
+                    "excerpt_hash": _h.sha256(excerpt.encode()).hexdigest()[:16],
+                    "verdict": verdict,
+                    "reason": reason,
+                    "created_at": library._now(),
+                }
+            )
+            out_rows.append(prow)
+            counters["proposed"] += 1
+    if out_rows:
+        store.append_rows(
+            "review_proposals", out_rows, list(_schema.REVIEW_PROPOSAL_COLS), con=con
+        )
+    runr = results.start(
+        "priorities-assist", "priorities assist",
+        ["stated_priorities", "review_proposals"],
+        {"model": model, "prompt_version": F2_PROMPT_VERSION, "seed": seed, "cap": cap},
+    )
+    for k2, v in counters.items():
+        runr.metric("_", k2, v)
+    run_id = results.finish(runr, note="proposer only; human verdicts remain the measurement")
+    print("F2-ASSIST model " + model + " " + " ".join(f"{k} {v}" for k, v in counters.items()))
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
+def _doc_text_of(capr: dict) -> str | None:
+    ext = "." + str(capr.get("ext") or "htm")
+    try:
+        return normalize_text(
+            library.store_path(str(capr["capture_id"]), ext).read_text(
+                encoding="utf-8", errors="replace"
+            )
+        )
+    except OSError:
+        return None
 
 
 def cli(argv: list[str]) -> int:
@@ -1077,7 +1248,13 @@ def cli(argv: list[str]) -> int:
     if argv and argv[0] == "sample":
         nn = next((int(a) for a in argv[1:] if a.isdigit()), 60)
         tt = argv[argv.index("--tier") + 1] if "--tier" in argv else None
-        return sample(nn, tier=tt)
+        ss = int(argv[argv.index("--seed") + 1]) if "--seed" in argv else None
+        return sample(nn, tier=tt, seed=ss)
+    if argv and argv[0] == "assist":
+        nn = next((int(a) for a in argv[1:] if a.isdigit()), 60)
+        tt = argv[argv.index("--tier") + 1] if "--tier" in argv else None
+        ss = int(argv[argv.index("--seed") + 1]) if "--seed" in argv else None
+        return assist_sample(nn, tier=tt, seed=ss)
     if argv and argv[0] == "judge" and len(argv) >= 3:
         nt = argv[argv.index("--note") + 1] if "--note" in argv else ""
         return judge(argv[1], argv[2], note=nt)

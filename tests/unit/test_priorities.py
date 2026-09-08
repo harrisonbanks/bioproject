@@ -336,3 +336,54 @@ def test_judge_wrong_retires_and_precision_reports(f2db, monkeypatch, tmp_path, 
     assert "PRECISION 10k_strategy: 1/1 correct = 1.000" in out
     assert "PRECISION retired: 0/1 correct" in out
     assert _p.judge("Sdeadbeef00000000", "correct") == 1  # unknown key refused
+
+
+# ---- F2 assist (2026-09-08): LLM drafts, human approves, agreement measured ----
+def test_assist_proposals_shown_and_agreement_measured(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import assist as _assist
+    from biointel import config as _config
+    from biointel import library as _library
+    from biointel import priorities as _p
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    cols = list(_schema.STATED_PRIORITY_COLS) + list(_schema.STATED_PRIORITY_F2_COLS)
+    r = dict.fromkeys(cols, "")
+    r.update({
+        "entity_key": "CIK:100", "stated_at": "2020-02-25", "category": "pipeline_gap",
+        "statement": "We seek to acquire businesses assets and products.",
+        "doc_id": "a" * 64, "span": "x", "source_type": "10k_strategy", "section": "Item 1",
+    })
+    _store.write_table("stated_priorities", [r], cols)
+    ccols = list(_schema.CAPTURE_COLS)
+    c = dict.fromkeys(ccols, "")
+    c.update({"capture_id": "a" * 64, "ref_id": "R1", "ext": "htm", "status": "active"})
+    _store.write_table("captures", [c], ccols)
+    _store.write_table("references", [], list(_schema.REFERENCE_COLS))
+    comp = dict.fromkeys(_schema.COMPANY_COLS, "")
+    comp.update({"IID": "1", "Name": "N1", "Ticker": "AAA", "CIK": "100"})
+    _store.write_table("companies", [comp], list(_schema.COMPANY_COLS))
+    (tmp_path / ("a" * 64 + ".htm")).write_text(
+        "ITEM 1 We seek to acquire businesses assets and products. more text", encoding="utf-8"
+    )
+    monkeypatch.setattr(_library, "store_path", lambda s, e: tmp_path / f"{s}{e}")
+    monkeypatch.setattr(_config, "ASSIST_ENABLED", True, raising=False)
+    monkeypatch.setattr(_config, "ASSIST_MODEL", "claude-sonnet-5", raising=False)
+    monkeypatch.setattr(
+        _assist, "_call_api", lambda prompt, model: "VERDICT: correct\nREASON: all four fields hold."
+    )
+    assert _p.assist_sample(5, seed=7) == 0
+    assert "proposed 1" in capsys.readouterr().out
+    assert _p.assist_sample(5, seed=7) == 0  # idempotent per model+prompt
+    assert "cached 1" in capsys.readouterr().out
+    assert _p.sample(5, seed=7) == 0
+    out = capsys.readouterr().out
+    assert "[assist claude-sonnet-5: correct - all four fields hold.]" in out
+    key = _p._row_key(r)
+    assert _p.judge(key, "correct") == 0
+    capsys.readouterr()
+    assert _p.precision() == 0
+    out = capsys.readouterr().out
+    assert "ASSIST-AGREEMENT 1/1 = 1.000" in out
+    monkeypatch.setattr(_config, "ASSIST_ENABLED", False, raising=False)
+    assert _p.assist_sample(5) == 1  # gate holds
