@@ -810,6 +810,105 @@ def reextract(con=None) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- F2 stage 4: the writer
+def write(con=None) -> int:
+    """Sweep the shelf under the FROZEN rules (L3-a3-p1) and replace
+    stated_priorities with the extracted rows. Diagnostic of record
+    (2026-09-08): the live table held 0 rows, so no legacy mapping exists;
+    dossier-era categories live only in test fixtures. Key collision
+    ruling: one row per (entity, stated_at, category) - the longest
+    sentence wins, every runner-up goes verbatim to the overflow export so
+    nothing is lost and the Q5 judging unit is untouched. write_table
+    replaces the whole table, so re-running is idempotent by construction."""
+    from biointel import schema as _schema
+
+    con = con or store.connect()
+    cols = list(_schema.STATED_PRIORITY_COLS) + list(_schema.STATED_PRIORITY_F2_COLS)
+    store.add_columns("stated_priorities", _schema.STATED_PRIORITY_F2_COLS, con=con)
+    _by_url, by_ref = _capture_index(con)
+    best: dict[tuple, dict] = {}
+    overflow: list[str] = []
+    stats = {t: {"docs": 0, "rows": 0} for t in ("10k_strategy", "investor_day")}
+    for r in store.read_table("references", con=con):
+        note = str(r.get("note") or "")
+        if f"captured by {TOOL}" not in note:
+            continue
+        tier = next((x for x in stats if f"source_type={x}" in note), None)
+        if tier is None:
+            continue
+        cap = by_ref.get(str(r["ref_id"]))
+        if cap is None:
+            continue
+        m = re.search(r"cik=(\d+)", note)
+        d = re.search(r"file_date=(\d{4}-\d{2}-\d{2})", note)
+        if not m or not d:
+            continue
+        entity = f"CIK:{int(m.group(1))}"
+        ext = "." + str(cap.get("ext") or "htm")
+        try:
+            text = normalize_text(
+                library.store_path(str(cap["capture_id"]), ext).read_text(
+                    encoding="utf-8", errors="replace"
+                )
+            )
+        except OSError:
+            continue
+        rows = extract_priorities(text, tier)
+        if not rows:
+            continue
+        stats[tier]["docs"] += 1
+        for row in rows:
+            stats[tier]["rows"] += 1
+            k = (entity, d.group(1), row["category"])
+            cand = {
+                "entity_key": entity,
+                "stated_at": d.group(1),
+                "category": row["category"],
+                "statement": row["sentence"],
+                "doc_id": str(cap["capture_id"]),
+                "span": row["sentence"][:500],
+                "source_type": tier,
+                "section": row["section"],
+            }
+            held = best.get(k)
+            if held is None:
+                best[k] = cand
+            elif len(cand["statement"]) > len(held["statement"]):
+                overflow.append(f"{k[0]} {k[1]} {k[2]} | {held['statement']}")
+                best[k] = cand
+            else:
+                overflow.append(f"{k[0]} {k[1]} {k[2]} | {cand['statement']}")
+    written = store.write_table("stated_priorities", list(best.values()), cols, con=con)
+    p = store.write_export(
+        "stated_priorities_overflow.txt",
+        "\n".join(overflow) + ("\n" if overflow else ""),
+    )
+    runr = results.start(
+        "priorities-write", "priorities write",
+        ["references", "captures", "stated_priorities"],
+        {"rule_version": RULE_VERSION_F2},
+    )
+    for t, s in stats.items():
+        for k2, v in s.items():
+            runr.metric(t, k2, v)
+    runr.metric("_", "rows_written", written)
+    runr.metric("_", "overflow", len(overflow))
+    runr.artefact(p)
+    run_id = results.finish(
+        runr, note="frozen rules L3-a3-p1; longest-sentence-per-key ruling; overflow preserved"
+    )
+    print(
+        "WRITE rows_written "
+        + str(written)
+        + " overflow "
+        + str(len(overflow))
+        + " | "
+        + " | ".join(f"{t}: docs {s['docs']} rows {s['rows']}" for t, s in stats.items())
+    )
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
 def cli(argv: list[str]) -> int:
     if argv and argv[0] == "probe":
         return probe()
@@ -820,6 +919,8 @@ def cli(argv: list[str]) -> int:
         return sample_misses(nn)
     if argv and argv[0] == "reextract":
         return reextract()
+    if argv and argv[0] == "write":
+        return write()
     if argv and argv[0] == "collect":
         kw: dict = {}
         if "--tier" in argv:

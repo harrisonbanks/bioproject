@@ -249,3 +249,52 @@ def test_generic_intend_to_stays_excluded():
     tail = " Item 1A - Risk Factors Risks Related to stuff."
     noise = "We intend to enroll 210 patients at approximately 20 transplant centers."
     assert extract_priorities(head + noise + tail, "10k_strategy") == []
+
+
+# ---- F2 stage 4 (2026-09-08): the writer ----
+def test_write_longest_wins_overflow_preserved_idempotent(f2db, monkeypatch, tmp_path, capsys):
+    """Two same-category sentences for one (entity, date): the longest is
+    written, the runner-up lands verbatim in the overflow export; the F2
+    columns are added to a live table lacking them; a re-run replaces the
+    table with identical rows (write_table replace semantics)."""
+    from biointel import library as _library
+    from biointel import priorities as _p
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    # live-like table WITHOUT the optional F2 columns
+    _store.write_table("stated_priorities", [], list(_schema.STATED_PRIORITY_COLS))
+    doc = (
+        "Item 1. Business 4 Item 1A. Risk Factors 12 ITEM 1 BUSINESS "
+        + "Harness filler prose clearing the round-3 five-hundred-character stub floor. " * 8
+        + "We seek to acquire businesses assets and products. "
+        + "We seek to acquire businesses assets and products plus longer pipeline additions. "
+        + "Item 1A - Risk Factors Risks Related to everything."
+    )
+    sha = "w" * 64
+    (tmp_path / f"{sha}.htm").write_text(doc, encoding="utf-8")
+    rcols = list(_schema.REFERENCE_COLS)
+    r = dict.fromkeys(rcols, "")
+    r.update({
+        "ref_id": "RW1", "url": "uW1",
+        "note": f"captured by {_p.TOOL};source_type=10k_strategy;form=10-K;accession=0001;cik=100;file_date=2020-02-25",
+    })
+    _store.write_table("references", [r], rcols)
+    ccols = list(_schema.CAPTURE_COLS)
+    c = dict.fromkeys(ccols, "")
+    c.update({"capture_id": sha, "ref_id": "RW1", "ext": "htm", "status": "active"})
+    _store.write_table("captures", [c], ccols)
+    monkeypatch.setattr(_library, "store_path", lambda s, e: tmp_path / f"{s}{e}")
+    assert _p.write() == 0
+    out = capsys.readouterr().out
+    assert "rows_written 1 overflow 1" in out
+    rows = _store.read_table("stated_priorities")
+    assert len(rows) == 1
+    assert rows[0]["entity_key"] == "CIK:100" and str(rows[0]["stated_at"])[:10] == "2020-02-25"
+    assert "longer pipeline additions" in rows[0]["statement"]  # longest won
+    assert rows[0]["source_type"] == "10k_strategy" and rows[0]["section"] == "Item 1"
+    from biointel import config as _config
+    ov = (_config.EXPORTS / "stated_priorities_overflow.txt").read_text(encoding="utf-8")
+    assert "We seek to acquire businesses assets and products." in ov  # runner-up preserved
+    assert _p.write() == 0  # idempotent re-run
+    assert len(_store.read_table("stated_priorities")) == 1
