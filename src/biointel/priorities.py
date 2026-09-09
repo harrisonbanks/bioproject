@@ -1579,7 +1579,8 @@ _BOILER_TERMS = (
 )
 _ACQ_TERMS = ("acquire", "acquisition", "in-licens", "in licens", "license in")
 _DISEASE_TERMS = (
-    "cancer", "oncology", "tumor", "myeloma", "leukemia", "lymphoma",
+    "cancer", "anticancer", "oncology", "tumor", "antitumor", "myeloma",
+    "leukemia", "lymphoma",
     "autoimmune", "inflammatory", "fibrosis", "cns", "neurolog", "rare disease",
     "orphan", "diabetes", "cardio", "hepat", "renal", "ophthalm", "dermat",
     "infectious", "virus", "infection", "antiviral", "respiratory",
@@ -1596,6 +1597,21 @@ _TECH_TERMS = (
 )
 
 
+def _hit(s: str, terms: tuple[str, ...]) -> bool:
+    """Vocabulary match that closes the substring-trap class for good
+    (viral-in-lentiviral, rna-in-alternatives, trial-in-industrial,
+    payer-in-taxpayer — 2026-09-09): single-word alphabetic terms must not
+    be preceded by a letter (suffixes like plurals still match); phrases
+    and symbol terms match as plain substrings."""
+    for t in terms:
+        if " " not in t and t.isalpha():
+            if re.search(r"(?<![a-z])" + re.escape(t), s):
+                return True
+        elif t in s:
+            return True
+    return False
+
+
 def _validate_cluster(sentence: str, stamp: str) -> tuple[str, str, str] | None:
     """(cluster_suffix, verdict, relabel) from the sentence itself, or None
     for residual. Ordered first-hit rules; a row joins a cluster only when
@@ -1606,21 +1622,21 @@ def _validate_cluster(sentence: str, stamp: str) -> tuple[str, str, str] | None:
     s = sentence.lower()
     if any(t in sentence for t in _GARBLED_TERMS):
         return ("garbled", "wrong", "")
-    if any(t in s for t in _CHANNEL_TERMS):
+    if _hit(s, _CHANNEL_TERMS):
         return ("commercial-hold-p2", "unsure", "")
-    if any(t in s for t in _IP_TERMS):
+    if _hit(s, _IP_TERMS):
         return ("ip-protection", "wrong", "")
-    if any(t in s for t in _BOILER_TERMS):
+    if _hit(s, _BOILER_TERMS):
         return ("boilerplate", "wrong", "")
-    if stamp == "pipeline_gap" and any(t in s for t in _ACQ_TERMS):
+    if stamp == "pipeline_gap" and _hit(s, _ACQ_TERMS):
         return ("acquisition-correct", "correct", "")
-    if stamp == "pipeline_gap" and any(t in s for t in _PIPELINE_TERMS):
+    if stamp == "pipeline_gap" and _hit(s, _PIPELINE_TERMS):
         return ("pipeline-correct", "correct", "")  # uniQure precedent: pipeline payload wins
-    if any(t in s for t in _DISEASE_TERMS):
+    if _hit(s, _DISEASE_TERMS):
         if stamp == "therapeutic_area":
             return ("named-indication-correct", "correct", "")
         return None
-    if stamp != "platform" and any(t in s for t in _TECH_TERMS):
+    if stamp != "platform" and _hit(s, _TECH_TERMS):
         return ("platform", "wrong", "platform")
     if stamp == "therapeutic_area":
         return ("generic", "wrong", "")

@@ -762,6 +762,11 @@ def test_validate_cluster_on_the_contamination_specimens_verbatim():
     assert V("company developing a novel class of medicines, which we refer to as Bicycles , for diseases that are underserved by existing therapeutics.", "therapeutic_area") == ("platform", "wrong", "platform")
     # dual-with-pipeline (uniQure precedent): pipeline payload wins over tech
     assert V("we aim to have a pipeline characterized by potential best-in-class medicines and to be a company with the leading genome editing platform and organizational culture.", "pipeline_gap") == ("pipeline-correct", "correct", "")
+    # substring-trap class closed structurally (boundary anchor): these
+    # dictionary traps must NOT fire — industrial!=trial, taxpayer!=payer,
+    # adrenaline!=renal, electrocardiogram!=cardio, alternatives!=rna
+    assert V("Our strategy is to become the leading industrial bioprocessing company serving taxpayer-funded programs.", "pipeline_gap") is None
+    assert V("our adrenaline-focused electrocardiogram alternatives serve unnamed markets.", "pipeline_gap") is None
     # garbled truncation: bullet debris is never a stated priority
     assert V("we seek to acquire carry on business; and \u2022 our inability to generate revenue from acquired technology and/or products sufficient to meet our objectives in undertaking the acquisition or even to offset the associated acquisition and maintenance costs.", "pipeline_gap") == ("garbled", "wrong", "")
 
