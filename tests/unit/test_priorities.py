@@ -694,7 +694,7 @@ def test_triage_audit_slice_cap_and_degradation(f2db, monkeypatch, tmp_path, cap
 
 # ---- The judging surface (operator ruling 2026-09-09): clusters, caps, pattern provenance ----
 def _clusters_world(monkeypatch, tmp_path, specs):
-    """specs: list of (category, sonnet_verdict, sonnet_reason, haiku_verdict).
+    """specs: list of (category, sentence, sonnet_verdict, haiku_verdict).
     Builds stated_priorities rows plus stored two-model proposals."""
     import hashlib as _h
 
@@ -704,21 +704,21 @@ def _clusters_world(monkeypatch, tmp_path, specs):
 
     cols = list(_schema.STATED_PRIORITY_COLS) + list(_schema.STATED_PRIORITY_F2_COLS)
     rows, props = [], []
-    for i, (cat, sv, sr, hv) in enumerate(specs):
+    for i, (cat, sent, sv, hv) in enumerate(specs):
         r = dict.fromkeys(cols, "")
         r.update({
             "entity_key": f"CIK:{200 + i}", "stated_at": "2021-03-01", "category": cat,
-            "statement": f"Statement number {i} about our corporate goals.",
+            "statement": sent,
             "doc_id": "b" * 64, "span": "x", "source_type": "10k_strategy", "section": "Item 1",
         })
         rows.append(r)
         key = _p._row_key(r)
-        for m, v, reason in (("claude-sonnet-5", sv, sr), ("claude-haiku-4-5", hv, "fine.")):
+        for m, v in (("claude-sonnet-5", sv), ("claude-haiku-4-5", hv)):
             pr = dict.fromkeys(_schema.REVIEW_PROPOSAL_COLS, "")
             pr.update({
                 "proposal_id": "P" + _h.sha256(f"{key}|{m}|{_p.F2_PROMPT_VERSION}".encode()).hexdigest()[:16],
                 "queue_id": key, "model_id": m, "prompt_version": _p.F2_PROMPT_VERSION,
-                "excerpt_hash": "e", "verdict": v, "reason": reason, "created_at": "2026-09-09T00:00:00",
+                "excerpt_hash": "e", "verdict": v, "reason": "r.", "created_at": "2026-09-09T00:00:00",
             })
             props.append(pr)
     _store.write_table("stated_priorities", rows, cols)
@@ -727,22 +727,54 @@ def _clusters_world(monkeypatch, tmp_path, specs):
     return rows
 
 
-def test_triage_clusters_groups_caps_and_prefills_csvs(f2db, monkeypatch, tmp_path, capsys):
+def test_validate_cluster_on_the_contamination_specimens_verbatim():
+    """Today's cross-check specimens (operator ruling 2026-09-09) lock the
+    sentence-level routing: named indication beats modality (Galera);
+    pipeline payload is correct (uniQure/Sienna); stated acquisition intent
+    is correct (Fortress/BeOne); IP-protection outranks in-licensing
+    (Vincerx); insurance boilerplate retires; generic mission is wrong."""
+    from biointel.priorities import _validate_cluster as V
+
+    # Verastem: cancer named -> correct TA, never platform
+    assert V("Our goal is to build a leading biopharmaceutical company focused on the development and commercialization of novel drugs that use a multi-faceted approach to improving outcomes for patients with cancer.", "therapeutic_area") == ("named-indication-correct", "correct", "")
+    # Sigilon: generic mission, no tech noun, no named disease -> generic wrong
+    assert V("our goal is to provide functional cures to patients with chronic diseases.", "therapeutic_area") == ("generic", "wrong", "")
+    # Sienna: autoimmune/inflammatory + pipeline payload -> correct PG
+    assert V("Our strategy is to develop and commercialize a multi-asset pipeline of innovative and differentiated therapies that target autoimmune and inflammatory conditions and that we believe can be successful in the marketplace.", "pipeline_gap") == ("pipeline-correct", "correct", "")
+    # BeOne/Curanex: stated acquisition intent -> correct PG (Fortress-class)
+    assert V("we intend to acquire businesses, technologies, platforms, services, or products that we believe are strategic.", "pipeline_gap") == ("acquisition-correct", "correct", "")
+    # Vincerx: proprietary position outranks the in-licensing mention -> IP wrong
+    assert V("Our strategy is to seek to protect our proprietary position by, among other methods, filing or in-licensing U.", "pipeline_gap") == ("ip-protection", "wrong", "")
+    # insurance boilerplate -> wrong
+    assert V("we intend to acquire insurance coverage to include the sale of commercial products; however, we may be unable to obtain product liability insurance on commercially reasonable terms or in adequate amounts.", "pipeline_gap") == ("boilerplate", "wrong", "")
+    # Voyager: gene-therapy tech, CNS named -> disease wins over tech (residual under PG-less stamp rules? TA -> correct)
+    assert V("Our goal is to address the underlying cause or the predominant manifestations of a specific disease by significantly increasing or decreasing expression of the relevant proteins at targeted sites within the CNS.", "therapeutic_area") == ("named-indication-correct", "correct", "")
+    # Caribou: genome editing tech, no named disease (tumor mention) -> disease term fires
+    assert V("Our goal is to apply armoring strategies to our allogeneic cell therapies, which we believe could unlock their full potential by improving upon their effectiveness and antitumor activity.", "therapeutic_area") == ("named-indication-correct", "correct", "")
+    # pure modality, no disease -> relabel platform
+    assert V("company developing lentiviral-based gene therapies to free patients from genetic disease burdens of unspecified kinds.", "pipeline_gap") == ("platform", "wrong", "platform")
+    # channel language -> commercial hold
+    assert V("we are seeking partners with suitable infrastructure and market access to expand our commercial reach.", "therapeutic_area") == ("commercial-hold-p2", "unsure", "")
+
+
+def test_triage_clusters_validates_sentences_caps_and_prefills_csvs(f2db, monkeypatch, tmp_path, capsys):
     from biointel import config as _config
     from biointel import priorities as _p
 
     monkeypatch.setattr(_config, "EXPORTS", tmp_path / "exports")
-    specs = [("therapeutic_area", "wrong", "this fits platform not therapeutic_area.", "correct")] * 4
-    specs += [("pipeline_gap", "unsure", "cannot tell from the excerpt.", "correct")]  # residual
+    specs = [
+        ("therapeutic_area", f"company developing a novel antibody platform for undisclosed programs number {i}.", "wrong", "correct")
+        for i in range(4)
+    ]
+    specs += [("pipeline_gap", "An unclassifiable sentence with no signal words at all.", "unsure", "correct")]
     rows = _clusters_world(monkeypatch, tmp_path, specs)
     assert _p.triage_clusters() == 0
     out = capsys.readouterr().out
     assert "CLUSTER therapeutic_area--platform | 4 rows | proposed: wrong --relabel platform" in out
-    assert out.count("VERBATIM:") >= 3 + 1  # exactly 3 examples + 1 residual verbatim
     assert "RESIDUAL 1 rows" in out and "RESIDUAL-CARRIED 0" in out
-    p = _config.EXPORTS / "cluster_therapeutic_area--platform.csv"
-    assert p.exists()
-    body = p.read_text(encoding="utf-8")
+    pth = _config.EXPORTS / "cluster_therapeutic_area--platform.csv"
+    assert pth.exists()
+    body = pth.read_text(encoding="utf-8")
     assert body.count("wrong,platform") == 4 and _p._row_key(rows[0]) in body
 
 
@@ -751,11 +783,33 @@ def test_triage_clusters_residual_cap_and_carried(f2db, monkeypatch, tmp_path, c
     from biointel import priorities as _p
 
     monkeypatch.setattr(_config, "EXPORTS", tmp_path / "exports")
-    specs = [("pipeline_gap", "unsure", "cannot tell.", "correct")] * 12  # all residual
+    specs = [("pipeline_gap", f"An unclassifiable sentence number {i} with no signal words.", "unsure", "correct") for i in range(12)]
     _clusters_world(monkeypatch, tmp_path, specs)
     assert _p.triage_clusters() == 0
     out = capsys.readouterr().out
     assert "RESIDUAL 10 rows" in out and "RESIDUAL-CARRIED 2 rows" in out
+
+
+def test_settled_rows_are_excluded_from_pool_and_clusters(f2db, monkeypatch, tmp_path, capsys):
+    """The Viatris gap (operator ruling 2026-09-09): a row created by an
+    operator relabel is settled and never re-enters triage or clusters."""
+    from biointel import config as _config
+    from biointel import priorities as _p
+    from biointel import store as _store
+
+    monkeypatch.setattr(_config, "EXPORTS", tmp_path / "exports")
+    sent = "company developing a novel antibody platform for undisclosed programs."
+    rows = _clusters_world(monkeypatch, tmp_path, [("therapeutic_area", sent, "wrong", "correct")] * 3)
+    # operator relabels row 0 to pipeline_gap: verdict sits under the OLD key
+    key0 = _p._row_key(rows[0])
+    assert _p.judge(key0, "wrong", relabel="pipeline_gap") == 0
+    capsys.readouterr()
+    assert _p.triage_clusters() == 0
+    out = capsys.readouterr().out
+    assert "settled_excluded 1" in out
+    live = {_p._row_key(r): r for r in _store.read_table("stated_priorities")}
+    new_key = next(k for k, r in live.items() if str(r["category"]) == "pipeline_gap")
+    assert new_key not in out  # the settled row never reappears on the surface
 
 
 def test_judge_batch_pattern_stamps_provenance_and_precision_buckets(f2db, monkeypatch, tmp_path, capsys):
@@ -764,8 +818,8 @@ def test_judge_batch_pattern_stamps_provenance_and_precision_buckets(f2db, monke
     from biointel import store as _store
 
     monkeypatch.setattr(_config, "EXPORTS", tmp_path / "exports")
-    specs = [("therapeutic_area", "wrong", "this fits platform not therapeutic_area.", "correct")] * 3
-    rows = _clusters_world(monkeypatch, tmp_path, specs)
+    sent = "company developing a novel antibody platform for undisclosed programs."
+    _clusters_world(monkeypatch, tmp_path, [("therapeutic_area", sent, "wrong", "correct")] * 3)
     assert _p.triage_clusters() == 0
     capsys.readouterr()
     csvp = _config.EXPORTS / "cluster_therapeutic_area--platform.csv"
@@ -783,4 +837,3 @@ def test_judge_batch_pattern_stamps_provenance_and_precision_buckets(f2db, monke
     assert "PATTERN-RULED (operator, cluster-wide; own bucket): wrong 3" in out
     # pattern verdicts never enter the operator-only tier measurement
     assert "PRECISION 10k_strategy" not in out
-    _ = rows

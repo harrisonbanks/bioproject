@@ -1408,6 +1408,9 @@ def triage(tier: str | None = None, seed: int | None = None, con=None) -> int:
         cid = str(r["candidate_id"])
         seq_base[cid] = seq_base.get(cid, 0) + 1
     rows = store.read_table("stated_priorities", con=con)
+    # settled stays settled (operator ruling 2026-09-09): operator-relabeled
+    # rows never re-enter the triage pool
+    judged |= _settled_keys({_row_key(r): r for r in rows}, reviews)
     tiers = [tier] if tier else ["10k_strategy", "investor_day"]
     counters = {
         "rows_considered": 0, "calls_made": 0, "cached": 0, "agree_recorded": 0,
@@ -1558,36 +1561,115 @@ TRIAGE_MIN_CLUSTER = 3  # structural: a cluster ruling requires 3 verbatim examp
 TRIAGE_RESIDUAL_CAP = 10  # operator ruling 2026-09-09, "The judging surface"
 TRIAGE_AUDIT_CAP = 10  # operator ruling 2026-09-09, "The judging surface"
 
-# Deterministic dissent-target keyword rules, ordered; the FIRST hit on the
-# dissenting reason decides the class. A row joins a cluster only when a rule
-# fires or the stamp-generic fallback holds >= TRIAGE_MIN_CLUSTER rows;
-# everything else is residual (doubtful matches never enter a cluster).
-_CLUSTER_RULES: tuple[tuple[str, tuple[str, ...], str, str], ...] = (
-    ("platform", ("platform",), "wrong", "platform"),
-    ("commercial-hold-p2", ("commercial", "market access", "salesforce"), "unsure", ""),
-    ("ip-protection", ("intellectual", "patent"), "wrong", ""),
-    ("boilerplate", ("boilerplate", "risk-factor", "risk factor", "hypothetical", "insurance"), "wrong", ""),
-    ("attribution", ("another entity", "belongs to", "not a statement by", "excerpt describes"), "wrong", ""),
+# Sentence-level validation vocabularies (operator ruling 2026-09-09, cluster
+# cross-check: membership is validated against the SENTENCE, never the dissent
+# reason alone). Deterministic keyword classes; provenance: the ruling plus
+# the named precedents (Galera: named indication beats modality flavor;
+# uniQure: dual-coverage with pipeline payload is correct; Fortress: stated
+# acquisition intent is a genuine priority; Viatris: settled stays settled).
+_CHANNEL_TERMS = (
+    "market access", "salesforce", "sales force", "distribution", "payer",
+    "commercial infrastructure", "commercial capabilities", "channel",
+    "healthcare gateway", "commercial reach", "suitable infrastructure",
 )
+_IP_TERMS = ("patent", "intellectual property", "proprietary position")
+_BOILER_TERMS = (
+    "insurance", "no assurance", "may be unable", "cannot be certain",
+    "if appropriate opportunities", "risk factor",
+)
+_ACQ_TERMS = ("acquire", "acquisition", "in-licens", "in licens", "license in")
+_DISEASE_TERMS = (
+    "cancer", "oncology", "tumor", "myeloma", "leukemia", "lymphoma",
+    "autoimmune", "inflammatory", "fibrosis", "cns", "neurolog", "rare disease",
+    "orphan", "diabetes", "cardio", "hepat", "renal", "ophthalm", "dermat",
+    "infectious", "virus", "infection", "antiviral", "respiratory",
+)
+_PIPELINE_TERMS = ("pipeline", "clinical", "candidate", "pivotal", "trial")
+_TECH_TERMS = (
+    "gene therap", "cell therap", "genome editing", "crispr", "lentiviral",
+    "antibody", "peptide", "rna", "oligonucleotide", "nanoparticle",
+    "artificial intelligence", "ai-", "data-driven", "machine learning",
+    "cannabinoid", "immunotherapy", "radioisotope", "microdose",
+    "precision medicine", "platform", "modality", "small molecule",
+)
+
+
+def _validate_cluster(sentence: str, stamp: str) -> tuple[str, str, str] | None:
+    """(cluster_suffix, verdict, relabel) from the sentence itself, or None
+    for residual. Ordered first-hit rules; a row joins a cluster only when
+    the sentence carries the evidence the ruling depends on."""
+    s = sentence.lower()
+    if any(t in s for t in _CHANNEL_TERMS):
+        return ("commercial-hold-p2", "unsure", "")
+    if any(t in s for t in _IP_TERMS):
+        return ("ip-protection", "wrong", "")
+    if any(t in s for t in _BOILER_TERMS):
+        return ("boilerplate", "wrong", "")
+    if stamp == "pipeline_gap" and any(t in s for t in _ACQ_TERMS):
+        return ("acquisition-correct", "correct", "")
+    if any(t in s for t in _DISEASE_TERMS):
+        if stamp == "therapeutic_area":
+            return ("named-indication-correct", "correct", "")
+        if stamp == "pipeline_gap" and any(t in s for t in _PIPELINE_TERMS):
+            return ("pipeline-correct", "correct", "")
+        return None
+    if stamp != "platform" and any(t in s for t in _TECH_TERMS):
+        return ("platform", "wrong", "platform")
+    if stamp == "therapeutic_area":
+        return ("generic", "wrong", "")
+    return None
+
+
+def _settled_keys(rows: dict[str, dict], reviews: list[dict]) -> set[str]:
+    """Keys of rows created by an OPERATOR relabel: settled stays settled
+    (operator ruling 2026-09-09; the Viatris row proved the gap). A relabel
+    re-keys the row, so the verdict sits under the OLD key; recover the link
+    by hashing each current row's (entity, date) against every other
+    category and matching relabel notes."""
+    import hashlib as _h
+
+    from biointel import schema as _schema
+
+    relabels: dict[str, str] = {}
+    for v in reviews:
+        if str(v.get("rule_version")) != RULE_VERSION_F2:
+            continue
+        if str(v.get("reviewer")) not in ("operator", "operator-pattern"):
+            continue
+        m = re.match(r"(?:cluster:[^;]+;)?relabel:([a-z_]+);", str(v.get("note") or ""))
+        if m:
+            relabels[str(v["candidate_id"])] = m.group(1)
+    settled: set[str] = set()
+    if not relabels:
+        return settled
+    for key, r in rows.items():
+        ent, day = str(r["entity_key"]), str(r["stated_at"])[:10]
+        for old_cat in _schema.PRIORITY_CATEGORIES:
+            if old_cat == str(r["category"]):
+                continue
+            oldk = "S" + _h.sha256(f"{ent}|{day}|{old_cat}".encode()).hexdigest()[:16]
+            if relabels.get(oldk) == str(r["category"]):
+                settled.add(key)
+                break
+    return settled
 
 
 def triage_clusters(con=None) -> int:
     """The judging surface (operator ruling 2026-09-09, BINDING): the human
     queue is never presented as bulk. This command makes no API calls; it
-    reads the stored two-model proposals for every unjudged row, groups the
-    disagreement rows by deterministic signature (stamp, dissent verdict,
-    dissent-target keyword class), and prints: CLUSTER blocks (id, count,
-    proposed one-line ruling, exactly 3 verbatim examples) — each answered
-    with ONE decision via `priorities judge-batch <csv> --pattern <id>`
-    (prefilled CSVs are written to exports; edit before running to modify)
-    — then a RESIDUAL of rows fitting no cluster, capped at 10, then an
-    AUDIT slice of the machine-agreed set, capped at 10, then an explicit
-    carried count. The caps are code, not discretion."""
+    reads the stored two-model proposals for every unjudged row, VALIDATES
+    each disagreement row against its own sentence (_validate_cluster —
+    dissent reasons never decide membership), and prints: CLUSTER blocks
+    (id, count, proposed one-line ruling, exactly 3 verbatim examples) —
+    each answered with ONE decision via `priorities judge-batch <csv>
+    --pattern <id>` (prefilled CSVs in exports; edit to modify) — then a
+    RESIDUAL capped at 10, then an AUDIT slice capped at 10, then the
+    carried count. Rows settled by an operator relabel are excluded
+    entirely. The caps are code, not discretion."""
     import csv as _csv
     import random as _r
 
     from biointel import config as _config
-    from biointel import schema as _schema  # noqa: F401 - parity with siblings
 
     con = con or store.connect()
     models = list(getattr(_config, "TRIAGE_MODELS", ("claude-sonnet-5", "claude-haiku-4-5")))
@@ -1618,11 +1700,12 @@ def triage_clusters(con=None) -> int:
         and str(r.get("reviewer")) == "draft-agree"
     ]
     rows = {_row_key(r): r for r in store.read_table("stated_priorities", con=con)}
+    settled = _settled_keys(rows, reviews)
     clusters: dict[str, list[dict]] = {}
-    proposed: dict[str, tuple[str, str]] = {}  # cluster id -> (verdict, relabel)
+    proposed: dict[str, tuple[str, str]] = {}
     residual: list[tuple[dict, dict]] = []
     for key, r in sorted(rows.items()):
-        if key in judged:
+        if key in judged or key in settled:
             continue
         pm = props.get(key, {})
         if len(pm) < len(models):
@@ -1630,25 +1713,13 @@ def triage_clusters(con=None) -> int:
         verdicts = {pm[m][0] for m in models}
         if len(verdicts) == 1 and verdicts <= {"correct", "wrong"}:
             continue  # agreed rows are the triage command's business
-        dissent = next(
-            (pm[m] for m in models if pm[m][0] in ("wrong", "unsure", "abstain")),
-            (next(iter(pm.values()))),
-        )
-        reason = dissent[1].lower()
-        hit = next(
-            (rule for rule in _CLUSTER_RULES if any(k in reason for k in rule[1])),
-            None,
-        )
-        if hit is not None:
-            cid = f"{r['category']}--{hit[0]}"
-            clusters.setdefault(cid, []).append(r)
-            proposed[cid] = (hit[2], hit[3])
-        elif dissent[0] == "wrong":
-            cid = f"{r['category']}--generic"
-            clusters.setdefault(cid, []).append(r)
-            proposed[cid] = ("wrong", "")
-        else:
+        hit = _validate_cluster(str(r["statement"]), str(r["category"]))
+        if hit is None:
             residual.append((r, pm))
+            continue
+        cid = f"{r['category']}--{hit[0]}"
+        clusters.setdefault(cid, []).append(r)
+        proposed[cid] = (hit[1], hit[2])
     # clusters below the example floor are residual, never padded rulings
     for cid in [c for c, rs in clusters.items() if len(rs) < TRIAGE_MIN_CLUSTER]:
         for r in clusters.pop(cid):
@@ -1695,13 +1766,14 @@ def triage_clusters(con=None) -> int:
     runr.metric("_", "residual", len(residual))
     runr.metric("_", "residual_shown", len(shown))
     runr.metric("_", "audit_shown", len(audit))
+    runr.metric("_", "settled_excluded", len(settled))
     for pth in csv_paths:
         runr.artefact(pth)
-    run_id = results.finish(runr, note="the judging surface: clusters + residual<=10 + audit<=10")
+    run_id = results.finish(runr, note="the judging surface: sentence-validated clusters + residual<=10 + audit<=10")
     print(
         "TRIAGE-CLUSTERS "
         + f"clusters {len(clusters)} clustered_rows {sum(len(v) for v in clusters.values())} "
-        + f"residual {len(residual)} shown {len(shown)} audit {len(audit)}"
+        + f"residual {len(residual)} shown {len(shown)} audit {len(audit)} settled_excluded {len(settled)}"
     )
     log.info(f"run {run_id} recorded")
     return 0
