@@ -279,6 +279,14 @@ def _reC(pat: str):
 
 
 _CAT_MAP = (
+    # Dictionary sweep 2026-09-09 (operator-ordered, boundary-anchor program):
+    # unanchored fragments here are INTENTIONAL stems — mid-word hits are the
+    # desired medical compounds (chemotherapy/therap, inpatients/patients,
+    # epidermal/derm, hypoallergenic/allerg), locked as tests below. True
+    # dictionary traps found: alderman|bewilderment (derm), vindication
+    # (indication) — corpus-implausible; anchoring them CHANGES matches under
+    # the sealed L3-a3-p1 rules, so the match-changing anchor is banked for
+    # the p2 rule-version bump with this sweep as its evidence.
     ("pipeline_gap", _reC(r"acquir|in-licens|\blicens")),
     ("pipeline_gap", _reC(r"\bpipeline\b")),
     ("platform", _reC(r"\bplatform\b|\bmodalit|\btechnolog")),

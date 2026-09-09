@@ -851,3 +851,15 @@ def test_judge_batch_pattern_stamps_provenance_and_precision_buckets(f2db, monke
     assert "PATTERN-RULED (operator, cluster-wide; own bucket): wrong 3" in out
     # pattern verdicts never enter the operator-only tier measurement
     assert "PRECISION 10k_strategy" not in out
+
+
+def test_cat_map_stem_compounds_locked_for_p2_anchoring():
+    """Extraction-side sweep 2026-09-09: _CAT_MAP stems are intentional —
+    these medical compounds MUST keep firing; any p2 boundary-anchoring is
+    measured against this frozen-behavior oracle."""
+    from biointel.priorities import _category_for
+
+    assert _category_for("we advance chemotherapy combinations") == "therapeutic_area"
+    assert _category_for("serving outpatients across regions") == "therapeutic_area"
+    assert _category_for("epidermal repair products") == "therapeutic_area"
+    assert _category_for("hypoallergenic formulations") == "therapeutic_area"
