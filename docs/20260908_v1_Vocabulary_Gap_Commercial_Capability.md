@@ -57,3 +57,17 @@ Also banked here (p2 negation/sentence-start specimen, operator override
 [bullet] our inability to generate revenue from acquired technology..." —
 garbled truncation of risk-factor text, judged wrong; the slicer's
 sentence-start capture must refuse bullet debris.
+
+## Appended 2026-09-09, second batch (final v2 surface + residual, operator rulings)
+Commercial-infrastructure holds (unsure at L3-a3-p1, banked for p2 rules):
+- S16d531edd84b7a06 (stamped therapeutic_area): "Our strategy is to leverage our strong scientific and clinical expertise and global commercial infrastructure..."
+- S223b1b984d92b3bf (stamped therapeutic_area): same leverage-commercial-infrastructure family
+- S330db4c88981e03b (stamped therapeutic_area): same family, "...to maximize v[alue]"
+- S124cac20372c3ad5 (residual, Mylan/Viatris class): Brazil market-access "platform" — commercial-infrastructure hold
+
+p2 negation/sentence-start specimens (banked):
+- S1e6a836b015eca6c (Opus-class negation clip): "we plan to acquire, the infrastructure or capability internally to manufacture..." — slicer inverted a negated acquire; validator now routes the pattern to garbled (verbatim test in tests/unit/test_priorities.py).
+
+p2 successor-name / wrong-entity evidence (attribution class, from the residual):
+- S0dfdb38f1ca4d458 — AgeX text on Serina's row
+- S11c5f23183045644 — AVROBIO text on another company's row

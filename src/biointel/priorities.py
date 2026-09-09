@@ -1586,6 +1586,10 @@ _DISEASE_TERMS = (
 )
 _PIPELINE_TERMS = ("pipeline", "clinical", "candidate", "pivotal", "trial")
 _GARBLED_TERMS = ("\u2022", " \u00f2 ")  # bullet / mojibake chars: truncation debris, never a stated priority
+# Negation-clip pattern (operator ruling 2026-09-09, S1e6a836 Opus-class):
+# a slicer clip inverted "unless we acquire..." into "we plan to acquire, the
+# infrastructure|capability ..." — routed garbled, locked as a verbatim test.
+_GARBLED_PATTERNS = (re.compile(r"acquire, the (infrastructure|capabilit)", re.IGNORECASE),)
 _TECH_TERMS = (
     "gene therap", "cell therap", "genome editing", "crispr", "lentiviral",
     "antibody", "peptide", "mrna", "sirna", "rnai", " rna", "oligonucleotide",
@@ -1619,7 +1623,9 @@ def _validate_cluster(sentence: str, stamp: str) -> tuple[str, str, str] | None:
     name, dual-with-pipeline, garbled truncation) are locked as verbatim
     tests."""
     s = sentence.lower()
-    if any(t in sentence for t in _GARBLED_TERMS):
+    if any(t in sentence for t in _GARBLED_TERMS) or any(
+        rx.search(sentence) for rx in _GARBLED_PATTERNS
+    ):
         return ("garbled", "wrong", "")
     if _hit(s, _CHANNEL_TERMS):
         return ("commercial-hold-p2", "unsure", "")

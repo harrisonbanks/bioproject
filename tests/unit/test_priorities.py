@@ -863,3 +863,12 @@ def test_cat_map_stem_compounds_locked_for_p2_anchoring():
     assert _category_for("serving outpatients across regions") == "therapeutic_area"
     assert _category_for("epidermal repair products") == "therapeutic_area"
     assert _category_for("hypoallergenic formulations") == "therapeutic_area"
+
+
+def test_negation_clip_routes_garbled_verbatim():
+    """S1e6a836 (operator ruling 2026-09-09, Opus-class): a slicer clip
+    inverted a negated acquire into an apparent priority; the pattern routes
+    garbled -> wrong, never acquisition-correct."""
+    from biointel.priorities import _validate_cluster as V
+
+    assert V("we plan to acquire, the infrastructure or capability internally to manufacture drug supplies for our ongoing clinical trials or any future clinical trials that we may conduct, and we lack the resources to manufacture our product candidates, if approved, on a commercial scale.", "pipeline_gap") == ("garbled", "wrong", "")
