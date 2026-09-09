@@ -650,7 +650,9 @@ def test_triage_disagreement_goes_to_human_verbatim(f2db, monkeypatch, tmp_path,
     assert _p.triage(seed=7) == 0
     out = capsys.readouterr().out
     assert "disagreements 1" in out and "agree_recorded 0" in out
-    assert rows[0]["statement"] in out  # FULL VERBATIM sentence, never a paraphrase
+    # judging-surface ruling: triage never prints raw rows, only the pointer
+    assert "run: priorities triage-clusters" in out
+    assert rows[0]["statement"] not in out
     assert _store.read_table("candidate_reviews") == []  # verdict stays with the human
 
 
@@ -660,7 +662,7 @@ def test_triage_audit_slice_cap_and_degradation(f2db, monkeypatch, tmp_path, cap
     from biointel import priorities as _p
     from biointel import store as _store
 
-    rows = _triage_world(monkeypatch, tmp_path, n_rows=3)
+    _triage_world(monkeypatch, tmp_path, n_rows=3)
     monkeypatch.setattr(_config, "TRIAGE_AUDIT_N", 2, raising=False)
     monkeypatch.setattr(
         _assist, "_call_api",
@@ -668,9 +670,7 @@ def test_triage_audit_slice_cap_and_degradation(f2db, monkeypatch, tmp_path, cap
     )
     assert _p.triage(seed=11) == 0
     out = capsys.readouterr().out
-    assert "TRIAGE-AUDIT 2 of 3 agreed (seed 11)" in out
-    assert sum(1 for r in rows if r["statement"] in out) >= 2  # audit prints verbatim
-    assert len(_store.read_table("candidate_reviews")) == 3
+    assert len(_store.read_table("candidate_reviews")) == 3  # audit/verbatim live in triage-clusters now
     # cap: a fresh world where 2 calls per row cannot fit under cap 2 twice
     from biointel import schema as _schema
     _store.write_table("candidate_reviews", [], list(_schema.CANDIDATE_REVIEW_COLS))

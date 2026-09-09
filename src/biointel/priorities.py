@@ -1363,13 +1363,12 @@ def triage(tier: str | None = None, seed: int | None = None, con=None) -> int:
     decided verdict (correct|wrong) the verdict is auto-recorded with
     reviewer="draft-agree" — never counted in operator precision; consumed
     only by the verdict-aware `priorities write`, where a later operator
-    verdict on the same key overrides by reviewed_at order. The human
-    receives ONLY disagreements (plus undecided agreements: both unsure or
-    both abstain) and a fresh-seeded random audit slice of the agreed set,
-    with FULL VERBATIM sentences. Cached proposals are reused without an
-    API call, so re-running resumes under the same cap."""
+    verdict on the same key overrides by reviewed_at order. Disagreements
+    and undecided agreements queue for the human but NEVER print here
+    (judging-surface ruling 2026-09-09): the output is a pointer to
+    `priorities triage-clusters`, the only human surface. Cached proposals
+    are reused without an API call, so re-running resumes under the cap."""
     import hashlib as _h
-    import random as _r
 
     from biointel import assist as _assist
     from biointel import config as _config
@@ -1381,7 +1380,6 @@ def triage(tier: str | None = None, seed: int | None = None, con=None) -> int:
     con = con or store.connect()
     models = list(getattr(_config, "TRIAGE_MODELS", ("claude-sonnet-5", "claude-haiku-4-5")))
     cap = int(getattr(_config, "TRIAGE_CALL_CAP", 500))
-    audit_n = int(getattr(_config, "TRIAGE_AUDIT_N", 10))
     max_tokens = int(getattr(_config, "TRIAGE_MAX_TOKENS", 1000))
     seed = seed if seed is not None else _dt_seed()
     prompt_tpl = (Path(__file__).parent / "prompts" / f"{F2_PROMPT_VERSION}.txt").read_text(
@@ -1531,28 +1529,21 @@ def triage(tier: str | None = None, seed: int | None = None, con=None) -> int:
         store.append_rows(
             "candidate_reviews", new_reviews, list(_schema.CANDIDATE_REVIEW_COLS), con=con
         )
-    _r.seed(seed)
-    audit = _r.sample(agreed, min(audit_n, len(agreed))) if agreed else []
-    def _line(r: dict, per_model: dict) -> str:
-        return (
-            f"{_row_key(r)} | {r['entity_key']} {str(r['stated_at'])[:10]} "
-            f"{r['category']} | "
-            + " | ".join(f"{m}: {per_model[m][0]} - {per_model[m][1]}" for m in models)
-            + f"\n  VERBATIM: {r['statement']}"
+    # The judging surface ruling (operator, 2026-09-09): triage NEVER prints
+    # raw human-queue rows; the surface is triage-clusters, always.
+    if human:
+        print(
+            f"TRIAGE-HUMAN {len(human)} rows queued -> run: priorities triage-clusters "
+            "(the judging surface; raw rows never print here)"
         )
-    print(f"TRIAGE-HUMAN {len(human)} rows (disagreements + undecided):")
-    for r, pm in human:
-        print(_line(r, pm))
-    print(f"TRIAGE-AUDIT {len(audit)} of {len(agreed)} agreed (seed {seed}):")
-    for r, verdict, pm in audit:
-        print(_line(r, pm))
+    else:
+        print("TRIAGE-HUMAN 0 rows queued")
     runr = results.start(
         "priorities-triage", "priorities triage",
         ["stated_priorities", "review_proposals", "candidate_reviews"],
         {
             "models": ",".join(models), "prompt_version": F2_PROMPT_VERSION,
-            "rule_version": RULE_VERSION_F2, "seed": seed, "cap": cap,
-            "audit_n": audit_n, "max_tokens": max_tokens,
+            "rule_version": RULE_VERSION_F2, "seed": seed, "cap": cap, "max_tokens": max_tokens,
         },
     )
     for k2, v in counters.items():
