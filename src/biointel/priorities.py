@@ -1333,6 +1333,215 @@ def assist_sample(n: int = 60, tier: str | None = None, seed: int | None = None,
     return 0
 
 
+def triage(tier: str | None = None, seed: int | None = None, con=None) -> int:
+    """Two-model triage over the unjudged pool (operator rulings
+    2026-09-09): every candidate row is proposed on by BOTH models in
+    config.TRIAGE_MODELS via the M4 machinery (env-only key, degradation
+    on failure, provenance in review_proposals — abstain/unsure proposals
+    are STORED here, a stated deviation from assist_sample, because the
+    disagreement classes need them). Where both models return the same
+    decided verdict (correct|wrong) the verdict is auto-recorded with
+    reviewer="draft-agree" — never counted in operator precision; consumed
+    only by the verdict-aware `priorities write`, where a later operator
+    verdict on the same key overrides by reviewed_at order. The human
+    receives ONLY disagreements (plus undecided agreements: both unsure or
+    both abstain) and a fresh-seeded random audit slice of the agreed set,
+    with FULL VERBATIM sentences. Cached proposals are reused without an
+    API call, so re-running resumes under the same cap."""
+    import hashlib as _h
+    import random as _r
+
+    from biointel import assist as _assist
+    from biointel import config as _config
+    from biointel import schema as _schema
+
+    if not getattr(_config, "ASSIST_ENABLED", False):
+        print("assist disabled: set ASSIST_ENABLED = True in config to use it")
+        return 1
+    con = con or store.connect()
+    models = list(getattr(_config, "TRIAGE_MODELS", ("claude-sonnet-5", "claude-haiku-4-5")))
+    cap = int(getattr(_config, "TRIAGE_CALL_CAP", 500))
+    audit_n = int(getattr(_config, "TRIAGE_AUDIT_N", 10))
+    max_tokens = int(getattr(_config, "TRIAGE_MAX_TOKENS", 1000))
+    seed = seed if seed is not None else _dt_seed()
+    prompt_tpl = (Path(__file__).parent / "prompts" / f"{F2_PROMPT_VERSION}.txt").read_text(
+        encoding="utf-8"
+    )
+    names = {
+        f"CIK:{int(str(c['CIK']))}": str(c["Name"])
+        for c in store.read_table("companies", con=con)
+        if str(c.get("CIK") or "").strip().isdigit()
+    }
+    cap_ref = {
+        str(c["capture_id"]): c
+        for c in store.read_table("captures", con=con)
+        if str(c.get("status")) == "active"
+    }
+    proposals = (
+        {str(p["proposal_id"]): p for p in store.read_table("review_proposals", con=con)}
+        if store.has_table("review_proposals", con)
+        else {}
+    )
+    reviews = (
+        store.read_table("candidate_reviews", con=con)
+        if store.has_table("candidate_reviews", con)
+        else []
+    )
+    judged = {
+        str(r["candidate_id"]) for r in reviews
+        if str(r.get("rule_version")) == RULE_VERSION_F2
+    }
+    seq_base: dict[str, int] = {}
+    for r in reviews:
+        cid = str(r["candidate_id"])
+        seq_base[cid] = seq_base.get(cid, 0) + 1
+    rows = store.read_table("stated_priorities", con=con)
+    tiers = [tier] if tier else ["10k_strategy", "investor_day"]
+    counters = {
+        "rows_considered": 0, "calls_made": 0, "cached": 0, "agree_recorded": 0,
+        "disagreements": 0, "undecided_agree": 0, "api_failures": 0,
+        "malformed": 0, "no_doc": 0,
+    }
+    new_props: list[dict] = []
+    new_reviews: list[dict] = []
+    agreed: list[tuple[dict, str, dict]] = []  # (row, verdict, per-model verdicts)
+    human: list[tuple[dict, dict]] = []  # (row, per-model verdict/reason)
+    for t in tiers:
+        pool = [r for r in rows if str(r.get("source_type")) == t and _row_key(r) not in judged]
+        pool.sort(key=_row_key)  # deterministic order; resumability across runs
+        for r in pool:
+            if counters["calls_made"] + len(models) > cap and any(
+                "P" + _h.sha256(f"{_row_key(r)}|{m}|{F2_PROMPT_VERSION}".encode()).hexdigest()[:16]
+                not in proposals
+                for m in models
+            ):
+                continue  # cap would be breached by this row's uncached calls
+            key = _row_key(r)
+            capr = cap_ref.get(str(r["doc_id"]))
+            text = _doc_text_of(capr) if capr else None
+            if text is None:
+                counters["no_doc"] += 1
+                continue
+            counters["rows_considered"] += 1
+            sent = str(r["statement"])
+            i = text.find(sent[:80])
+            lo = max(0, (max(i, 0)) - 1500)
+            excerpt = text[lo : (max(i, 0)) + 2500][:5000]
+            prompt = prompt_tpl.format(
+                company=names.get(str(r["entity_key"]), "(unknown)"),
+                entity_key=r["entity_key"],
+                stated_at=str(r["stated_at"])[:10],
+                category=r["category"],
+                sentence=sent,
+                excerpt=excerpt,
+            )
+            per_model: dict[str, tuple[str, str]] = {}
+            degraded = False
+            for m in models:
+                pid = "P" + _h.sha256(f"{key}|{m}|{F2_PROMPT_VERSION}".encode()).hexdigest()[:16]
+                held = proposals.get(pid)
+                if held is not None:
+                    counters["cached"] += 1
+                    per_model[m] = (str(held["verdict"]), str(held.get("reason") or ""))
+                    continue
+                counters["calls_made"] += 1
+                reply = _assist._call_api(prompt, m, max_tokens=max_tokens)
+                if reply is None:
+                    counters["api_failures"] += 1
+                    degraded = True
+                    continue
+                parsed = _assist.parse_reply(reply)
+                if parsed is None:
+                    counters["malformed"] += 1
+                    degraded = True
+                    continue
+                verdict, reason = parsed
+                prow = dict.fromkeys(_schema.REVIEW_PROPOSAL_COLS, "")
+                prow.update(
+                    {
+                        "proposal_id": pid,
+                        "queue_id": key,
+                        "model_id": m,
+                        "prompt_version": F2_PROMPT_VERSION,
+                        "excerpt_hash": _h.sha256(excerpt.encode()).hexdigest()[:16],
+                        "verdict": verdict,
+                        "reason": reason,
+                        "created_at": library._now(),
+                    }
+                )
+                new_props.append(prow)
+                proposals[pid] = prow
+                per_model[m] = (verdict, reason)
+            if degraded or len(per_model) < len(models):
+                continue  # row stays in the pool for the next run
+            verdicts = {v for v, _ in per_model.values()}
+            if len(verdicts) == 1 and verdicts <= {"correct", "wrong"}:
+                agreed.append((r, next(iter(verdicts)), per_model))
+            elif len(verdicts) == 1:
+                counters["undecided_agree"] += 1
+                human.append((r, per_model))
+            else:
+                counters["disagreements"] += 1
+                human.append((r, per_model))
+    for r, verdict, per_model in agreed:
+        key = _row_key(r)
+        seq = seq_base.get(key, 0) + 1
+        seq_base[key] = seq
+        note = "triage-agree " + " ".join(f"{m}:{per_model[m][0]}" for m in models)
+        new_reviews.append(
+            {
+                "review_id": f"{key}-v{seq}",
+                "candidate_id": key,
+                "rule_version": RULE_VERSION_F2,
+                "verdict": verdict,
+                "reviewer": "draft-agree",
+                "note": note[:300],
+                "reviewed_at": library._now(),
+            }
+        )
+        counters["agree_recorded"] += 1
+    if new_props:
+        store.append_rows(
+            "review_proposals", new_props, list(_schema.REVIEW_PROPOSAL_COLS), con=con
+        )
+    if new_reviews:
+        store.append_rows(
+            "candidate_reviews", new_reviews, list(_schema.CANDIDATE_REVIEW_COLS), con=con
+        )
+    _r.seed(seed)
+    audit = _r.sample(agreed, min(audit_n, len(agreed))) if agreed else []
+    def _line(r: dict, per_model: dict) -> str:
+        return (
+            f"{_row_key(r)} | {r['entity_key']} {str(r['stated_at'])[:10]} "
+            f"{r['category']} | "
+            + " | ".join(f"{m}: {per_model[m][0]} - {per_model[m][1]}" for m in models)
+            + f"\n  VERBATIM: {r['statement']}"
+        )
+    print(f"TRIAGE-HUMAN {len(human)} rows (disagreements + undecided):")
+    for r, pm in human:
+        print(_line(r, pm))
+    print(f"TRIAGE-AUDIT {len(audit)} of {len(agreed)} agreed (seed {seed}):")
+    for r, verdict, pm in audit:
+        print(_line(r, pm))
+    runr = results.start(
+        "priorities-triage", "priorities triage",
+        ["stated_priorities", "review_proposals", "candidate_reviews"],
+        {
+            "models": ",".join(models), "prompt_version": F2_PROMPT_VERSION,
+            "rule_version": RULE_VERSION_F2, "seed": seed, "cap": cap,
+            "audit_n": audit_n, "max_tokens": max_tokens,
+        },
+    )
+    for k2, v in counters.items():
+        runr.metric("_", k2, v)
+    run_id = results.finish(
+        runr, note="draft-agree never counts in operator precision; operator override wins by reviewed_at"
+    )
+    print("TRIAGE " + " ".join(f"{k} {v}" for k, v in counters.items()))
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
 def _doc_text_of(capr: dict) -> str | None:
     ext = "." + str(capr.get("ext") or "htm")
     try:
@@ -1504,6 +1713,10 @@ def cli(argv: list[str]) -> int:
         tt = argv[argv.index("--tier") + 1] if "--tier" in argv else None
         ss = int(argv[argv.index("--seed") + 1]) if "--seed" in argv else None
         return assist_sample(nn, tier=tt, seed=ss)
+    if argv and argv[0] == "triage":
+        tt = argv[argv.index("--tier") + 1] if "--tier" in argv else None
+        ss = int(argv[argv.index("--seed") + 1]) if "--seed" in argv else None
+        return triage(tier=tt, seed=ss)
     if argv and argv[0] == "judge" and len(argv) >= 3:
         nt = argv[argv.index("--note") + 1] if "--note" in argv else ""
         rl = argv[argv.index("--relabel") + 1] if "--relabel" in argv else ""

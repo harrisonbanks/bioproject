@@ -569,3 +569,124 @@ def test_write_is_verdict_aware_and_restores_relabels(monkeypatch, tmp_path, cap
         assert "DRAFT-RECORDED (not counted): 1 machine verdicts" in out
     finally:
         _store.close()
+
+
+# ---- F2 triage (2026-09-09): two-model disagreement-only human review ----
+def _triage_world(monkeypatch, tmp_path, n_rows=3):
+    from biointel import config as _config
+    from biointel import library as _library
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    cols = list(_schema.STATED_PRIORITY_COLS) + list(_schema.STATED_PRIORITY_F2_COLS)
+    rows = []
+    for i in range(n_rows):
+        r = dict.fromkeys(cols, "")
+        r.update({
+            "entity_key": f"CIK:{100 + i}", "stated_at": "2020-02-25",
+            "category": "pipeline_gap",
+            "statement": f"We seek to acquire businesses assets and products ({i}).",
+            "doc_id": "a" * 64, "span": "x", "source_type": "10k_strategy",
+            "section": "Item 1",
+        })
+        rows.append(r)
+    _store.write_table("stated_priorities", rows, cols)
+    ccols = list(_schema.CAPTURE_COLS)
+    c = dict.fromkeys(ccols, "")
+    c.update({"capture_id": "a" * 64, "ref_id": "R1", "ext": "htm", "status": "active"})
+    _store.write_table("captures", [c], ccols)
+    comp = dict.fromkeys(_schema.COMPANY_COLS, "")
+    comp.update({"IID": "1", "Name": "N1", "Ticker": "AAA", "CIK": "100"})
+    _store.write_table("companies", [comp], list(_schema.COMPANY_COLS))
+    (tmp_path / ("a" * 64 + ".htm")).write_text(
+        "ITEM 1 We seek to acquire businesses assets and products. more text",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(_library, "store_path", lambda s, e: tmp_path / f"{s}{e}")
+    monkeypatch.setattr(_config, "ASSIST_ENABLED", True, raising=False)
+    monkeypatch.setattr(
+        _config, "TRIAGE_MODELS", ("claude-sonnet-5", "claude-haiku-4-5"), raising=False
+    )
+    return rows
+
+
+def test_triage_agreement_autorecords_and_is_idempotent(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import assist as _assist
+    from biointel import priorities as _p
+    from biointel import store as _store
+
+    rows = _triage_world(monkeypatch, tmp_path, n_rows=1)
+    calls = []
+    def fake(prompt, model, **kw):
+        assert kw.get("max_tokens") == 1000  # f216973: truncation class closed
+        calls.append(model)
+        return "VERDICT: correct\nREASON: all four fields hold."
+    monkeypatch.setattr(_assist, "_call_api", fake)
+    assert _p.triage(seed=7) == 0
+    out = capsys.readouterr().out
+    assert "agree_recorded 1" in out and "calls_made 2" in out
+    revs = _store.read_table("candidate_reviews")
+    assert len(revs) == 1 and revs[0]["reviewer"] == "draft-agree"
+    assert revs[0]["verdict"] == "correct"
+    assert revs[0]["candidate_id"] == _p._row_key(rows[0])
+    props = _store.read_table("review_proposals")
+    assert {str(p["model_id"]) for p in props} == {"claude-sonnet-5", "claude-haiku-4-5"}
+    assert _p.triage(seed=7) == 0  # judged rows leave the pool; no new calls
+    out = capsys.readouterr().out
+    assert "calls_made 0" in out and "agree_recorded 0" in out
+    assert len(calls) == 2
+
+
+def test_triage_disagreement_goes_to_human_verbatim(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import assist as _assist
+    from biointel import priorities as _p
+    from biointel import store as _store
+
+    rows = _triage_world(monkeypatch, tmp_path, n_rows=1)
+    def fake(prompt, model, **kw):
+        v = "correct" if "sonnet" in model else "wrong"
+        return f"VERDICT: {v}\nREASON: split."
+    monkeypatch.setattr(_assist, "_call_api", fake)
+    assert _p.triage(seed=7) == 0
+    out = capsys.readouterr().out
+    assert "disagreements 1" in out and "agree_recorded 0" in out
+    assert rows[0]["statement"] in out  # FULL VERBATIM sentence, never a paraphrase
+    assert _store.read_table("candidate_reviews") == []  # verdict stays with the human
+
+
+def test_triage_audit_slice_cap_and_degradation(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import assist as _assist
+    from biointel import config as _config
+    from biointel import priorities as _p
+    from biointel import store as _store
+
+    rows = _triage_world(monkeypatch, tmp_path, n_rows=3)
+    monkeypatch.setattr(_config, "TRIAGE_AUDIT_N", 2, raising=False)
+    monkeypatch.setattr(
+        _assist, "_call_api",
+        lambda prompt, model, **kw: "VERDICT: correct\nREASON: holds.",
+    )
+    assert _p.triage(seed=11) == 0
+    out = capsys.readouterr().out
+    assert "TRIAGE-AUDIT 2 of 3 agreed (seed 11)" in out
+    assert sum(1 for r in rows if r["statement"] in out) >= 2  # audit prints verbatim
+    assert len(_store.read_table("candidate_reviews")) == 3
+    # cap: a fresh world where 2 calls per row cannot fit under cap 2 twice
+    from biointel import schema as _schema
+    _store.write_table("candidate_reviews", [], list(_schema.CANDIDATE_REVIEW_COLS))
+    _store.write_table("review_proposals", [], list(_schema.REVIEW_PROPOSAL_COLS))
+    monkeypatch.setattr(_config, "TRIAGE_CALL_CAP", 2, raising=False)
+    assert _p.triage(seed=11) == 0
+    out = capsys.readouterr().out
+    assert "calls_made 2" in out and "agree_recorded 1" in out  # one row fits the cap
+    # degradation: API failure records nothing and leaves the row in the pool
+    _store.write_table("candidate_reviews", [], list(_schema.CANDIDATE_REVIEW_COLS))
+    _store.write_table("review_proposals", [], list(_schema.REVIEW_PROPOSAL_COLS))
+    monkeypatch.setattr(_config, "TRIAGE_CALL_CAP", 500, raising=False)
+    monkeypatch.setattr(_assist, "_call_api", lambda prompt, model, **kw: None)
+    assert _p.triage(seed=11) == 0
+    out = capsys.readouterr().out
+    assert "api_failures" in out and "agree_recorded 0" in out
+    assert _store.read_table("candidate_reviews") == []
+    monkeypatch.setattr(_config, "ASSIST_ENABLED", False, raising=False)
+    assert _p.triage() == 1  # gate holds

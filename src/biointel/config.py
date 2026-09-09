@@ -98,3 +98,9 @@ PRICE_PAD_DAYS = 90  # calendar days either side of event to request
 ASSIST_ENABLED = False
 ASSIST_MODEL = "claude-sonnet-5"
 ASSIST_CALL_CAP = 200
+
+# F2 triage (operator rulings 2026-09-09): two-model disagreement-only review
+TRIAGE_MODELS = ("claude-sonnet-5", "claude-haiku-4-5")  # both measured 1.000 at M4 acceptance
+TRIAGE_CALL_CAP = 500  # calls/run; 2 models x 250 rows with retry headroom (operator)
+TRIAGE_AUDIT_N = 10  # random audit rows from the machine-agreed set (operator)
+TRIAGE_MAX_TOKENS = 1000  # f216973: the truncated-reason class stays closed
