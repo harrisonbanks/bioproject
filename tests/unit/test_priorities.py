@@ -872,3 +872,16 @@ def test_negation_clip_routes_garbled_verbatim():
     from biointel.priorities import _validate_cluster as V
 
     assert V("we plan to acquire, the infrastructure or capability internally to manufacture drug supplies for our ongoing clinical trials or any future clinical trials that we may conduct, and we lack the resources to manufacture our product candidates, if approved, on a commercial scale.", "pipeline_gap") == ("garbled", "wrong", "")
+
+
+def test_payload_beats_stamp_flavor_symmetric_rule():
+    """Operator standing rule 2026-09-09 (one symmetric rule, not two
+    one-offs): payload beats stamp flavor — pipeline payload under a
+    platform stamp relabels pipeline_gap (specimens S31fc9/S4651a), and a
+    named indication under a platform stamp relabels therapeutic_area
+    (specimens S13ebad/S3d729, the Galera mirror). Both present -> residual."""
+    from biointel.priorities import _validate_cluster as V
+
+    assert V("We aim to build a portfolio of novel product candidates that can rely on validated targets and proven technologies.", "platform") == ("pipeline-relabel", "wrong", "pipeline_gap")
+    assert V("Our goal is to restore normal FXN regulation and expression of frataxin in Friedreich's ataxia, a rare disease.", "platform") == ("indication-relabel", "wrong", "therapeutic_area")
+    assert V("our pipeline of candidates targets cancer.", "platform") is None  # both payloads -> residual

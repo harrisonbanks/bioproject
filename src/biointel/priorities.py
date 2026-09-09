@@ -1640,7 +1640,16 @@ def _validate_cluster(sentence: str, stamp: str) -> tuple[str, str, str] | None:
     if _hit(s, _DISEASE_TERMS):
         if stamp == "therapeutic_area":
             return ("named-indication-correct", "correct", "")
+        if stamp == "platform" and not _hit(s, _PIPELINE_TERMS):
+            # payload beats stamp flavor (operator standing rule 2026-09-09,
+            # symmetric; specimens S13ebad/S3d729): named indication under a
+            # platform stamp relabels to therapeutic_area, repair-not-delete
+            return ("indication-relabel", "wrong", "therapeutic_area")
         return None
+    if stamp == "platform" and _hit(s, _PIPELINE_TERMS):
+        # the same standing rule, other direction (specimens S31fc9/S4651a):
+        # pipeline payload under a platform stamp relabels to pipeline_gap
+        return ("pipeline-relabel", "wrong", "pipeline_gap")
     if stamp != "platform" and _hit(s, _TECH_TERMS):
         return ("platform", "wrong", "platform")
     if stamp == "therapeutic_area":
