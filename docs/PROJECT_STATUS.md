@@ -2,6 +2,34 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.26. Supersedes v1.25. FIX BUNDLE COMMITTED f216973
+(2026-09-09), suite 277, table of record 4,602 rows:
+- WRITE IS VERDICT-AWARE (operator ruling: good information is never
+  thrown away, judged lies never resurrect): judged-wrong keys are
+  suppressed forever at write time; relabels (operator or
+  draft-restore) rewrite the category before keying; re-running
+  `priorities write` is now safe by construction.
+- TEN RESTORATIONS recorded (reviewer=draft-restore, never counted in
+  precision) and applied by the rewrite: 8 -> platform (Iovance,
+  Surface, Aura x2, ScholarRock, AGTC, Mural x2), Propanc-2017 ->
+  therapeutic_area (operator's identical-2016 ruling), Repare ->
+  pipeline_gap.
+- F2 assist calls now pass max_tokens=1000 (M4 default 200 unchanged);
+  the truncated-reason class ("The s") is closed.
+- Honest counters: judge-batch splits relabeled from retired;
+  precision counts OPERATOR verdicts only, prints DRAFT-RECORDED
+  machine verdicts separately, and attributes relabel-orphaned
+  verdicts to a named bucket.
+- Standing note: Propanc twins carry conflicting verdicts (2016
+  correct by operator adjudication, 2017 bulk-draft wrong, row
+  restored); visible in the 10k 34/35 precision line; one judge
+  command resolves whenever the operator cares.
+- Deferred to next session, in order: TRIAGE command (two-model
+  disagreement-only human review, verbatim sentences); deal-aspects
+  half at rule version p2 (commercial_infrastructure lands, negation
+  guard + sentence-start capture with Opus/Biogen locked specimens,
+  overflow table); F1-era stakes repair path BEFORE the 52 deferred
+  verdicts; successor-name aliases; 707 M3 queue.
 Version 1.25. Supersedes v1.24. F2 FIRST-HALF MEASUREMENT SEALED
 (2026-09-08/09), suite 276:
 - Protocol of record: two machine passes drafted verdicts on the
