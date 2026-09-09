@@ -989,13 +989,20 @@ def sample(n: int = 60, tier: str | None = None, seed: int | None = None, con=No
     return 0
 
 
-def judge(key: str, verdict: str, note: str = "", con=None) -> int:
-    """Record one human verdict against a sampled row (rule-version scoped);
-    a `wrong` verdict retires the row from stated_priorities immediately."""
+def judge(key: str, verdict: str, note: str = "", relabel: str = "", con=None) -> int:
+    """Record one human verdict against a sampled row (rule-version scoped).
+    A `wrong` verdict with a RELABEL repairs the row in place — the
+    operator's category replaces the extractor's stamp, provenance in the
+    review note (the M3/fix-direction precedent: human corrections repair
+    data, they don't destroy it). A `wrong` without a relabel means the
+    sentence is not a priority at all, and the row retires."""
     from biointel import schema as _schema
 
     if verdict not in _schema.REVIEW_VERDICTS:
         print(f"verdict must be one of {_schema.REVIEW_VERDICTS}")
+        return 1
+    if relabel and relabel not in _schema.PRIORITY_CATEGORIES:
+        print(f"relabel must be one of {_schema.PRIORITY_CATEGORIES}")
         return 1
     con = con or store.connect()
     rows = store.read_table("stated_priorities", con=con)
@@ -1009,25 +1016,42 @@ def judge(key: str, verdict: str, note: str = "", con=None) -> int:
         else []
     )
     seq = 1 + sum(1 for r in existing if str(r["candidate_id"]) == key)
+    full_note = (f"relabel:{relabel};" if relabel else "") + note[:280]
     row = {
         "review_id": f"{key}-v{seq}",
         "candidate_id": key,
         "rule_version": RULE_VERSION_F2,
         "verdict": verdict,
         "reviewer": "operator",
-        "note": note[:300],
+        "note": full_note[:300],
         "reviewed_at": library._now(),
     }
     store.append_rows(
         "candidate_reviews", [row], list(_schema.CANDIDATE_REVIEW_COLS), con=con
     )
-    retired = 0
-    if verdict == "wrong":
-        keep = [r for r in rows if _row_key(r) != key]
-        cols = list(_schema.STATED_PRIORITY_COLS) + list(_schema.STATED_PRIORITY_F2_COLS)
-        store.write_table("stated_priorities", keep, cols, con=con)
+    cols = list(_schema.STATED_PRIORITY_COLS) + list(_schema.STATED_PRIORITY_F2_COLS)
+    retired = relabeled = 0
+    if verdict == "wrong" and relabel:
+        # key includes category, so the repair is a key change: collision-checked
+        clash = any(
+            str(r["entity_key"]) == str(hit["entity_key"])
+            and str(r["stated_at"])[:10] == str(hit["stated_at"])[:10]
+            and str(r["category"]) == relabel
+            for r in rows
+        )
+        if clash:
+            print(f"RELABEL REFUSED {key}: a row already holds {relabel} for that entity/date; retiring instead")
+            rows = [r for r in rows if _row_key(r) != key]
+            retired = 1
+        else:
+            hit["category"] = relabel
+            relabeled = 1
+        store.write_table("stated_priorities", rows, cols, con=con)
+    elif verdict == "wrong":
+        rows = [r for r in rows if _row_key(r) != key]
+        store.write_table("stated_priorities", rows, cols, con=con)
         retired = 1
-    print(f"JUDGED {key} {verdict}; retired {retired}")
+    print(f"JUDGED {key} {verdict}; retired {retired} relabeled {relabeled}" + (f" -> {relabel}" if relabeled else ""))
     return 0
 
 
@@ -1350,7 +1374,12 @@ def judge_batch(path: str | None = None, con=None) -> int:
             if key in judged_already:
                 counters["already"] += 1
                 continue
-            rc = judge(key, v, note=str(row.get("note") or "")[:300], con=con)
+            rc = judge(
+                key, v,
+                note=str(row.get("note") or "")[:300],
+                relabel=str(row.get("relabel") or "").strip().lower(),
+                con=con,
+            )
             if rc != 0:
                 counters["unknown_key"] += 1
                 continue
@@ -1386,7 +1415,8 @@ def cli(argv: list[str]) -> int:
         return assist_sample(nn, tier=tt, seed=ss)
     if argv and argv[0] == "judge" and len(argv) >= 3:
         nt = argv[argv.index("--note") + 1] if "--note" in argv else ""
-        return judge(argv[1], argv[2], note=nt)
+        rl = argv[argv.index("--relabel") + 1] if "--relabel" in argv else ""
+        return judge(argv[1], argv[2], note=nt, relabel=rl)
     if argv and argv[0] == "precision":
         return precision()
     if argv and argv[0] == "worksheet":

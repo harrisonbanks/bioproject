@@ -469,3 +469,41 @@ def test_worksheet_csv_prefills_ai_and_judge_batch_ingests(monkeypatch, tmp_path
         assert _p.assist_sample(5) == 1
     finally:
         _store.close()
+
+
+def test_judge_relabel_repairs_row_in_place(f2db, monkeypatch, tmp_path, capsys):
+    """Operator ruling 2026-09-08: a wrong verdict WITH a relabel repairs
+    the row's category (M3/fix-direction precedent) instead of deleting;
+    provenance rides in the review note; a relabel colliding with an
+    existing key retires instead; plain wrong still retires."""
+    from biointel import priorities as _p
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    cols = list(_schema.STATED_PRIORITY_COLS) + list(_schema.STATED_PRIORITY_F2_COLS)
+    rows = []
+    for i, cat in enumerate(["platform", "pipeline_gap", "therapeutic_area"]):
+        r = dict.fromkeys(cols, "")
+        r.update({
+            "entity_key": "CIK:9", "stated_at": "2023-02-27", "category": cat,
+            "statement": f"sentence {i}", "doc_id": "z" * 64, "span": f"sentence {i}",
+            "source_type": "10k_strategy", "section": "Item 1",
+        })
+        rows.append(r)
+    _store.write_table("stated_priorities", rows[:1] + rows[2:], cols)  # platform + TA exist
+    k_platform = _p._row_key(rows[0])
+    assert _p.judge(k_platform, "wrong", relabel="pipeline_gap") == 0
+    out = capsys.readouterr().out
+    assert "retired 0 relabeled 1 -> pipeline_gap" in out
+    live = _store.read_table("stated_priorities")
+    assert {str(r["category"]) for r in live} == {"pipeline_gap", "therapeutic_area"}
+    reviews = _store.read_table("candidate_reviews")
+    assert any("relabel:pipeline_gap;" in str(r["note"]) for r in reviews)
+    # relabel onto an existing key: refused, retires
+    k_new = _p._row_key(next(r for r in live if r["category"] == "pipeline_gap"))
+    assert _p.judge(k_new, "wrong", relabel="therapeutic_area") == 0
+    assert "RELABEL REFUSED" in capsys.readouterr().out
+    assert len(_store.read_table("stated_priorities")) == 1
+    # invalid relabel value refused outright
+    k_ta = _p._row_key(rows[2])
+    assert _p.judge(k_ta, "wrong", relabel="not_a_category") == 1

@@ -2,6 +2,40 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.25. Supersedes v1.24. F2 FIRST-HALF MEASUREMENT SEALED
+(2026-09-08/09), suite 276:
+- Protocol of record: two machine passes drafted verdicts on the
+  120-row blind sample (seed 165855); the operator personally
+  adjudicated all machine disagreements plus a spot-check slice (9
+  rows, full verbatim sentences) and bulk-accepted the machine-agreed
+  drafts (105). Provenance separates draft-accepted from
+  human-adjudicated throughout.
+- EXTRACTION PRECISION at L3-a3-p1: 61 correct of 113 decided (~54%).
+  The rules over-extract boilerplate (patent-protection, generic
+  mission language), mis-assign categories on modality-led sentences,
+  and twice clipped meaning (one negation inversion: Opus). 1 unsure
+  held open. AI-draft agreement on the human-adjudicated 9: 5/9 -
+  drafts are triage, never verdicts.
+- REPAIR-NOT-DELETE (operator ruling): a wrong verdict carrying a
+  relabel now REPAIRS the row in place (M3/fix-direction precedent);
+  3 rows relabeled by the operator (ImmunoGen -> therapeutic_area,
+  Viatris -> pipeline_gap, MeiraGTx -> platform); deletion reserved
+  for non-priorities. The F1-era stakes retire path has the same
+  defect and gets the same fix BEFORE the 52 deferred verdicts run.
+- VOCABULARY GAP, operator finding, decision record committed:
+  commercial-capability priorities (delivery networks, market access,
+  salesforce) are among the most common corporate goals and have no
+  category; `commercial_infrastructure` (the filings' own term;
+  literature: commercialization capital) is approved in principle and
+  lands at the deal-aspects enum opening with rules from the banked
+  specimens (Viatris, bluebird, Travere, ARS, BioCryst).
+- Known defects queued in the fix bundle: assist max-tokens (the
+  truncated-reason class), triage command (disagreements-only human
+  review with verbatim sentences), negation guard + sentence-start
+  capture (Opus/Biogen locked specimens), judge-batch relabel counter,
+  precision tier attribution incl. relabel key-orphaning,
+  human-only agreement scoping, overflow rows into the DB,
+  successor-name stamping.
 Version 1.24. Supersedes v1.23. F2 STAGES 3-5 BUILT AND COMMITTED
 (2026-09-07/08, commits 56115ef, 9881bed, 6c7614a, 592ee09, acca82d,
 5dc0fb0, plus stage 5 in this delivery), suite 273:
