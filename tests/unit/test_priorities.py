@@ -755,6 +755,15 @@ def test_validate_cluster_on_the_contamination_specimens_verbatim():
     assert V("company developing lentiviral-based gene therapies to free patients from genetic disease burdens of unspecified kinds.", "pipeline_gap") == ("platform", "wrong", "platform")
     # channel language -> commercial hold
     assert V("we are seeking partners with suitable infrastructure and market access to expand our commercial reach.", "therapeutic_area") == ("commercial-hold-p2", "unsure", "")
+    # --- the four 2026-09-09 override classes, verbatim (operator ruling) ---
+    # no-modality generic: "alternatives" must not trip a tech substring
+    assert V("Our goal is to create low cost therapeutic alternatives to existing treatments.", "therapeutic_area") == ("generic", "wrong", "")
+    # named-modality trade name (Bicycles): novel-class marker -> platform
+    assert V("company developing a novel class of medicines, which we refer to as Bicycles , for diseases that are underserved by existing therapeutics.", "therapeutic_area") == ("platform", "wrong", "platform")
+    # dual-with-pipeline (uniQure precedent): pipeline payload wins over tech
+    assert V("we aim to have a pipeline characterized by potential best-in-class medicines and to be a company with the leading genome editing platform and organizational culture.", "pipeline_gap") == ("pipeline-correct", "correct", "")
+    # garbled truncation: bullet debris is never a stated priority
+    assert V("we seek to acquire carry on business; and \u2022 our inability to generate revenue from acquired technology and/or products sufficient to meet our objectives in undertaking the acquisition or even to offset the associated acquisition and maintenance costs.", "pipeline_gap") == ("garbled", "wrong", "")
 
 
 def test_triage_clusters_validates_sentences_caps_and_prefills_csvs(f2db, monkeypatch, tmp_path, capsys):

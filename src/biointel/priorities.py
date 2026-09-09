@@ -1585,20 +1585,27 @@ _DISEASE_TERMS = (
     "infectious", "virus", "infection", "antiviral", "respiratory",
 )
 _PIPELINE_TERMS = ("pipeline", "clinical", "candidate", "pivotal", "trial")
+_GARBLED_TERMS = ("\u2022", " \u00f2 ")  # bullet / mojibake chars: truncation debris, never a stated priority
 _TECH_TERMS = (
     "gene therap", "cell therap", "genome editing", "crispr", "lentiviral",
-    "antibody", "peptide", "rna", "oligonucleotide", "nanoparticle",
-    "artificial intelligence", "ai-", "data-driven", "machine learning",
-    "cannabinoid", "immunotherapy", "radioisotope", "microdose",
-    "precision medicine", "platform", "modality", "small molecule",
+    "antibody", "peptide", "mrna", "sirna", "rnai", " rna", "oligonucleotide",
+    "nanoparticle", "artificial intelligence", "ai-", "data-driven",
+    "machine learning", "cannabinoid", "immunotherapy", "radioisotope",
+    "microdose", "precision medicine", "platform", "modality",
+    "small molecule", "novel class", "\u00ae", "\u00ab",
 )
 
 
 def _validate_cluster(sentence: str, stamp: str) -> tuple[str, str, str] | None:
     """(cluster_suffix, verdict, relabel) from the sentence itself, or None
     for residual. Ordered first-hit rules; a row joins a cluster only when
-    the sentence carries the evidence the ruling depends on."""
+    the sentence carries the evidence the ruling depends on. The four
+    2026-09-09 override classes (no-modality generic, named-modality trade
+    name, dual-with-pipeline, garbled truncation) are locked as verbatim
+    tests."""
     s = sentence.lower()
+    if any(t in sentence for t in _GARBLED_TERMS):
+        return ("garbled", "wrong", "")
     if any(t in s for t in _CHANNEL_TERMS):
         return ("commercial-hold-p2", "unsure", "")
     if any(t in s for t in _IP_TERMS):
@@ -1607,11 +1614,11 @@ def _validate_cluster(sentence: str, stamp: str) -> tuple[str, str, str] | None:
         return ("boilerplate", "wrong", "")
     if stamp == "pipeline_gap" and any(t in s for t in _ACQ_TERMS):
         return ("acquisition-correct", "correct", "")
+    if stamp == "pipeline_gap" and any(t in s for t in _PIPELINE_TERMS):
+        return ("pipeline-correct", "correct", "")  # uniQure precedent: pipeline payload wins
     if any(t in s for t in _DISEASE_TERMS):
         if stamp == "therapeutic_area":
             return ("named-indication-correct", "correct", "")
-        if stamp == "pipeline_gap" and any(t in s for t in _PIPELINE_TERMS):
-            return ("pipeline-correct", "correct", "")
         return None
     if stamp != "platform" and any(t in s for t in _TECH_TERMS):
         return ("platform", "wrong", "platform")

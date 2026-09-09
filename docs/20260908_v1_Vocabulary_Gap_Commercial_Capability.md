@@ -41,3 +41,19 @@ Five of 120 — the single most frequent unlabelable theme in the sample.
 - Sd8101a43fd461c58 ARS 2024 (stamped therapeutic_area)
 - S1a5ff2eb8465d80e BioCryst 2021 (stamped therapeutic_area)
 (extend as further rows retire on this ground)
+
+## Appended 2026-09-09 (operator-approved commercial holds from the v2 triage surface)
+Held `unsure` at L3-a3-p1 via cluster pipeline_gap--commercial-hold-p2
+(reviewer=operator-pattern); each carries genuine channel/access language and
+enters the extraction-rule specimen set when `commercial_infrastructure` lands
+at p2:
+- S0671b187e69a2448 (stamped pipeline_gap): "seeking partners with suitable infrastructure, expertise and a long-term initiative in our medical f..."
+- S0d8ac69ec0679910 (stamped pipeline_gap): "seeking partners with commercial reach and experience in pain management in their respective regions..."
+- S10aee1ec7089d5d9 (stamped pipeline_gap): "seeking partners with suitable infrastructure, expertise and a long-term initiative in our medical f..."
+- S10d848546c9db34e (stamped pipeline_gap): "seeking partners with suitable infrastructure, expertise and a long-term initiative in our medical f..."
+
+Also banked here (p2 negation/sentence-start specimen, operator override
+2026-09-09): S02a95e01d937cb32 — "we seek to acquire carry on business; and
+[bullet] our inability to generate revenue from acquired technology..." —
+garbled truncation of risk-factor text, judged wrong; the slicer's
+sentence-start capture must refuse bullet debris.
