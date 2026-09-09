@@ -690,3 +690,97 @@ def test_triage_audit_slice_cap_and_degradation(f2db, monkeypatch, tmp_path, cap
     assert _store.read_table("candidate_reviews") == []
     monkeypatch.setattr(_config, "ASSIST_ENABLED", False, raising=False)
     assert _p.triage() == 1  # gate holds
+
+
+# ---- The judging surface (operator ruling 2026-09-09): clusters, caps, pattern provenance ----
+def _clusters_world(monkeypatch, tmp_path, specs):
+    """specs: list of (category, sonnet_verdict, sonnet_reason, haiku_verdict).
+    Builds stated_priorities rows plus stored two-model proposals."""
+    import hashlib as _h
+
+    from biointel import priorities as _p
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    cols = list(_schema.STATED_PRIORITY_COLS) + list(_schema.STATED_PRIORITY_F2_COLS)
+    rows, props = [], []
+    for i, (cat, sv, sr, hv) in enumerate(specs):
+        r = dict.fromkeys(cols, "")
+        r.update({
+            "entity_key": f"CIK:{200 + i}", "stated_at": "2021-03-01", "category": cat,
+            "statement": f"Statement number {i} about our corporate goals.",
+            "doc_id": "b" * 64, "span": "x", "source_type": "10k_strategy", "section": "Item 1",
+        })
+        rows.append(r)
+        key = _p._row_key(r)
+        for m, v, reason in (("claude-sonnet-5", sv, sr), ("claude-haiku-4-5", hv, "fine.")):
+            pr = dict.fromkeys(_schema.REVIEW_PROPOSAL_COLS, "")
+            pr.update({
+                "proposal_id": "P" + _h.sha256(f"{key}|{m}|{_p.F2_PROMPT_VERSION}".encode()).hexdigest()[:16],
+                "queue_id": key, "model_id": m, "prompt_version": _p.F2_PROMPT_VERSION,
+                "excerpt_hash": "e", "verdict": v, "reason": reason, "created_at": "2026-09-09T00:00:00",
+            })
+            props.append(pr)
+    _store.write_table("stated_priorities", rows, cols)
+    _store.write_table("review_proposals", props, list(_schema.REVIEW_PROPOSAL_COLS))
+    _store.write_table("candidate_reviews", [], list(_schema.CANDIDATE_REVIEW_COLS))
+    return rows
+
+
+def test_triage_clusters_groups_caps_and_prefills_csvs(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import config as _config
+    from biointel import priorities as _p
+
+    monkeypatch.setattr(_config, "EXPORTS", tmp_path / "exports")
+    specs = [("therapeutic_area", "wrong", "this fits platform not therapeutic_area.", "correct")] * 4
+    specs += [("pipeline_gap", "unsure", "cannot tell from the excerpt.", "correct")]  # residual
+    rows = _clusters_world(monkeypatch, tmp_path, specs)
+    assert _p.triage_clusters() == 0
+    out = capsys.readouterr().out
+    assert "CLUSTER therapeutic_area--platform | 4 rows | proposed: wrong --relabel platform" in out
+    assert out.count("VERBATIM:") >= 3 + 1  # exactly 3 examples + 1 residual verbatim
+    assert "RESIDUAL 1 rows" in out and "RESIDUAL-CARRIED 0" in out
+    p = _config.EXPORTS / "cluster_therapeutic_area--platform.csv"
+    assert p.exists()
+    body = p.read_text(encoding="utf-8")
+    assert body.count("wrong,platform") == 4 and _p._row_key(rows[0]) in body
+
+
+def test_triage_clusters_residual_cap_and_carried(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import config as _config
+    from biointel import priorities as _p
+
+    monkeypatch.setattr(_config, "EXPORTS", tmp_path / "exports")
+    specs = [("pipeline_gap", "unsure", "cannot tell.", "correct")] * 12  # all residual
+    _clusters_world(monkeypatch, tmp_path, specs)
+    assert _p.triage_clusters() == 0
+    out = capsys.readouterr().out
+    assert "RESIDUAL 10 rows" in out and "RESIDUAL-CARRIED 2 rows" in out
+
+
+def test_judge_batch_pattern_stamps_provenance_and_precision_buckets(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import config as _config
+    from biointel import priorities as _p
+    from biointel import store as _store
+
+    monkeypatch.setattr(_config, "EXPORTS", tmp_path / "exports")
+    specs = [("therapeutic_area", "wrong", "this fits platform not therapeutic_area.", "correct")] * 3
+    rows = _clusters_world(monkeypatch, tmp_path, specs)
+    assert _p.triage_clusters() == 0
+    capsys.readouterr()
+    csvp = _config.EXPORTS / "cluster_therapeutic_area--platform.csv"
+    assert _p.judge_batch(str(csvp), pattern="therapeutic_area--platform") == 0
+    out = capsys.readouterr().out
+    assert "recorded 3" in out
+    revs = _store.read_table("candidate_reviews")
+    assert len(revs) == 3
+    assert all(str(r["reviewer"]) == "operator-pattern" for r in revs)
+    assert all("cluster:therapeutic_area--platform;" in str(r["note"]) for r in revs)
+    live = _store.read_table("stated_priorities")
+    assert all(str(r["category"]) == "platform" for r in live)  # relabel repaired in place
+    assert _p.precision() == 0
+    out = capsys.readouterr().out
+    assert "PATTERN-RULED (operator, cluster-wide; own bucket): wrong 3" in out
+    # pattern verdicts never enter the operator-only tier measurement
+    assert "PRECISION 10k_strategy" not in out
+    _ = rows

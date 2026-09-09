@@ -1031,7 +1031,7 @@ def sample(n: int = 60, tier: str | None = None, seed: int | None = None, con=No
     return 0
 
 
-def judge(key: str, verdict: str, note: str = "", relabel: str = "", con=None) -> int:
+def judge(key: str, verdict: str, note: str = "", relabel: str = "", reviewer: str = "operator", con=None) -> int:
     """Record one human verdict against a sampled row (rule-version scoped).
     A `wrong` verdict with a RELABEL repairs the row in place — the
     operator's category replaces the extractor's stamp, provenance in the
@@ -1064,7 +1064,7 @@ def judge(key: str, verdict: str, note: str = "", relabel: str = "", con=None) -
         "candidate_id": key,
         "rule_version": RULE_VERSION_F2,
         "verdict": verdict,
-        "reviewer": "operator",
+        "reviewer": reviewer,
         "note": full_note[:300],
         "reviewed_at": library._now(),
     }
@@ -1151,11 +1151,23 @@ def precision(con=None) -> int:
         if str(r.get("rule_version")) == RULE_VERSION_F2
     ]
     # measurement counts HUMAN verdicts only (operator ruling 2026-09-09);
-    # machine draft-acceptances and restorations are reported, never counted
+    # machine draft-acceptances and restorations are reported, never counted.
+    # PATTERN verdicts (operator ruling 2026-09-09, "The judging surface")
+    # are operator decisions applied cluster-wide: reported on their own
+    # line, never silently mixed with row-ruled ones.
     verdicts = [r for r in allv if str(r.get("reviewer")) == "operator"]
-    drafts = len(allv) - len(verdicts)
+    pattern_v = [r for r in allv if str(r.get("reviewer")) == "operator-pattern"]
+    drafts = len(allv) - len(verdicts) - len(pattern_v)
     if drafts:
         print(f"DRAFT-RECORDED (not counted): {drafts} machine verdicts")
+    if pattern_v:
+        pc: dict[str, int] = {}
+        for r in pattern_v:
+            pc[str(r["verdict"])] = pc.get(str(r["verdict"]), 0) + 1
+        print(
+            "PATTERN-RULED (operator, cluster-wide; own bucket): "
+            + " ".join(f"{k} {v}" for k, v in sorted(pc.items()))
+        )
     tiers: dict[str, dict[str, int]] = {}
     tier_of: dict[str, str] = dict(rows)
     for v in verdicts:
@@ -1542,6 +1554,159 @@ def triage(tier: str | None = None, seed: int | None = None, con=None) -> int:
     return 0
 
 
+TRIAGE_MIN_CLUSTER = 3  # structural: a cluster ruling requires 3 verbatim examples (operator ruling 2026-09-09)
+TRIAGE_RESIDUAL_CAP = 10  # operator ruling 2026-09-09, "The judging surface"
+TRIAGE_AUDIT_CAP = 10  # operator ruling 2026-09-09, "The judging surface"
+
+# Deterministic dissent-target keyword rules, ordered; the FIRST hit on the
+# dissenting reason decides the class. A row joins a cluster only when a rule
+# fires or the stamp-generic fallback holds >= TRIAGE_MIN_CLUSTER rows;
+# everything else is residual (doubtful matches never enter a cluster).
+_CLUSTER_RULES: tuple[tuple[str, tuple[str, ...], str, str], ...] = (
+    ("platform", ("platform",), "wrong", "platform"),
+    ("commercial-hold-p2", ("commercial", "market access", "salesforce"), "unsure", ""),
+    ("ip-protection", ("intellectual", "patent"), "wrong", ""),
+    ("boilerplate", ("boilerplate", "risk-factor", "risk factor", "hypothetical", "insurance"), "wrong", ""),
+    ("attribution", ("another entity", "belongs to", "not a statement by", "excerpt describes"), "wrong", ""),
+)
+
+
+def triage_clusters(con=None) -> int:
+    """The judging surface (operator ruling 2026-09-09, BINDING): the human
+    queue is never presented as bulk. This command makes no API calls; it
+    reads the stored two-model proposals for every unjudged row, groups the
+    disagreement rows by deterministic signature (stamp, dissent verdict,
+    dissent-target keyword class), and prints: CLUSTER blocks (id, count,
+    proposed one-line ruling, exactly 3 verbatim examples) — each answered
+    with ONE decision via `priorities judge-batch <csv> --pattern <id>`
+    (prefilled CSVs are written to exports; edit before running to modify)
+    — then a RESIDUAL of rows fitting no cluster, capped at 10, then an
+    AUDIT slice of the machine-agreed set, capped at 10, then an explicit
+    carried count. The caps are code, not discretion."""
+    import csv as _csv
+    import random as _r
+
+    from biointel import config as _config
+    from biointel import schema as _schema  # noqa: F401 - parity with siblings
+
+    con = con or store.connect()
+    models = list(getattr(_config, "TRIAGE_MODELS", ("claude-sonnet-5", "claude-haiku-4-5")))
+    props: dict[str, dict[str, tuple[str, str]]] = {}
+    for p in (
+        store.read_table("review_proposals", con=con)
+        if store.has_table("review_proposals", con)
+        else []
+    ):
+        if str(p.get("prompt_version")) != F2_PROMPT_VERSION:
+            continue
+        props.setdefault(str(p["queue_id"]), {})[str(p["model_id"])] = (
+            str(p["verdict"]), str(p.get("reason") or "")
+        )
+    reviews = (
+        store.read_table("candidate_reviews", con=con)
+        if store.has_table("candidate_reviews", con)
+        else []
+    )
+    judged = {
+        str(r["candidate_id"]) for r in reviews
+        if str(r.get("rule_version")) == RULE_VERSION_F2
+        and str(r.get("reviewer")) in ("operator", "operator-pattern", "draft-agree")
+    }
+    agreed_keys = [
+        str(r["candidate_id"]) for r in reviews
+        if str(r.get("rule_version")) == RULE_VERSION_F2
+        and str(r.get("reviewer")) == "draft-agree"
+    ]
+    rows = {_row_key(r): r for r in store.read_table("stated_priorities", con=con)}
+    clusters: dict[str, list[dict]] = {}
+    proposed: dict[str, tuple[str, str]] = {}  # cluster id -> (verdict, relabel)
+    residual: list[tuple[dict, dict]] = []
+    for key, r in sorted(rows.items()):
+        if key in judged:
+            continue
+        pm = props.get(key, {})
+        if len(pm) < len(models):
+            continue  # not fully proposed on yet; a later triage run covers it
+        verdicts = {pm[m][0] for m in models}
+        if len(verdicts) == 1 and verdicts <= {"correct", "wrong"}:
+            continue  # agreed rows are the triage command's business
+        dissent = next(
+            (pm[m] for m in models if pm[m][0] in ("wrong", "unsure", "abstain")),
+            (next(iter(pm.values()))),
+        )
+        reason = dissent[1].lower()
+        hit = next(
+            (rule for rule in _CLUSTER_RULES if any(k in reason for k in rule[1])),
+            None,
+        )
+        if hit is not None:
+            cid = f"{r['category']}--{hit[0]}"
+            clusters.setdefault(cid, []).append(r)
+            proposed[cid] = (hit[2], hit[3])
+        elif dissent[0] == "wrong":
+            cid = f"{r['category']}--generic"
+            clusters.setdefault(cid, []).append(r)
+            proposed[cid] = ("wrong", "")
+        else:
+            residual.append((r, pm))
+    # clusters below the example floor are residual, never padded rulings
+    for cid in [c for c, rs in clusters.items() if len(rs) < TRIAGE_MIN_CLUSTER]:
+        for r in clusters.pop(cid):
+            residual.append((r, props.get(_row_key(r), {})))
+    csv_paths: list[str] = []
+    for cid, rs in sorted(clusters.items(), key=lambda kv: -len(kv[1])):
+        v, rl = proposed[cid]
+        ruling = f"{v}" + (f" --relabel {rl}" if rl else "")
+        print(f"CLUSTER {cid} | {len(rs)} rows | proposed: {ruling} | approve: priorities judge-batch <csv> --pattern {cid}")
+        for r in rs[:TRIAGE_MIN_CLUSTER]:
+            print(f"  VERBATIM: {r['statement']}")
+        pth = _config.EXPORTS / f"cluster_{cid}.csv"
+        _config.EXPORTS.mkdir(parents=True, exist_ok=True)
+        with open(pth, "w", newline="", encoding="utf-8") as f:
+            w = _csv.writer(f)
+            w.writerow(["key", "verdict", "relabel", "note", "statement"])
+            for r in rs:
+                w.writerow([_row_key(r), v, rl, "", r["statement"]])
+        csv_paths.append(str(pth))
+    shown = residual[:TRIAGE_RESIDUAL_CAP]
+    print(f"RESIDUAL {len(shown)} rows (fit no cluster):")
+    for r, pm in shown:
+        vv = " | ".join(f"{m}: {pm[m][0]} - {pm[m][1]}" for m in models if m in pm)
+        print(f"{_row_key(r)} | {r['entity_key']} {str(r['stated_at'])[:10]} {r['category']} | {vv}")
+        print(f"  VERBATIM: {r['statement']}")
+    print(f"RESIDUAL-CARRIED {max(0, len(residual) - TRIAGE_RESIDUAL_CAP)} rows to the next run")
+    seed = _dt_seed()
+    _r.seed(seed)
+    pool = [rows[k] for k in agreed_keys if k in rows]
+    audit = _r.sample(pool, min(TRIAGE_AUDIT_CAP, len(pool))) if pool else []
+    print(f"AUDIT {len(audit)} of {len(agreed_keys)} machine-agreed (seed {seed}):")
+    for r in audit:
+        pm = props.get(_row_key(r), {})
+        vv = " | ".join(f"{m}: {pm[m][0]}" for m in models if m in pm)
+        print(f"{_row_key(r)} | {r['entity_key']} {str(r['stated_at'])[:10]} {r['category']} | {vv}")
+        print(f"  VERBATIM: {r['statement']}")
+    runr = results.start(
+        "priorities-triage-clusters", "priorities triage-clusters",
+        ["stated_priorities", "review_proposals", "candidate_reviews"],
+        {"rule_version": RULE_VERSION_F2, "seed": seed},
+    )
+    runr.metric("_", "clusters", len(clusters))
+    runr.metric("_", "clustered_rows", sum(len(v) for v in clusters.values()))
+    runr.metric("_", "residual", len(residual))
+    runr.metric("_", "residual_shown", len(shown))
+    runr.metric("_", "audit_shown", len(audit))
+    for pth in csv_paths:
+        runr.artefact(pth)
+    run_id = results.finish(runr, note="the judging surface: clusters + residual<=10 + audit<=10")
+    print(
+        "TRIAGE-CLUSTERS "
+        + f"clusters {len(clusters)} clustered_rows {sum(len(v) for v in clusters.values())} "
+        + f"residual {len(residual)} shown {len(shown)} audit {len(audit)}"
+    )
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
 def _doc_text_of(capr: dict) -> str | None:
     ext = "." + str(capr.get("ext") or "htm")
     try:
@@ -1634,14 +1799,19 @@ def worksheet(n: int = 60, tier: str | None = None, seed: int | None = None, con
     return 0
 
 
-def judge_batch(path: str | None = None, con=None) -> int:
+def judge_batch(path: str | None = None, pattern: str | None = None, con=None) -> int:
     """Ingest the edited worksheet CSV: every row whose `verdict` column
     holds correct|wrong|unsure is recorded through the same judge() path
     (wrong retires the row immediately); blanks and unknown values are
-    skipped and counted; already-judged keys are skipped."""
+    skipped and counted; already-judged keys are skipped. With --pattern
+    CLUSTER_ID (operator ruling 2026-09-09, "The judging surface"), every
+    verdict is a PATTERN ruling: reviewer="operator-pattern" and the note
+    carries the cluster id, so provenance and precision keep pattern
+    verdicts separate from row-by-row ones."""
     import csv
 
     con = con or store.connect()
+    reviewer = "operator-pattern" if pattern else "operator"
     p = Path(path) if path else (config.EXPORTS / "priorities_worksheet.csv")
     if not p.exists():
         print(f"no worksheet at {p}")
@@ -1673,8 +1843,9 @@ def judge_batch(path: str | None = None, con=None) -> int:
                 continue
             rc = judge(
                 key, v,
-                note=str(row.get("note") or "")[:300],
+                note=((f"cluster:{pattern};" if pattern else "") + str(row.get("note") or ""))[:300],
                 relabel=str(row.get("relabel") or "").strip().lower(),
+                reviewer=reviewer,
                 con=con,
             )
             if rc != 0:
@@ -1731,9 +1902,12 @@ def cli(argv: list[str]) -> int:
     if argv and argv[0] == "record-restore" and len(argv) >= 3:
         nt = argv[argv.index("--note") + 1] if "--note" in argv else ""
         return record_restore(argv[1], argv[2], note=nt)
+    if argv and argv[0] == "triage-clusters":
+        return triage_clusters()
     if argv and argv[0] == "judge-batch":
         pp = argv[1] if len(argv) > 1 and not argv[1].startswith("--") else None
-        return judge_batch(pp)
+        pat = argv[argv.index("--pattern") + 1] if "--pattern" in argv else None
+        return judge_batch(pp, pattern=pat)
     if argv and argv[0] == "collect":
         kw: dict = {}
         if "--tier" in argv:
