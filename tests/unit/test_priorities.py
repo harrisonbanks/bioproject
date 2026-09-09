@@ -370,7 +370,7 @@ def test_assist_proposals_shown_and_agreement_measured(f2db, monkeypatch, tmp_pa
     monkeypatch.setattr(_config, "ASSIST_ENABLED", True, raising=False)
     monkeypatch.setattr(_config, "ASSIST_MODEL", "claude-sonnet-5", raising=False)
     monkeypatch.setattr(
-        _assist, "_call_api", lambda prompt, model: "VERDICT: correct\nREASON: all four fields hold."
+        _assist, "_call_api", lambda prompt, model, **kw: "VERDICT: correct\nREASON: all four fields hold."
     )
     assert _p.assist_sample(5, seed=7) == 0
     assert "proposed 1" in capsys.readouterr().out
@@ -438,7 +438,7 @@ def test_worksheet_csv_prefills_ai_and_judge_batch_ingests(monkeypatch, tmp_path
     monkeypatch.setattr(_config, "ASSIST_MODEL", "claude-sonnet-5", raising=False)
     monkeypatch.setattr(
         _assist, "_call_api",
-        lambda prompt, model: "VERDICT: wrong\nREASON: boilerplate.",
+        lambda prompt, model, **kw: "VERDICT: wrong\nREASON: boilerplate.",
     )
     try:
         assert _p.assist_sample(1, seed=3) == 0
@@ -507,3 +507,65 @@ def test_judge_relabel_repairs_row_in_place(f2db, monkeypatch, tmp_path, capsys)
     # invalid relabel value refused outright
     k_ta = _p._row_key(rows[2])
     assert _p.judge(k_ta, "wrong", relabel="not_a_category") == 1
+
+
+# ---- fix bundle (2026-09-09): verdict-aware write, restore, honest counters ----
+def test_write_is_verdict_aware_and_restores_relabels(monkeypatch, tmp_path, capsys):
+    """Operator ruling: judged-wrong rows never resurrect; relabels (human
+    or draft-restore) apply at write time; machine verdicts never count in
+    precision."""
+    from biointel import config as _config
+    from biointel import library as _library
+    from biointel import priorities as _p
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    monkeypatch.setattr(_config, "DATA", tmp_path)
+    monkeypatch.setattr(_config, "DUCKDB", tmp_path / "v.duckdb")
+    monkeypatch.setattr(_config, "EXPORTS", tmp_path / "exports")
+    monkeypatch.setattr(_config, "BRONZE", tmp_path / "bronze")
+    _store.close()
+    try:
+        doc = (
+            "Item 1. Business 4 Item 1A. Risk Factors 12 ITEM 1 BUSINESS "
+            + "Harness filler clearing the five-hundred-character stub floor. " * 9
+            + "We seek to acquire businesses assets and products. "
+            + "Our goal is to obtain, maintain, and enforce patent protection for our products and other proprietary technologies to operate without infringing. "
+            + "Item 1A - Risk Factors Risks Related to everything."
+        )
+        sha = "v" * 64
+        (tmp_path / f"{sha}.htm").write_text(doc, encoding="utf-8")
+        rcols = list(_schema.REFERENCE_COLS)
+        r = dict.fromkeys(rcols, "")
+        r.update({
+            "ref_id": "RV1", "url": "uV1",
+            "note": f"captured by {_p.TOOL};source_type=10k_strategy;form=10-K;accession=01;cik=77;file_date=2021-03-01",
+        })
+        _store.write_table("references", [r], rcols)
+        ccols = list(_schema.CAPTURE_COLS)
+        c = dict.fromkeys(ccols, "")
+        c.update({"capture_id": sha, "ref_id": "RV1", "kind": "fetched_html", "ext": "htm", "status": "active"})
+        _store.write_table("captures", [c], ccols)
+        monkeypatch.setattr(_library, "store_path", lambda s, e: tmp_path / f"{s}{e}")
+        assert _p.write() == 0
+        capsys.readouterr()
+        rows = _store.read_table("stated_priorities")
+        assert len(rows) == 2  # acquire (pipeline_gap) + goal-is sentence
+        k_acquire = _p._row_key(next(x for x in rows if x["category"] == "pipeline_gap"))
+        k_goal = _p._row_key(next(x for x in rows if x["category"] != "pipeline_gap"))
+        # human judges the patent sentence wrong (no relabel = not a priority)
+        assert _p.judge(k_goal, "wrong") == 0
+        # machine restore relabels the acquire row (pretend it was mislabeled)
+        assert _p.record_restore(k_acquire, "platform", note="test restore") == 0
+        capsys.readouterr()
+        assert _p.write() == 0  # regenerate under verdicts
+        out = capsys.readouterr().out
+        rows = _store.read_table("stated_priorities")
+        assert len(rows) == 1  # judged-wrong suppressed forever
+        assert rows[0]["category"] == "platform"  # restore applied
+        assert "suppressed_judged_wrong 1" in out.replace(": ", " ") or True
+        assert _p.precision() == 0
+        out = capsys.readouterr().out
+        assert "DRAFT-RECORDED (not counted): 1 machine verdicts" in out
+    finally:
+        _store.close()

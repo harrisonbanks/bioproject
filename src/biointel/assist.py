@@ -83,7 +83,7 @@ def build_prompt(entry: dict, excerpt: str) -> str:
     )
 
 
-def _call_api(prompt: str, model: str) -> str | None:
+def _call_api(prompt: str, model: str, max_tokens: int = 200) -> str | None:
     """One Messages call; the key from the environment ONLY. Any failure
     returns None — the caller records nothing (GATEM M4 degradation rule)."""
     import requests
@@ -102,7 +102,7 @@ def _call_api(prompt: str, model: str) -> str | None:
             data=json.dumps(
                 {
                     "model": model,
-                    "max_tokens": 200,
+                    "max_tokens": max_tokens,
                     "messages": [{"role": "user", "content": prompt}],
                 }
             ),

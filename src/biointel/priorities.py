@@ -825,8 +825,32 @@ def write(con=None) -> int:
 
     con = con or store.connect()
     cols = list(_schema.STATED_PRIORITY_COLS) + list(_schema.STATED_PRIORITY_F2_COLS)
-    store.add_columns("stated_priorities", _schema.STATED_PRIORITY_F2_COLS, con=con)
+    if store.has_table("stated_priorities", con):
+        store.add_columns("stated_priorities", _schema.STATED_PRIORITY_F2_COLS, con=con)
     _by_url, by_ref = _capture_index(con)
+    # latest verdict per judged key at this rule version:
+    # "" = wrong-no-relabel (suppress); "cat" = relabel; absent = untouched
+    verdicts: dict[str, str] = {}
+    if store.has_table("candidate_reviews", con):
+        for rv in sorted(
+            store.read_table("candidate_reviews", con=con),
+            key=lambda r: str(r["reviewed_at"]),
+        ):
+            if str(rv.get("rule_version")) != RULE_VERSION_F2:
+                continue
+            key = str(rv["candidate_id"])
+            vd = str(rv["verdict"])
+            nt = str(rv.get("note") or "")
+            if vd == "wrong":
+                m2 = re.match(r"relabel:([a-z_]+);", nt)
+                verdicts[key] = m2.group(1) if m2 else ""
+            elif vd in ("correct", "unsure") and key in verdicts:
+                del verdicts[key]
+    # candidate ids are S-keys (hash of entity|date|category): re-key
+    plain: dict[str, str] = {}
+    for skey, v in verdicts.items():
+        plain[skey] = v
+    verdicts = plain
     best: dict[tuple, dict] = {}
     overflow: list[str] = []
     stats = {t: {"docs": 0, "rows": 0} for t in ("10k_strategy", "investor_day")}
@@ -861,6 +885,24 @@ def write(con=None) -> int:
         for row in rows:
             stats[tier]["rows"] += 1
             k = (entity, d.group(1), row["category"])
+            # verdict-aware (operator ruling 2026-09-09, "never throw away
+            # good information / never resurrect judged lies"): a key judged
+            # wrong WITHOUT a relabel is suppressed forever; a relabel
+            # rewrites the category before keying.
+            import hashlib as _h
+
+            skey = "S" + _h.sha256(f"{k[0]}|{k[1]}|{k[2]}".encode()).hexdigest()[:16]
+            v = verdicts.get(skey)
+            if v is not None:
+                if v == "":
+                    stats[tier]["suppressed_judged_wrong"] = (
+                        stats[tier].get("suppressed_judged_wrong", 0) + 1
+                    )
+                    continue
+                row = dict(row)
+                row["category"] = v
+                k = (entity, d.group(1), v)
+                stats[tier]["relabeled"] = stats[tier].get("relabeled", 0) + 1
             cand = {
                 "entity_key": entity,
                 "stated_at": d.group(1),
@@ -1055,6 +1097,41 @@ def judge(key: str, verdict: str, note: str = "", relabel: str = "", con=None) -
     return 0
 
 
+def record_restore(key: str, relabel: str, note: str = "", con=None) -> int:
+    """Record a machine-restoration relabel for a key whose row was deleted
+    under the old delete-only judge (operator ruling 2026-09-09: corrected
+    information is never thrown away). reviewer = "draft-restore" - these
+    verdicts NEVER count in precision (operator-only) and apply at the next
+    verdict-aware `priorities write`, which regenerates the row from the
+    shelf under the corrected label."""
+    from biointel import schema as _schema
+
+    if relabel not in _schema.PRIORITY_CATEGORIES:
+        print(f"relabel must be one of {_schema.PRIORITY_CATEGORIES}")
+        return 1
+    con = con or store.connect()
+    existing = (
+        store.read_table("candidate_reviews", con=con)
+        if store.has_table("candidate_reviews", con)
+        else []
+    )
+    seq = 1 + sum(1 for r in existing if str(r["candidate_id"]) == key)
+    row = {
+        "review_id": f"{key}-v{seq}",
+        "candidate_id": key,
+        "rule_version": RULE_VERSION_F2,
+        "verdict": "wrong",
+        "reviewer": "draft-restore",
+        "note": (f"relabel:{relabel};" + note)[:300],
+        "reviewed_at": library._now(),
+    }
+    store.append_rows(
+        "candidate_reviews", [row], list(_schema.CANDIDATE_REVIEW_COLS), con=con
+    )
+    print(f"RESTORE-RECORDED {key} -> {relabel}")
+    return 0
+
+
 def precision(con=None) -> int:
     """Per-tier precision over this rule version's verdicts, Wilson 95%."""
     from biointel.efts import _wilson
@@ -1064,7 +1141,7 @@ def precision(con=None) -> int:
         _row_key(r): str(r.get("source_type") or "")
         for r in store.read_table("stated_priorities", con=con)
     }
-    verdicts = [
+    allv = [
         r
         for r in (
             store.read_table("candidate_reviews", con=con)
@@ -1073,10 +1150,21 @@ def precision(con=None) -> int:
         )
         if str(r.get("rule_version")) == RULE_VERSION_F2
     ]
+    # measurement counts HUMAN verdicts only (operator ruling 2026-09-09);
+    # machine draft-acceptances and restorations are reported, never counted
+    verdicts = [r for r in allv if str(r.get("reviewer")) == "operator"]
+    drafts = len(allv) - len(verdicts)
+    if drafts:
+        print(f"DRAFT-RECORDED (not counted): {drafts} machine verdicts")
     tiers: dict[str, dict[str, int]] = {}
     tier_of: dict[str, str] = dict(rows)
     for v in verdicts:
-        t = tier_of.get(str(v["candidate_id"]), "retired")
+        cid = str(v["candidate_id"])
+        t = tier_of.get(cid)
+        if t is None:
+            # a relabel changed the row's key; attribute to its own bucket
+            m2 = re.match(r"relabel:([a-z_]+);", str(v.get("note") or ""))
+            t = "relabeled" if m2 else "retired"
         d = tiers.setdefault(t if t else "retired", {"correct": 0, "wrong": 0, "unsure": 0})
         d[str(v["verdict"])] = d.get(str(v["verdict"]), 0) + 1
     runr = results.start(
@@ -1204,7 +1292,7 @@ def assist_sample(n: int = 60, tier: str | None = None, seed: int | None = None,
                 sentence=sent,
                 excerpt=excerpt,
             )
-            reply = _assist._call_api(prompt, model)
+            reply = _assist._call_api(prompt, model, max_tokens=1000)
             if reply is None:
                 counters["api_failures"] += 1
                 continue
@@ -1386,7 +1474,10 @@ def judge_batch(path: str | None = None, con=None) -> int:
             judged_already.add(key)
             counters["recorded"] += 1
             if v == "wrong":
-                counters["retired"] += 1
+                if str(row.get("relabel") or "").strip():
+                    counters["relabeled"] = counters.get("relabeled", 0) + 1
+                else:
+                    counters["retired"] += 1
     print("JUDGE-BATCH " + " ".join(f"{k} {v}" for k, v in counters.items()))
     return 0
 
@@ -1424,6 +1515,9 @@ def cli(argv: list[str]) -> int:
         tt = argv[argv.index("--tier") + 1] if "--tier" in argv else None
         ss = int(argv[argv.index("--seed") + 1]) if "--seed" in argv else None
         return worksheet(nn, tier=tt, seed=ss)
+    if argv and argv[0] == "record-restore" and len(argv) >= 3:
+        nt = argv[argv.index("--note") + 1] if "--note" in argv else ""
+        return record_restore(argv[1], argv[2], note=nt)
     if argv and argv[0] == "judge-batch":
         pp = argv[1] if len(argv) > 1 and not argv[1].startswith("--") else None
         return judge_batch(pp)
