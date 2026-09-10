@@ -22,9 +22,11 @@ def test_rule_count_is_locked_to_the_specimen_families():
 
 
 def test_priority_category_enum_is_fixed_to_the_p4_dimensions():
+    """Eight P4 dimensions plus commercial_infrastructure, the ninth value
+    approved 2026-09-08 and landed at p2 piece 1 (2026-09-10)."""
     assert schema.PRIORITY_CATEGORIES == (
         "pipeline_gap", "therapeutic_area", "mechanism_modality", "platform",
-        "data", "geography", "financial", "defensive",
+        "data", "geography", "financial", "defensive", "commercial_infrastructure",
     )
 
 
@@ -753,8 +755,8 @@ def test_validate_cluster_on_the_contamination_specimens_verbatim():
     assert V("Our goal is to apply armoring strategies to our allogeneic cell therapies, which we believe could unlock their full potential by improving upon their effectiveness and antitumor activity.", "therapeutic_area") == ("named-indication-correct", "correct", "")
     # pure modality, no disease -> relabel platform
     assert V("company developing lentiviral-based gene therapies to free patients from genetic disease burdens of unspecified kinds.", "pipeline_gap") == ("platform", "wrong", "platform")
-    # channel language -> commercial hold
-    assert V("we are seeking partners with suitable infrastructure and market access to expand our commercial reach.", "therapeutic_area") == ("commercial-hold-p2", "unsure", "")
+    # channel language under a foreign stamp -> relabel commercial_infrastructure (p2)
+    assert V("we are seeking partners with suitable infrastructure and market access to expand our commercial reach.", "therapeutic_area") == ("commercial-relabel", "wrong", "commercial_infrastructure")
     # --- the four 2026-09-09 override classes, verbatim (operator ruling) ---
     # no-modality generic: "alternatives" must not trip a tech substring
     assert V("Our goal is to create low cost therapeutic alternatives to existing treatments.", "therapeutic_area") == ("generic", "wrong", "")
@@ -923,3 +925,72 @@ def test_auto_apply_standing_rulings_and_run_to_empty(f2db, monkeypatch, tmp_pat
     assert len(revs) == 2
     assert all(str(r["reviewer"]) == "operator-pattern" for r in revs)
     assert all("standing:" in str(r["note"]) for r in revs)
+
+
+# ---- p2 piece 1 (2026-09-10): commercial_infrastructure lands ----
+def test_commercial_infrastructure_cat_map_fires_on_banked_specimens():
+    """Capture-first (rule 4.20): the ninth category's vocabulary is written
+    from the banked specimen list in docs/20260908_v1_Vocabulary_Gap_
+    Commercial_Capability.md. Verbatim fragments where the record holds
+    them; the Viatris/bluebird/Phexxi lines are SYNTHETIC branch tests
+    carrying the recorded markers (full sentence text unavailable in the
+    record — manual rule 8.7, stated as such)."""
+    from biointel.priorities import _category_for
+
+    # verbatim from the decision record (round-1 partners family)
+    assert _category_for(
+        "seeking partners with commercial reach and experience in pain management in their respective regions"
+    ) == "commercial_infrastructure"
+    assert _category_for(
+        "seeking partners with suitable infrastructure, expertise and a long-term initiative in our medical f"
+    ) == "commercial_infrastructure"
+    # verbatim from the decision record (leverage family, S16d531 class)
+    assert _category_for(
+        "Our strategy is to leverage our strong scientific and clinical expertise and global commercial infrastructure"
+    ) == "commercial_infrastructure"
+    # synthetic branch tests on recorded markers (stated as such):
+    assert _category_for("we operate a Global Healthcare Gateway for partners") == "commercial_infrastructure"  # Viatris marker
+    assert _category_for("we will build a delivery network with value-based payment models") == "commercial_infrastructure"  # bluebird markers
+    assert _category_for("a telehealth-supported sales strategy for Phexxi") == "commercial_infrastructure"  # Phexxi marker
+    assert _category_for("expanding market access for ORLADEYO") == "commercial_infrastructure"  # BioCryst marker
+    # channel payload outranks the other maps even when their words appear
+    assert _category_for(
+        "leverage our commercial infrastructure to maximize our pipeline of therapies for cancer patients"
+    ) == "commercial_infrastructure"
+
+
+def test_commercial_infrastructure_negative_boundaries():
+    """Amendment 2 (operator, 2026-09-10): the enum's boundary matters as
+    much as its captures. Arbutus out-licensing and going-concern financing
+    sentences must NEVER stamp or route commercial_infrastructure; the
+    dictionary traps stay closed by construction."""
+    from biointel.priorities import _category_for
+    from biointel.priorities import _validate_cluster as V
+
+    # Arbutus out-licensing family: no CI stamp, and the validator keeps the
+    # out-licensing ruling even under the new stamp
+    arb = "we intend to license our products to such companies for sales and marketing."
+    assert _category_for(arb) != "commercial_infrastructure"
+    assert V(arb, "pipeline_gap") == ("out-licensing", "wrong", "")
+    assert V(arb, "commercial_infrastructure") == ("out-licensing", "wrong", "")
+    # going-concern financing family
+    gc = "we aim to succeed and will be dependent on additional public or private financings, collaborations or licensing arrangements."
+    assert _category_for(gc) != "commercial_infrastructure"
+    assert V(gc, "commercial_infrastructure") == ("going-concern", "wrong", "")
+    # boundary anchors: taxpayer!=payer, redistribution!=distribution,
+    # channeled mid-word forms do not fire
+    assert _category_for("our strategy is to serve taxpayer-funded redistribution programs.") is None
+    assert _category_for("Our goal is to be a multichannel-free plain research firm.") is None
+
+
+def test_validate_cluster_commercial_correct_and_relabel_symmetric():
+    """p2 ruling shape: channel payload under the commercial_infrastructure
+    stamp is correct; under any other stamp it relabels to the ninth
+    category (payload-beats-stamp, extended); the superseded hold suffix is
+    never emitted."""
+    from biointel.priorities import _validate_cluster as V
+
+    sent = "we are seeking partners with suitable infrastructure and market access to expand our commercial reach."
+    assert V(sent, "commercial_infrastructure") == ("commercial-correct", "correct", "")
+    assert V(sent, "pipeline_gap") == ("commercial-relabel", "wrong", "commercial_infrastructure")
+    assert V(sent, "platform") == ("commercial-relabel", "wrong", "commercial_infrastructure")

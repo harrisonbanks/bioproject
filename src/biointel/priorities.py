@@ -279,6 +279,23 @@ def _reC(pat: str):
 
 
 _CAT_MAP = (
+    # p2 piece 1 (2026-09-10): commercial_infrastructure — the ninth category
+    # (operator ruling 2026-09-08, decision record docs/20260908_v1_
+    # Vocabulary_Gap_Commercial_Capability.md). Vocabulary written capture-
+    # first from the banked specimens only; ordered FIRST because every
+    # mixed-payload specimen (Brazil market-access "platform", pain-
+    # management "commercial reach") was operator-held as commercial, so
+    # channel payload outranks the other maps. Single-word terms boundary-
+    # anchored by construction (handoff rule 2.6); no bare "sales"/
+    # "commercial"/"commercializ" stems, so the Arbutus out-licensing and
+    # going-concern families can never land here (amendment 2, 2026-09-10).
+    ("commercial_infrastructure", _reC(
+        r"commercial infrastructure|commercial capabilit|commercial reach|"
+        r"commercial execution|market access|delivery network|"
+        r"healthcare gateway|suitable infrastructure|value-based payment|"
+        r"sales force|(?<![a-z])salesforce|(?<![a-z])payer|"
+        r"(?<![a-z])channel|(?<![a-z])telehealth|(?<![a-z])distribution"
+    )),
     # Dictionary sweep 2026-09-09 (operator-ordered, boundary-anchor program):
     # unanchored fragments here are INTENTIONAL stems — mid-word hits are the
     # desired medical compounds (chemotherapy/therap, inpatients/patients,
@@ -1572,6 +1589,11 @@ _CHANNEL_TERMS = (
     "market access", "salesforce", "sales force", "distribution", "payer",
     "commercial infrastructure", "commercial capabilities", "channel",
     "healthcare gateway", "commercial reach", "suitable infrastructure",
+    # p2 additions from the banked specimens (decision record, appends
+    # through 2026-09-10): bluebird delivery network / value-based payment,
+    # Travere commercial execution, Phexxi telehealth channel.
+    "delivery network", "value-based payment", "commercial execution",
+    "telehealth",
 )
 _IP_TERMS = ("patent", "intellectual property", "proprietary position")
 _BOILER_TERMS = (
@@ -1648,7 +1670,16 @@ def _validate_cluster(sentence: str, stamp: str) -> tuple[str, str, str] | None:
     if any(t in s for t in _OUTLICENSE_TERMS) or _OUTLICENSE_RX.search(sentence):
         return ("out-licensing", "wrong", "")
     if _hit(s, _CHANNEL_TERMS):
-        return ("commercial-hold-p2", "unsure", "")
+        # p2 piece 1 (2026-09-10): commercial_infrastructure is live, so the
+        # commercial-hold-p2 unsure hold is SUPERSEDED (operator ruling
+        # 2026-09-08 + go 2026-09-10). Channel payload under the new stamp is
+        # correct; under any other stamp it relabels, repair-not-delete —
+        # the payload-beats-stamp standing rule extended to the ninth
+        # category. Out-licensing and going-concern branches stay ORDERED
+        # ABOVE this one (amendment 2): their specimens never reach here.
+        if stamp == "commercial_infrastructure":
+            return ("commercial-correct", "correct", "")
+        return ("commercial-relabel", "wrong", "commercial_infrastructure")
     if _hit(s, _IP_TERMS):
         return ("ip-protection", "wrong", "")
     if _hit(s, _BOILER_TERMS):
@@ -1869,7 +1900,11 @@ STANDING_RULINGS: dict[str, str] = {
     "ip-protection": "IP-protection wrong (Alaunos family)",
     "boilerplate": "boilerplate/risk-factor wrong",
     "garbled": "truncation debris wrong",
-    "commercial-hold-p2": "commercial-infrastructure hold (unsure)",
+    # superseded at p2 piece 1 (2026-09-10): kept so recorded verdicts citing
+    # the hold keep a live citation; the validator no longer emits it.
+    "commercial-hold-p2": "commercial-infrastructure hold (unsure; superseded p2)",
+    "commercial-correct": "commercial_infrastructure payload correct (ruling 2026-09-08, live p2)",
+    "commercial-relabel": "payload beats stamp flavor (commercial_infrastructure, ruling 2026-09-08)",
     "acquisition-correct": "Fortress/Abpro: acquisition intent correct",
     "pipeline-correct": "uniQure: pipeline payload correct",
     "competitor-risk": "S092bfb: competitor-risk wrong",

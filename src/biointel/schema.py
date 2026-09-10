@@ -61,7 +61,7 @@ SCORE_ACQUIRER_SIDE_MARKETCAP = 7.5e10
 SCORE_TARGET_CAP_BAND = (3e8, 4e10)
 FEATURES_FINANCIALS_STALENESS_DAYS = 400
 
-SCHEMA_VERSION = "0.18"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.19"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -574,9 +574,12 @@ STATED_PRIORITY_COLS = ("entity_key", "stated_at", "category", "statement", "doc
 # then the TA itself is evidenced by the judged sentence. The enum binds
 # stated_priorities now; assets.category joins when the deal-aspects half
 # maps its live values.
+# p2 (2026-09-10): commercial_infrastructure is the ninth value — operator
+# ruling 2026-09-08 (decision record docs/20260908_v1_Vocabulary_Gap_
+# Commercial_Capability.md), landing at the scheduled enum opening.
 PRIORITY_CATEGORIES = (
     "pipeline_gap", "therapeutic_area", "mechanism_modality", "platform",
-    "data", "geography", "financial", "defensive",
+    "data", "geography", "financial", "defensive", "commercial_infrastructure",
 )
 STATED_PRIORITY_F2_COLS = ("source_type", "section")
 PRIORITY_SOURCE_TYPES = ("earnings_call", "10k_strategy", "investor_day")
