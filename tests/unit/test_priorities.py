@@ -700,8 +700,6 @@ def test_triage_audit_slice_cap_and_degradation(f2db, monkeypatch, tmp_path, cap
 def _clusters_world(monkeypatch, tmp_path, specs):
     """specs: list of (category, sentence, sonnet_verdict, haiku_verdict).
     Builds stated_priorities rows plus stored two-model proposals."""
-    import hashlib as _h
-
     from biointel import priorities as _p
     from biointel import schema as _schema
     from biointel import store as _store
@@ -718,15 +716,18 @@ def _clusters_world(monkeypatch, tmp_path, specs):
         rows.append(r)
         key = _p._row_key(r)
         for m, v in (("claude-sonnet-5", sv), ("claude-haiku-4-5", hv)):
-            pr = dict.fromkeys(_schema.REVIEW_PROPOSAL_COLS, "")
+            pr = dict.fromkeys(list(_schema.REVIEW_PROPOSAL_COLS) + ["rule_version"], "")
             pr.update({
-                "proposal_id": "P" + _h.sha256(f"{key}|{m}|{_p.F2_PROMPT_VERSION}".encode()).hexdigest()[:16],
+                "proposal_id": _p._proposal_pid(key, m),
                 "queue_id": key, "model_id": m, "prompt_version": _p.F2_PROMPT_VERSION,
+                "rule_version": _p.RULE_VERSION_F2,
                 "excerpt_hash": "e", "verdict": v, "reason": "r.", "created_at": "2026-09-09T00:00:00",
             })
             props.append(pr)
     _store.write_table("stated_priorities", rows, cols)
-    _store.write_table("review_proposals", props, list(_schema.REVIEW_PROPOSAL_COLS))
+    _store.write_table(
+        "review_proposals", props, list(_schema.REVIEW_PROPOSAL_COLS) + ["rule_version"]
+    )
     _store.write_table("candidate_reviews", [], list(_schema.CANDIDATE_REVIEW_COLS))
     return rows
 
@@ -1142,3 +1143,91 @@ def test_overflow_table_preserves_other_rule_versions(f2db, monkeypatch, tmp_pat
     vers = sorted(str(x["rule_version"]) for x in ov)
     assert vers == ["L3-a3-p0", _p.RULE_VERSION_F2]  # old version kept, new version written
     assert any("an earlier slicer's runner-up." in str(x["statement"]) for x in ov)
+
+
+# ---- p2 piece 5 (2026-09-10): version-scoped proposals, pre-pass, excerpt anchor ----
+def test_stale_rule_version_proposals_are_ignored(f2db, monkeypatch, tmp_path, capsys):
+    """A version-blank (p1-era) proposal pair must not surface a row on the
+    judging surface and must not satisfy the triage cache: stale drafts were
+    judged against sentences the p2 slicer no longer produces."""
+    import hashlib as _h
+
+    from biointel import config as _config
+    from biointel import priorities as _p
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    monkeypatch.setattr(_config, "EXPORTS", tmp_path / "exports")
+    rows = _clusters_world(monkeypatch, tmp_path,
+                           [("pipeline_gap", "An unclassifiable sentence with no signal words.", "correct", "wrong")])
+    # rewrite the proposals as p1-era: old pid formula, blank rule_version
+    key = _p._row_key(rows[0])
+    stale = []
+    for m, v in (("claude-sonnet-5", "correct"), ("claude-haiku-4-5", "wrong")):
+        pr = dict.fromkeys(list(_schema.REVIEW_PROPOSAL_COLS) + ["rule_version"], "")
+        pr.update({
+            "proposal_id": "P" + _h.sha256(f"{key}|{m}|{_p.F2_PROMPT_VERSION}".encode()).hexdigest()[:16],
+            "queue_id": key, "model_id": m, "prompt_version": _p.F2_PROMPT_VERSION,
+            "rule_version": "", "excerpt_hash": "e", "verdict": v, "reason": "r.",
+            "created_at": "2026-09-09T00:00:00",
+        })
+        stale.append(pr)
+    _store.write_table("review_proposals", stale, list(_schema.REVIEW_PROPOSAL_COLS) + ["rule_version"])
+    assert _p.triage_clusters() == 0
+    out = capsys.readouterr().out
+    assert "RESIDUAL 0 rows" in out  # stale pair does not surface the row
+    assert "clustered_rows 0" in out
+
+
+def test_triage_prepass_settles_precedent_families_without_proposals(f2db, monkeypatch, tmp_path, capsys):
+    """Operator go 2026-09-10: the deterministic pre-pass applies standing
+    rulings from the validator alone, before any paid proposal exists;
+    residual rows stay for the sweep; provenance is operator-pattern with
+    the standing citation."""
+    from biointel import config as _config
+    from biointel import priorities as _p
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    monkeypatch.setattr(_config, "EXPORTS", tmp_path / "exports")
+    specs = [
+        ("pipeline_gap", "we intend to license our products to such companies for sales and marketing.", "correct", "correct"),
+        ("pipeline_gap", "we intend to license Ohtuvayre to companies with expertise in those regions.", "correct", "correct"),
+        ("pipeline_gap", "An unclassifiable sentence with no signal words at all.", "correct", "correct"),
+    ]
+    _clusters_world(monkeypatch, tmp_path, specs)
+    _store.write_table("review_proposals", [], list(_schema.REVIEW_PROPOSAL_COLS))  # NO proposals exist
+    assert _p.triage_clusters(auto=True, prepass=True) == 2  # auto mode returns applied count
+    out = capsys.readouterr().out
+    assert "AUTO-APPLIED 2 rows" in out
+    revs = _store.read_table("candidate_reviews")
+    assert len(revs) == 2
+    assert all(str(r["reviewer"]) == "operator-pattern" for r in revs)
+    assert all("standing:" in str(r["note"]) for r in revs)
+    assert all("out-licensing" in str(r["note"]) for r in revs)
+
+
+def test_excerpt_anchor_targets_full_sentence_variant(f2db, monkeypatch, tmp_path, capsys):
+    """Operator ruling 2026-09-10 (the Sa0aafbb/Sde5e86 class): two
+    boilerplate variants share their first 80 chars; the excerpt must be
+    built around the FULL stored sentence's occurrence, not the first
+    80-char prefix hit."""
+    from biointel import assist as _assist
+    from biointel import priorities as _p
+
+    _triage_world(monkeypatch, tmp_path, n_rows=1)
+    shared = "We seek to acquire businesses assets and products"
+    variant_a = shared + " for early markets. UNIQUEALPHA follows here."
+    variant_b = shared + " ({}). UNIQUEBETA follows here.".format(0)
+    # the stored statement is variant_b's sentence (from _triage_world: "... (0).")
+    doc = "ITEM 1 " + variant_a + " " + variant_b + " tail text"
+    (tmp_path / ("a" * 64 + ".htm")).write_text(doc, encoding="utf-8")
+    seen_prompts = []
+    def fake(prompt, model, **kw):
+        seen_prompts.append(prompt)
+        return "VERDICT: correct\nREASON: holds."
+    monkeypatch.setattr(_assist, "_call_api", fake)
+    assert _p.triage(seed=5) == 0
+    capsys.readouterr()
+    assert seen_prompts
+    assert all("UNIQUEBETA" in pr for pr in seen_prompts)  # excerpt centered on the true variant

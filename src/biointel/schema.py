@@ -61,7 +61,7 @@ SCORE_ACQUIRER_SIDE_MARKETCAP = 7.5e10
 SCORE_TARGET_CAP_BAND = (3e8, 4e10)
 FEATURES_FINANCIALS_STALENESS_DAYS = 400
 
-SCHEMA_VERSION = "0.20"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.21"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -1230,6 +1230,12 @@ TABLES: tuple[Table, ...] = (
         "stakes assist (M4, 2026-09-07): LLM-drafted verdict proposals with "
         "full provenance; proposer only, never auto-applied, excluded from "
         "precision",
+        # p2 piece 5 (2026-09-10): rule_version joins as an optional column.
+        # A proposal was judged against ONE rule version's sentence text;
+        # under a bumped version, version-blank (p1-era) proposals are
+        # excluded from every cache lookup and judging surface so stale
+        # drafts can never silently misjudge re-sliced rows.
+        optional=("rule_version",),
         key=("proposal_id",),
         types={"created_at": "datetime", "verdict": "enum"},
         enums={"verdict": PROPOSAL_VERDICTS},

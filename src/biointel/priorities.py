@@ -214,7 +214,7 @@ def probe() -> int:
 # hypotheses, and its rules are written only against what comes back.
 # Rule version for the priorities families; the analyser-side a3 agenda
 # (doc-type guards, fee tiers) lands with the deal-aspects half of F2.
-RULE_VERSION_F2 = "L3-a3-p1"
+RULE_VERSION_F2 = "L3-a3-p2"  # p2 freeze 2026-09-10 (pieces 1-4: commercial_infrastructure, sentence-start + negation, boundary anchors, overflow table)
 
 # 10-K slicing, from the three probe 10-Ks: the TOC and inline
 # cross-references both mention "Item 1A" long before the section body
@@ -849,10 +849,16 @@ def reextract(con=None) -> int:
     con = con or store.connect()
     _by_url, by_ref = _capture_index(con)
     stats = {t: {"docs": 0, "docs_with_rows": 0, "rows": 0} for t in ("10k_strategy", "investor_day")}
-    for r in store.read_table("references", con=con):
+    refs = [
+        r for r in store.read_table("references", con=con)
+        if f"captured by {TOOL}" in str(r.get("note") or "")
+    ]
+    total, done = len(refs), 0
+    for r in refs:
         note = str(r.get("note") or "")
-        if f"captured by {TOOL}" not in note:
-            continue
+        done += 1
+        if done % 250 == 0 or done == total:
+            print(f"reextract {done}/{total}", flush=True)  # 5.6: long loops print a gauge
         t = next((x for x in stats if f"source_type={x}" in note), None)
         if t is None:
             continue
@@ -873,6 +879,9 @@ def reextract(con=None) -> int:
         if rows:
             stats[t]["docs_with_rows"] += 1
             stats[t]["rows"] += len(rows)
+            for row in rows:
+                ck = "cat_" + str(row["category"])  # per-category yield (operator ruling 2, 2026-09-10)
+                stats[t][ck] = stats[t].get(ck, 0) + 1
     runr = results.start(
         "priorities-reextract", "priorities reextract", ["references", "captures"],
         {"rule_version": RULE_VERSION_F2},
@@ -884,7 +893,8 @@ def reextract(con=None) -> int:
     print(
         "REEXTRACT "
         + " | ".join(
-            f"{t}: docs {s['docs']} with_rows {s['docs_with_rows']} rows {s['rows']}"
+            f"{t}: docs {s['docs']} with_rows {s['docs_with_rows']} rows {s['rows']} "
+            + " ".join(f"{k} {v}" for k, v in sorted(s.items()) if k.startswith("cat_"))
             for t, s in stats.items()
         )
     )
@@ -945,10 +955,16 @@ def write(con=None) -> int:
     best: dict[tuple, dict] = {}
     overflow: list[dict] = []  # p2 piece 4: rows for stated_priorities_overflow, rule-version stamped
     stats = {t: {"docs": 0, "rows": 0} for t in ("10k_strategy", "investor_day")}
-    for r in store.read_table("references", con=con):
+    refs = [
+        r for r in store.read_table("references", con=con)
+        if f"captured by {TOOL}" in str(r.get("note") or "")
+    ]
+    wtotal, wdone = len(refs), 0
+    for r in refs:
         note = str(r.get("note") or "")
-        if f"captured by {TOOL}" not in note:
-            continue
+        wdone += 1
+        if wdone % 250 == 0 or wdone == wtotal:
+            print(f"write {wdone}/{wtotal}", flush=True)  # 5.6: long loops print a gauge
         tier = next((x for x in stats if f"source_type={x}" in note), None)
         if tier is None:
             continue
@@ -975,6 +991,8 @@ def write(con=None) -> int:
         stats[tier]["docs"] += 1
         for row in rows:
             stats[tier]["rows"] += 1
+            ck = "cat_" + str(row["category"])  # per-category yield (operator ruling 2)
+            stats[tier][ck] = stats[tier].get(ck, 0) + 1
             k = (entity, d.group(1), row["category"])
             # verdict-aware (operator ruling 2026-09-09, "never throw away
             # good information / never resurrect judged lies"): a key judged
@@ -1048,7 +1066,11 @@ def write(con=None) -> int:
         + " overflow "
         + str(len(overflow))
         + " | "
-        + " | ".join(f"{t}: docs {s['docs']} rows {s['rows']}" for t, s in stats.items())
+        + " | ".join(
+            f"{t}: docs {s['docs']} rows {s['rows']} "
+            + " ".join(f"{k} {v}" for k, v in sorted(s.items()) if k.startswith("cat_"))
+            for t, s in stats.items()
+        )
     )
     log.info(f"run {run_id} recorded")
     return 0
@@ -1102,7 +1124,7 @@ def sample(n: int = 60, tier: str | None = None, seed: int | None = None, con=No
     proposals: dict[str, dict] = {}
     if store.has_table("review_proposals", con):
         for pr in store.read_table("review_proposals", con=con):
-            if str(pr.get("prompt_version")) == F2_PROMPT_VERSION:
+            if _current_proposal(pr):
                 proposals[str(pr["queue_id"])] = pr  # last written wins
     shown = 0
     for t in tiers:
@@ -1303,7 +1325,7 @@ def precision(con=None) -> int:
             if store.has_table("review_proposals", con)
             else []
         )
-        if str(p.get("prompt_version")) == F2_PROMPT_VERSION
+        if _current_proposal(p)
     }
     agree = comp = 0
     for v in verdicts:
@@ -1322,6 +1344,26 @@ def precision(con=None) -> int:
 
 # ---------------------------------------------------------------- F2 assist: LLM-drafts, human approves (permanent, operator ruling 2026-09-08)
 F2_PROMPT_VERSION = "judge_priority_v1"
+
+
+def _proposal_pid(key: str, model: str) -> str:
+    """Proposal id scoped by prompt AND rule version (p2 piece 5): a cached
+    p1 proposal must never satisfy a p2 lookup — the sentence it judged no
+    longer exists under the re-sliced rules."""
+    import hashlib as _h
+
+    return "P" + _h.sha256(
+        f"{key}|{model}|{F2_PROMPT_VERSION}|{RULE_VERSION_F2}".encode()
+    ).hexdigest()[:16]
+
+
+def _current_proposal(pr: dict) -> bool:
+    """True when a review_proposals row belongs to the CURRENT prompt and
+    rule version. Version-blank rows are p1-era (the column landed at p2)
+    and are excluded once the version moves past L3-a3-p1."""
+    if str(pr.get("prompt_version")) != F2_PROMPT_VERSION:
+        return False
+    return str(pr.get("rule_version") or "L3-a3-p1") == RULE_VERSION_F2
 
 
 def assist_sample(n: int = 60, tier: str | None = None, seed: int | None = None, con=None) -> int:
@@ -1385,7 +1427,7 @@ def assist_sample(n: int = 60, tier: str | None = None, seed: int | None = None,
             if counters["proposed"] >= cap:
                 break
             key = _row_key(r)
-            pid = "P" + _h.sha256(f"{key}|{model}|{F2_PROMPT_VERSION}".encode()).hexdigest()[:16]
+            pid = _proposal_pid(key, model)
             if pid in existing:
                 counters["cached"] += 1
                 continue
@@ -1395,7 +1437,7 @@ def assist_sample(n: int = 60, tier: str | None = None, seed: int | None = None,
                 counters["no_doc"] += 1
                 continue
             sent = str(r["statement"])
-            i = text.find(sent[:80])
+            i = _locate_sentence(text, sent)
             lo = max(0, (max(i, 0)) - 1500)
             excerpt = text[lo : (max(i, 0)) + 2500][:5000]
             prompt = prompt_tpl.format(
@@ -1422,6 +1464,7 @@ def assist_sample(n: int = 60, tier: str | None = None, seed: int | None = None,
                     "queue_id": key,
                     "model_id": model,
                     "prompt_version": F2_PROMPT_VERSION,
+                    "rule_version": RULE_VERSION_F2,
                     "excerpt_hash": _h.sha256(excerpt.encode()).hexdigest()[:16],
                     "verdict": verdict,
                     "reason": reason,
@@ -1431,8 +1474,10 @@ def assist_sample(n: int = 60, tier: str | None = None, seed: int | None = None,
             out_rows.append(prow)
             counters["proposed"] += 1
     if out_rows:
+        store.add_columns("review_proposals", ("rule_version",), con=con) if store.has_table("review_proposals", con) else None
         store.append_rows(
-            "review_proposals", out_rows, list(_schema.REVIEW_PROPOSAL_COLS), con=con
+            "review_proposals", out_rows,
+            list(_schema.REVIEW_PROPOSAL_COLS) + ["rule_version"], con=con,
         )
     runr = results.start(
         "priorities-assist", "priorities assist",
@@ -1490,7 +1535,11 @@ def triage(tier: str | None = None, seed: int | None = None, con=None, _counters
         if str(c.get("status")) == "active"
     }
     proposals = (
-        {str(p["proposal_id"]): p for p in store.read_table("review_proposals", con=con)}
+        {
+            str(p["proposal_id"]): p
+            for p in store.read_table("review_proposals", con=con)
+            if _current_proposal(p)
+        }
         if store.has_table("review_proposals", con)
         else {}
     )
@@ -1526,9 +1575,7 @@ def triage(tier: str | None = None, seed: int | None = None, con=None, _counters
         pool.sort(key=_row_key)  # deterministic order; resumability across runs
         for r in pool:
             if counters["calls_made"] + len(models) > cap and any(
-                "P" + _h.sha256(f"{_row_key(r)}|{m}|{F2_PROMPT_VERSION}".encode()).hexdigest()[:16]
-                not in proposals
-                for m in models
+                _proposal_pid(_row_key(r), m) not in proposals for m in models
             ):
                 continue  # cap would be breached by this row's uncached calls
             key = _row_key(r)
@@ -1539,7 +1586,7 @@ def triage(tier: str | None = None, seed: int | None = None, con=None, _counters
                 continue
             counters["rows_considered"] += 1
             sent = str(r["statement"])
-            i = text.find(sent[:80])
+            i = _locate_sentence(text, sent)
             lo = max(0, (max(i, 0)) - 1500)
             excerpt = text[lo : (max(i, 0)) + 2500][:5000]
             prompt = prompt_tpl.format(
@@ -1553,7 +1600,7 @@ def triage(tier: str | None = None, seed: int | None = None, con=None, _counters
             per_model: dict[str, tuple[str, str]] = {}
             degraded = False
             for m in models:
-                pid = "P" + _h.sha256(f"{key}|{m}|{F2_PROMPT_VERSION}".encode()).hexdigest()[:16]
+                pid = _proposal_pid(key, m)
                 held = proposals.get(pid)
                 if held is not None:
                     counters["cached"] += 1
@@ -1578,6 +1625,7 @@ def triage(tier: str | None = None, seed: int | None = None, con=None, _counters
                         "queue_id": key,
                         "model_id": m,
                         "prompt_version": F2_PROMPT_VERSION,
+                        "rule_version": RULE_VERSION_F2,
                         "excerpt_hash": _h.sha256(excerpt.encode()).hexdigest()[:16],
                         "verdict": verdict,
                         "reason": reason,
@@ -1616,8 +1664,10 @@ def triage(tier: str | None = None, seed: int | None = None, con=None, _counters
         )
         counters["agree_recorded"] += 1
     if new_props:
+        store.add_columns("review_proposals", ("rule_version",), con=con) if store.has_table("review_proposals", con) else None
         store.append_rows(
-            "review_proposals", new_props, list(_schema.REVIEW_PROPOSAL_COLS), con=con
+            "review_proposals", new_props,
+            list(_schema.REVIEW_PROPOSAL_COLS) + ["rule_version"], con=con,
         )
     if new_reviews:
         store.append_rows(
@@ -1822,7 +1872,7 @@ def _settled_keys(rows: dict[str, dict], reviews: list[dict]) -> set[str]:
     return settled
 
 
-def triage_clusters(con=None, auto: bool = False) -> int:
+def triage_clusters(con=None, auto: bool = False, prepass: bool = False) -> int:
     """The judging surface (operator ruling 2026-09-09, BINDING): the human
     queue is never presented as bulk. This command makes no API calls; it
     reads the stored two-model proposals for every unjudged row, VALIDATES
@@ -1847,7 +1897,7 @@ def triage_clusters(con=None, auto: bool = False) -> int:
         if store.has_table("review_proposals", con)
         else []
     ):
-        if str(p.get("prompt_version")) != F2_PROMPT_VERSION:
+        if not _current_proposal(p):
             continue
         props.setdefault(str(p["queue_id"]), {})[str(p["model_id"])] = (
             str(p["verdict"]), str(p.get("reason") or "")
@@ -1876,11 +1926,16 @@ def triage_clusters(con=None, auto: bool = False) -> int:
         if key in judged or key in settled:
             continue
         pm = props.get(key, {})
-        if len(pm) < len(models):
-            continue  # not fully proposed on yet; a later triage run covers it
-        verdicts = {pm[m][0] for m in models}
-        if len(verdicts) == 1 and verdicts <= {"correct", "wrong"}:
-            continue  # agreed rows are the triage command's business
+        if not prepass:
+            # normal mode: only fully-proposed disagreement rows are surfaced
+            if len(pm) < len(models):
+                continue  # not fully proposed on yet; a later triage run covers it
+            verdicts = {pm[m][0] for m in models}
+            if len(verdicts) == 1 and verdicts <= {"correct", "wrong"}:
+                continue  # agreed rows are the triage command's business
+        # p2 pre-pass (operator go 2026-09-10): standing rulings settle from
+        # the validator alone, BEFORE any paid proposal exists; residual
+        # (validator None) rows are exactly what the sweep buys judgment on.
         hit = _validate_cluster(str(r["statement"]), str(r["category"]))
         if hit is None:
             residual.append((r, pm))
@@ -2026,6 +2081,19 @@ def triage_complete(con=None) -> int:
     return 0
 
 
+def _locate_sentence(text: str, sent: str) -> int:
+    """Position of the stored sentence in the document, anchored on the FULL
+    text first (operator ruling 2026-09-10): boilerplate variants share their
+    first 80 chars, and the old sent[:80] find aimed Sonnet's excerpt at the
+    wrong variant (the Sa0aafbb/Sde5e86 false-misquote class). Progressive
+    fallback keeps degraded behavior for truncated statements."""
+    for probe in (sent, sent[:200], sent[:80]):
+        i = text.find(probe)
+        if i >= 0:
+            return i
+    return -1
+
+
 def _doc_text_of(capr: dict) -> str | None:
     ext = "." + str(capr.get("ext") or "htm")
     try:
@@ -2068,7 +2136,7 @@ def worksheet(n: int = 60, tier: str | None = None, seed: int | None = None, con
     proposals: dict[str, dict] = {}
     if store.has_table("review_proposals", con):
         for pr in store.read_table("review_proposals", con=con):
-            if str(pr.get("prompt_version")) == F2_PROMPT_VERSION:
+            if _current_proposal(pr):
                 proposals[str(pr["queue_id"])] = pr
     judged = {
         str(r["candidate_id"])
@@ -2223,6 +2291,9 @@ def cli(argv: list[str]) -> int:
         return record_restore(argv[1], argv[2], note=nt)
     if argv and argv[0] == "triage-clusters":
         return triage_clusters()
+    if argv and argv[0] == "triage-prepass":
+        triage_clusters(auto=True, prepass=True)  # returns applied count, not an exit code
+        return 0
     if argv and argv[0] == "triage-complete":
         return triage_complete()
     if argv and argv[0] == "judge-batch":
