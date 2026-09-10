@@ -885,3 +885,41 @@ def test_payload_beats_stamp_flavor_symmetric_rule():
     assert V("We aim to build a portfolio of novel product candidates that can rely on validated targets and proven technologies.", "platform") == ("pipeline-relabel", "wrong", "pipeline_gap")
     assert V("Our goal is to restore normal FXN regulation and expression of frataxin in Friedreich's ataxia, a rare disease.", "platform") == ("indication-relabel", "wrong", "therapeutic_area")
     assert V("our pipeline of candidates targets cancer.", "platform") is None  # both payloads -> residual
+
+
+def test_precedent_families_deterministic(f2db=None):
+    """Run-to-completion ruling 2026-09-09: today's residual precedent
+    families are code. Synthetic sentences carry each family's markers;
+    specimen keys cited per branch (S6990/S092bfb competitor, S3b66/S511f/
+    S6fbb going-concern, S65f0/S6df5/S2b7bd Arbutus out-licensing,
+    S1326/S5135/S6bc5 veterinary)."""
+    from biointel.priorities import _validate_cluster as V
+
+    assert V("company developing or acquiring rights to a more effective therapeutic product for the same diseases targeted by us could harm sales.", "pipeline_gap") == ("competitor-risk", "wrong", "")
+    assert V("we aim to succeed and will be dependent on additional public or private financings, collaborations or licensing arrangements.", "pipeline_gap") == ("going-concern", "wrong", "")
+    assert V("we intend to license our products to such companies for sales and marketing.", "pipeline_gap") == ("out-licensing", "wrong", "")
+    assert V("we intend to license Ohtuvayre to companies with expertise in those regions.", "pipeline_gap") == ("out-licensing", "wrong", "")
+    assert V("Our mission is to serve veterinarians and the pet parent with better tools.", "platform") == ("veterinary-generic", "wrong", "")
+    # Nomad stays human: development partnering must NOT auto-route wrong
+    assert V("seeking partners for a combination program", "pipeline_gap") is None
+
+
+def test_auto_apply_standing_rulings_and_run_to_empty(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import assist as _assist
+    from biointel import config as _config
+    from biointel import priorities as _p
+    from biointel import store as _store
+
+    monkeypatch.setattr(_config, "EXPORTS", tmp_path / "exports")
+    _triage_world(monkeypatch, tmp_path, n_rows=2)
+    def fake(prompt, model, **kw):
+        return "VERDICT: %s\nREASON: split." % ("correct" if "sonnet" in model else "wrong")
+    monkeypatch.setattr(_assist, "_call_api", fake)
+    assert _p.triage_complete() == 0
+    out = capsys.readouterr().out
+    assert "AUTO-APPLIED 2 rows" in out
+    assert "POOL-REMAINING 0" in out and "POOL EMPTY" in out
+    revs = _store.read_table("candidate_reviews")
+    assert len(revs) == 2
+    assert all(str(r["reviewer"]) == "operator-pattern" for r in revs)
+    assert all("standing:" in str(r["note"]) for r in revs)

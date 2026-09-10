@@ -1353,7 +1353,7 @@ def assist_sample(n: int = 60, tier: str | None = None, seed: int | None = None,
     return 0
 
 
-def triage(tier: str | None = None, seed: int | None = None, con=None) -> int:
+def triage(tier: str | None = None, seed: int | None = None, con=None, _counters: dict | None = None) -> int:
     """Two-model triage over the unjudged pool (operator rulings
     2026-09-09): every candidate row is proposed on by BOTH models in
     config.TRIAGE_MODELS via the M4 machinery (env-only key, degradation
@@ -1551,6 +1551,8 @@ def triage(tier: str | None = None, seed: int | None = None, con=None) -> int:
     run_id = results.finish(
         runr, note="draft-agree never counts in operator precision; operator override wins by reviewed_at"
     )
+    if _counters is not None:
+        _counters.update(counters)
     print("TRIAGE " + " ".join(f"{k} {v}" for k, v in counters.items()))
     log.info(f"run {run_id} recorded")
     return 0
@@ -1590,6 +1592,13 @@ _GARBLED_TERMS = ("\u2022", " \u00f2 ")  # bullet / mojibake chars: truncation d
 # a slicer clip inverted "unless we acquire..." into "we plan to acquire, the
 # infrastructure|capability ..." — routed garbled, locked as a verbatim test.
 _GARBLED_PATTERNS = (re.compile(r"acquire, the (infrastructure|capabilit)", re.IGNORECASE),)
+# Precedent families promoted to deterministic rules (operator run-to-completion
+# ruling 2026-09-09; specimens from that day's residual rulings, keys in tests):
+_COMPETITOR_TERMS = ("competitor", "competing product", "more effective therapeutic product", "targeted by us")
+_GOING_CONCERN_TERMS = ("dependent on additional public or private financings",)
+_OUTLICENSE_TERMS = ("out-licens", "commercialization rights to", "to resellers")
+_OUTLICENSE_RX = re.compile(r"licens\w*\s+[\w\s,\u00ae-]{0,50}?\bto\s+(such\s+)?(compan|partner|reseller)", re.IGNORECASE)
+_VET_TERMS = ("veterinar", "pet parent", " pets ")
 _TECH_TERMS = (
     "gene therap", "cell therap", "genome editing", "crispr", "lentiviral",
     "antibody", "peptide", "mrna", "sirna", "rnai", " rna", "oligonucleotide",
@@ -1627,12 +1636,26 @@ def _validate_cluster(sentence: str, stamp: str) -> tuple[str, str, str] | None:
         rx.search(sentence) for rx in _GARBLED_PATTERNS
     ):
         return ("garbled", "wrong", "")
+    # competitor-risk BEFORE acq/disease: its specimens carry "acquiring" and
+    # disease names (S6990 precedent, S092bfb ruling)
+    if _hit(s, _COMPETITOR_TERMS):
+        return ("competitor-risk", "wrong", "")
+    # going-concern financing family (S3b66/S511f/S6fbb rulings)
+    if any(t in s for t in _GOING_CONCERN_TERMS):
+        return ("going-concern", "wrong", "")
+    # out-licensing (Arbutus) BEFORE acq: license-OUT direction is wrong,
+    # development partnering (Nomad) is not detected here and stays residual
+    if any(t in s for t in _OUTLICENSE_TERMS) or _OUTLICENSE_RX.search(sentence):
+        return ("out-licensing", "wrong", "")
     if _hit(s, _CHANNEL_TERMS):
         return ("commercial-hold-p2", "unsure", "")
     if _hit(s, _IP_TERMS):
         return ("ip-protection", "wrong", "")
     if _hit(s, _BOILER_TERMS):
         return ("boilerplate", "wrong", "")
+    # veterinary-generic family (S1326/S5135/S6bc5 rulings), any stamp
+    if any(t in s for t in _VET_TERMS):
+        return ("veterinary-generic", "wrong", "")
     if stamp == "pipeline_gap" and _hit(s, _ACQ_TERMS):
         return ("acquisition-correct", "correct", "")
     if stamp == "pipeline_gap" and _hit(s, _PIPELINE_TERMS):
@@ -1691,7 +1714,7 @@ def _settled_keys(rows: dict[str, dict], reviews: list[dict]) -> set[str]:
     return settled
 
 
-def triage_clusters(con=None) -> int:
+def triage_clusters(con=None, auto: bool = False) -> int:
     """The judging surface (operator ruling 2026-09-09, BINDING): the human
     queue is never presented as bulk. This command makes no API calls; it
     reads the stored two-model proposals for every unjudged row, VALIDATES
@@ -1757,7 +1780,26 @@ def triage_clusters(con=None) -> int:
         cid = f"{r['category']}--{hit[0]}"
         clusters.setdefault(cid, []).append(r)
         proposed[cid] = (hit[1], hit[2])
+    if auto:
+        # run-to-completion ruling 2026-09-09: standing rulings auto-apply,
+        # reviewer="operator-pattern", note citing the ruling; holds included
+        applied = 0
+        for cid, rs in sorted(clusters.items(), key=lambda kv: -len(kv[1])):
+            v, rl = proposed[cid]
+            suffix = cid.split("--", 1)[1]
+            cite = STANDING_RULINGS.get(suffix, "standing ruling")
+            for r in rs:
+                rcj = judge(
+                    _row_key(r), v,
+                    note=f"cluster:{cid};standing:{cite}",
+                    relabel=rl, reviewer="operator-pattern", con=con,
+                )
+                if rcj == 0:
+                    applied += 1
+        print(f"AUTO-APPLIED {applied} rows across {len(clusters)} standing clusters; residual carried {len(residual)}")
+        return applied
     # clusters below the example floor are residual, never padded rulings
+    # (print-surface rule only; auto mode above applies standing rulings at any size)
     for cid in [c for c, rs in clusters.items() if len(rs) < TRIAGE_MIN_CLUSTER]:
         for r in clusters.pop(cid):
             residual.append((r, props.get(_row_key(r), {})))
@@ -1813,6 +1855,62 @@ def triage_clusters(con=None) -> int:
         + f"residual {len(residual)} shown {len(shown)} audit {len(audit)} settled_excluded {len(settled)}"
     )
     log.info(f"run {run_id} recorded")
+    return 0
+
+
+# Every validator suffix maps to an operator standing ruling (run-to-completion
+# ruling 2026-09-09): auto-apply cites the ruling; residual = no precedent.
+STANDING_RULINGS: dict[str, str] = {
+    "generic": "generic-mission wrong (2026-09-09)",
+    "named-indication-correct": "Galera: named indication correct",
+    "platform": "modality-no-disease relabel platform",
+    "indication-relabel": "payload beats stamp flavor (Galera mirror)",
+    "pipeline-relabel": "payload beats stamp flavor (pipeline)",
+    "ip-protection": "IP-protection wrong (Alaunos family)",
+    "boilerplate": "boilerplate/risk-factor wrong",
+    "garbled": "truncation debris wrong",
+    "commercial-hold-p2": "commercial-infrastructure hold (unsure)",
+    "acquisition-correct": "Fortress/Abpro: acquisition intent correct",
+    "pipeline-correct": "uniQure: pipeline payload correct",
+    "competitor-risk": "S092bfb: competitor-risk wrong",
+    "going-concern": "S3b66 family: going-concern wrong",
+    "out-licensing": "Arbutus: license-out wrong",
+    "veterinary-generic": "S1326 family: veterinary-generic wrong",
+}
+
+
+def triage_complete(con=None) -> int:
+    """Run-to-completion (operator ruling 2026-09-09): sweeps run back-to-back
+    until the pool is empty. Each cycle: one triage pass (both models, cached
+    proposals free), then every validated cluster auto-applies as
+    reviewer="operator-pattern" citing its standing ruling; residual rows
+    (no precedent) accumulate across sweeps into ONE final surface, capped in
+    print, full list exported. Prints the POOL-REMAINING gauge each pass."""
+    con = con or store.connect()
+    cycle = 0
+    while True:
+        cycle += 1
+        counters: dict[str, int] = {}
+        rc = triage(con=con, _counters=counters)
+        if rc != 0:
+            return rc
+        applied = triage_clusters(con=con, auto=True)
+        rows = store.read_table("stated_priorities", con=con)
+        reviews = store.read_table("candidate_reviews", con=con)
+        judged = {
+            str(r["candidate_id"]) for r in reviews
+            if str(r.get("rule_version")) == RULE_VERSION_F2
+        }
+        settled = _settled_keys({_row_key(r): r for r in rows}, reviews)
+        remaining = sum(
+            1 for r in rows
+            if str(r.get("source_type")) in ("10k_strategy", "investor_day")
+            and _row_key(r) not in judged and _row_key(r) not in settled
+        )
+        print(f"POOL-REMAINING {remaining} (cycle {cycle}, calls {counters.get('calls_made', 0)}, auto-applied {applied})")
+        if counters.get("calls_made", 0) == 0 and applied == 0:
+            break
+    print("POOL EMPTY - run priorities triage-clusters for the accumulated final surface, then precision")
     return 0
 
 
@@ -2013,6 +2111,8 @@ def cli(argv: list[str]) -> int:
         return record_restore(argv[1], argv[2], note=nt)
     if argv and argv[0] == "triage-clusters":
         return triage_clusters()
+    if argv and argv[0] == "triage-complete":
+        return triage_complete()
     if argv and argv[0] == "judge-batch":
         pp = argv[1] if len(argv) > 1 and not argv[1].startswith("--") else None
         pat = argv[argv.index("--pattern") + 1] if "--pattern" in argv else None
