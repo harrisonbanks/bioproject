@@ -2,7 +2,36 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
-Version 1.26. Supersedes v1.25. FIX BUNDLE COMMITTED f216973
+Version 1.27. Supersedes v1.26. F2 SECOND HALF COMPLETE (2026-09-10):
+THE STATED-PRIORITIES CORPUS IS FULLY JUDGED — zero unjudged rows.
+- Final ledger: 2,873 machine verdicts recorded (draft-agree, never
+  counted); PATTERN-RULED (operator, cluster-wide, own bucket) 1,546:
+  correct 458 / wrong 1,053 / unsure 35; operator row-level tiers
+  10k_strategy 51/55 = 0.927 (wilson 0.827-0.971, unsure 8),
+  investor_day 28/28 = 1.000 (wilson 0.879-1.000, unsure 1);
+  ASSIST-AGREEMENT 108/203 = 0.532; settled-excluded 167;
+  evidence 20260910_v48aj_final_35_evidence.txt.
+- Machinery landed this session (commits 06fb415, 006811b, efae1f3,
+  283f1c5, 312a824, a065bc9, ac0fcb5, dbbd34a, 88e42c5, d811acc; suite
+  290, ruff 3): `priorities triage` (two-model, cap 2000, max_tokens
+  1000, pointer-only output), `triage-clusters` (sentence-validated
+  judging surface: clusters + residual<=10 + audit<=10, caps in code),
+  `judge-batch --pattern` (operator-pattern provenance),
+  `triage-complete` (run-to-empty loop, POOL-REMAINING gauge,
+  standing-ruling auto-apply), boundary-anchored vocabulary matching
+  (substring class closed, dictionary-swept), settled-row exclusion,
+  symmetric payload-beats-stamp rule. The precedent table of record
+  lives in docs/20260910_v48_Session_Handoff.md.
+- p2 docket (next session): commercial_infrastructure enum + banked
+  specimen list (vocabulary-gap doc, appended through 2026-09-10);
+  negation-guard + sentence-start capture (Opus/Biogen locked specimens
+  plus S1e6a836, S02a95, and the misquote pair Sa0aafbb/Sde5e86 with
+  Sonnet's text-vs-filing diffs); extraction-side boundary anchoring
+  (stem-compound oracle test committed); attribution/successor-name
+  evidence pile (nine rows); operator roadmap doc
+  20260910_v1_Text_Extraction_Research_and_Roadmap.md (5848d95).
+
+Version 1.26 (superseded). FIX BUNDLE COMMITTED f216973
 (2026-09-09), suite 277, table of record 4,602 rows:
 - WRITE IS VERDICT-AWARE (operator ruling: good information is never
   thrown away, judged lies never resurrect): judged-wrong keys are

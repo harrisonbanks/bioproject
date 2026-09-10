@@ -71,3 +71,25 @@ p2 negation/sentence-start specimens (banked):
 p2 successor-name / wrong-entity evidence (attribution class, from the residual):
 - S0dfdb38f1ca4d458 — AgeX text on Serina's row
 - S11c5f23183045644 — AVROBIO text on another company's row
+
+## Appended 2026-09-10 (corpus completion — final holds, misquote diffs, attribution pile)
+Commercial-infrastructure holds (unsure at L3-a3-p1, reviewer noted per row):
+- S13ec6c24b1171518: Phexxi telehealth-supported sales strategy (channel decision)
+- S3402b7d828477926: Brazil local platform, $22B market access (Mylan/Viatris class)
+- S75578fa53bedb528: Brazil family, same CIK as S124cac/S3402
+- S77945fd78818bc2b: "partners with suitable infrastructure" round-1 family
+- S9332133e6abeb05a: Brazil local-platform family, CIK 1623613 ("build upon this local platform ... access the $13.")
+- Sa5221e6ba16abe1b / Sc4dce91dee07f2ef: build-vs-partner commercialization, same sentence two years running ("develop, manufacture, and commercialize at least some of these programs on our own, although we may selectively consider partnerships...")
+
+p2 slicer-misquote specimens (verdict wrong; Sonnet's text-vs-filing diffs quoted as evidence):
+- Sa0aafbb3410df2a5 — extracted: "focused on discovering, acquiring, developing and commercializing therapeutic medicines for patients suffering from debilitating diseases with significant unmet medical need." Sonnet: "The excerpt's actual sentence reads 'for patients with significant unmet medical need,' not 'for patients suffering from debilitating diseases with significant unmet medical need,' so the quoted sentence does not match." (Clean 2022 sibling S8f61eee0 ruled correct separately — per-document defect.)
+- Sde5e86d23a090a40 — extracted: "we aim to act with greater speed and to provide better potential upside when compared to the companies or spin-out startups to whom the institution might also consider licensing." Sonnet: "does not match the excerpt's actual text ('pharmaceutical companies or venture-backed biotechnology compa[nies]')."
+
+p2 attribution / successor-name evidence pile (all judged wrong; company field is a Q5 field, attribution defeats any content reading including Nomad):
+- S0dfdb38f1ca4d458, S2d111415c3789845, Sc90440210f0b31a6 — AgeX text on Serina rows
+- S11c5f23183045644, Sa0e08f5306e2e39e — AVROBIO text on other companies' rows
+- S69de997e7bae4081 — Histogenics/NeoCart text on Ocugen row
+- S6fc257b2b1240545 — Silverback text on ARS row
+- Sb1c5cc5d02128429, Sb945a972c2a55151 — Zeltiq description on Allergan rows
+- Sa4d0c5939efea34a, Sc9e9bd0c66bd2a09, Sd944f8d5698203a8 — Sesen/Vicinium content on Carisma CIK ("seeking partners for a combination program"; the same sentence stands correct under Nomad at S5bc77f where no mismatch exists)
+- S9fadedf2bc6e87e1 — subsidiary (NTWO) agricultural text on Nexentis row
