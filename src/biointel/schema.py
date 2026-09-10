@@ -61,7 +61,7 @@ SCORE_ACQUIRER_SIDE_MARKETCAP = 7.5e10
 SCORE_TARGET_CAP_BAND = (3e8, 4e10)
 FEATURES_FINANCIALS_STALENESS_DAYS = 400
 
-SCHEMA_VERSION = "0.19"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.20"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -582,6 +582,12 @@ PRIORITY_CATEGORIES = (
     "data", "geography", "financial", "defensive", "commercial_infrastructure",
 )
 STATED_PRIORITY_F2_COLS = ("source_type", "section")
+# p2 piece 4 (2026-09-10, amendment 3): overflow runner-ups move from the
+# disposable exports txt into a table of record, carrying the rule version
+# whose slicer produced them so later re-slices can be compared per version.
+STATED_PRIORITY_OVERFLOW_COLS = (
+    "entity_key", "stated_at", "category", "statement", "rule_version",
+)
 PRIORITY_SOURCE_TYPES = ("earnings_call", "10k_strategy", "investor_day")
 # Expert-hypothesis store (decisions of record: docs/20260903_v1_Hypothesis_
 # Store_Decisions.md). One table holds past and future entries alike; they
@@ -1123,6 +1129,13 @@ TABLES: tuple[Table, ...] = (
             "evidence_class": EVIDENCE_CLASSES,
             "outcome": HYPOTHESIS_OUTCOMES,
         },
+    ),
+    Table(
+        "silver/stated_priorities_overflow.csv",
+        STATED_PRIORITY_OVERFLOW_COLS,
+        "priorities write (F2 p2, piece 4)",
+        # no key: multiple runner-ups per (entity, date, category, version)
+        types={"stated_at": "date"},
     ),
     Table(
         "silver/stated_priorities.csv",

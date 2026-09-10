@@ -295,11 +295,13 @@ def test_write_longest_wins_overflow_preserved_idempotent(f2db, monkeypatch, tmp
     assert rows[0]["entity_key"] == "CIK:100" and str(rows[0]["stated_at"])[:10] == "2020-02-25"
     assert "longer pipeline additions" in rows[0]["statement"]  # longest won
     assert rows[0]["source_type"] == "10k_strategy" and rows[0]["section"] == "Item 1"
-    from biointel import config as _config
-    ov = (_config.EXPORTS / "stated_priorities_overflow.txt").read_text(encoding="utf-8")
-    assert "We seek to acquire businesses assets and products." in ov  # runner-up preserved
+    ov = _store.read_table("stated_priorities_overflow")
+    assert len(ov) == 1  # runner-up preserved in the table (p2 piece 4)
+    assert "We seek to acquire businesses assets and products." in ov[0]["statement"]
+    assert ov[0]["rule_version"] == _p.RULE_VERSION_F2  # amendment-3 provenance
     assert _p.write() == 0  # idempotent re-run
     assert len(_store.read_table("stated_priorities")) == 1
+    assert len(_store.read_table("stated_priorities_overflow")) == 1  # per-version replace, no growth
 
 
 # ---- F2 stage 5 (2026-09-08): sample / judge / precision (Q5) ----
@@ -1094,3 +1096,49 @@ def test_cat_map_banked_dictionary_traps_closed():
     assert _category_for("a vindication of our approach to markets") is None
     assert _category_for("deep dermatology expertise") == "therapeutic_area"
     assert _category_for("epidermal repair products") == "therapeutic_area"
+
+
+# ---- p2 piece 4 (2026-09-10): overflow table with rule-version provenance ----
+def test_overflow_table_preserves_other_rule_versions(f2db, monkeypatch, tmp_path, capsys):
+    """Amendment 3: write() replaces only the CURRENT rule version's overflow
+    rows; rows stamped by another slicer version survive, so re-slices can
+    be compared per version."""
+    from biointel import library as _library
+    from biointel import priorities as _p
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    _store.write_table("stated_priorities", [], list(_schema.STATED_PRIORITY_COLS))
+    old_row = {
+        "entity_key": "CIK:1", "stated_at": "2019-01-01", "category": "pipeline_gap",
+        "statement": "an earlier slicer's runner-up.", "rule_version": "L3-a3-p0",
+    }
+    _store.write_table(
+        "stated_priorities_overflow", [old_row], list(_schema.STATED_PRIORITY_OVERFLOW_COLS)
+    )
+    doc = (
+        "Item 1. Business 4 Item 1A. Risk Factors 12 ITEM 1 BUSINESS "
+        + "Harness filler prose clearing the round-3 five-hundred-character stub floor. " * 8
+        + "We seek to acquire businesses assets and products. "
+        + "We seek to acquire businesses assets and products plus longer pipeline additions. "
+        + "Item 1A - Risk Factors Risks Related to everything."
+    )
+    sha = "y" * 64
+    (tmp_path / f"{sha}.htm").write_text(doc, encoding="utf-8")
+    rcols = list(_schema.REFERENCE_COLS)
+    r = dict.fromkeys(rcols, "")
+    r.update({
+        "ref_id": "RY1", "url": "uY1",
+        "note": f"captured by {_p.TOOL};source_type=10k_strategy;form=10-K;accession=02;cik=200;file_date=2021-02-25",
+    })
+    _store.write_table("references", [r], rcols)
+    ccols = list(_schema.CAPTURE_COLS)
+    c = dict.fromkeys(ccols, "")
+    c.update({"capture_id": sha, "ref_id": "RY1", "ext": "htm", "status": "active"})
+    _store.write_table("captures", [c], ccols)
+    monkeypatch.setattr(_library, "store_path", lambda s2, e: tmp_path / f"{s2}{e}")
+    assert _p.write() == 0
+    ov = _store.read_table("stated_priorities_overflow")
+    vers = sorted(str(x["rule_version"]) for x in ov)
+    assert vers == ["L3-a3-p0", _p.RULE_VERSION_F2]  # old version kept, new version written
+    assert any("an earlier slicer's runner-up." in str(x["statement"]) for x in ov)

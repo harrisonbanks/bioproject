@@ -892,6 +892,16 @@ def reextract(con=None) -> int:
     return 0
 
 
+def _overflow_row(k: tuple, cand: dict) -> dict:
+    """Runner-up row for stated_priorities_overflow (p2 piece 4): the losing
+    sentence of a longest-wins key collision, stamped with the rule version
+    whose slicer produced it (amendment 3, 2026-09-10)."""
+    return {
+        "entity_key": k[0], "stated_at": k[1], "category": k[2],
+        "statement": cand["statement"], "rule_version": RULE_VERSION_F2,
+    }
+
+
 # ---------------------------------------------------------------- F2 stage 4: the writer
 def write(con=None) -> int:
     """Sweep the shelf under the FROZEN rules (L3-a3-p1) and replace
@@ -933,7 +943,7 @@ def write(con=None) -> int:
         plain[skey] = v
     verdicts = plain
     best: dict[tuple, dict] = {}
-    overflow: list[str] = []
+    overflow: list[dict] = []  # p2 piece 4: rows for stated_priorities_overflow, rule-version stamped
     stats = {t: {"docs": 0, "rows": 0} for t in ("10k_strategy", "investor_day")}
     for r in store.read_table("references", con=con):
         note = str(r.get("note") or "")
@@ -998,15 +1008,25 @@ def write(con=None) -> int:
             if held is None:
                 best[k] = cand
             elif len(cand["statement"]) > len(held["statement"]):
-                overflow.append(f"{k[0]} {k[1]} {k[2]} | {held['statement']}")
+                overflow.append(_overflow_row(k, held))
                 best[k] = cand
             else:
-                overflow.append(f"{k[0]} {k[1]} {k[2]} | {cand['statement']}")
+                overflow.append(_overflow_row(k, cand))
     written = store.write_table("stated_priorities", list(best.values()), cols, con=con)
-    p = store.write_export(
-        "stated_priorities_overflow.txt",
-        "\n".join(overflow) + ("\n" if overflow else ""),
-    )
+    # p2 piece 4 (amendment 3): runner-ups land in a table of record with
+    # rule-version provenance. Idempotent PER VERSION: this run replaces only
+    # rows of the current rule version; other versions' rows are preserved so
+    # re-slices can be compared against them later.
+    ocols = list(_schema.STATED_PRIORITY_OVERFLOW_COLS)
+    kept = [
+        r for r in (
+            store.read_table("stated_priorities_overflow", con=con)
+            if store.has_table("stated_priorities_overflow", con)
+            else []
+        )
+        if str(r.get("rule_version")) != RULE_VERSION_F2
+    ]
+    store.write_table("stated_priorities_overflow", kept + overflow, ocols, con=con)
     runr = results.start(
         "priorities-write", "priorities write",
         ["references", "captures", "stated_priorities"],
@@ -1017,9 +1037,10 @@ def write(con=None) -> int:
             runr.metric(t, k2, v)
     runr.metric("_", "rows_written", written)
     runr.metric("_", "overflow", len(overflow))
-    runr.artefact(p)
     run_id = results.finish(
-        runr, note="frozen rules L3-a3-p1; longest-sentence-per-key ruling; overflow preserved"
+        runr,
+        note="longest-sentence-per-key ruling; overflow preserved in "
+        "stated_priorities_overflow with rule-version provenance (p2 piece 4)",
     )
     print(
         "WRITE rows_written "
