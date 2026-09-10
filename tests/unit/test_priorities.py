@@ -994,3 +994,88 @@ def test_validate_cluster_commercial_correct_and_relabel_symmetric():
     assert V(sent, "commercial_infrastructure") == ("commercial-correct", "correct", "")
     assert V(sent, "pipeline_gap") == ("commercial-relabel", "wrong", "commercial_infrastructure")
     assert V(sent, "platform") == ("commercial-relabel", "wrong", "commercial_infrastructure")
+
+
+# ---- p2 piece 2 (2026-09-10): sentence-start capture + negation guard ----
+_HEAD = (
+    "Item 1. Business 4 Item 1A. Risk Factors 9 ITEM 1 BUSINESS "
+    + "Filler prose about the reporting entity, harness only, clearing the "
+    "five-hundred-character stub floor the round-3 slicer guard enforces. " * 8
+)
+_TAIL = " Item 1A - Risk Factors Risks Related to stuff."
+
+# Verbatim filing context recovered on the operator's machine, evidence
+# 20260910_p2c_specimen_recovery_evidence.txt (Opus CIK:1228627 2025-03-31,
+# Biogen CIK:875045 2015-02-04).
+_OPUS_START = (
+    "Strategy The Company's goal is to develop leading gene therapies to treat IRDs. "
+    "We will also continue developing or seeking partnerships to develop our product "
+    "candidates that existed prior to the Opus Acquisition. The key elements of our "
+    "strategy we aim to achieve are the following:"
+)
+_OPUS_NEGATED = (
+    "we intend to rely on third parties to produce and test commercial supplies of our "
+    "current and any future product candidates. We do not currently have, nor do we plan "
+    "to acquire, the infrastructure or capability to internally manufacture our clinical "
+    "drug supply of product candidates for use in the conduct of our nonclinical studies "
+    "and clinical trials. We lack the internal resources and the capability to manufacture "
+    "any product candidates on a clinical or commercial scale."
+)
+_BIOGEN = (
+    "We are focused on discovering and developing new therapies that improve the lives of "
+    "patients having diseases with high unmet medical needs. We support our mission through "
+    "the commitment of significant resources to research and development programs and "
+    "business development opportunities, particularly within areas of our scientific, "
+    "manufacturing and technical expertise - neurology, immunology and hematology, and "
+    "scientific adjacencies. We were formed as a corporation in the State of California in 1985."
+)
+
+
+def test_sentence_start_capture_locked_opus_biogen_verbatim():
+    """Locked specimens (handoff s3.1; verbatim from p2c evidence): the
+    capture now begins at the true sentence start instead of the rule
+    anchor. Opus Scffcdfdcf539e686 regains "We will also continue
+    developing or"; Biogen S0f15a669a2338908 regains "We support"."""
+    got = extract_priorities(_HEAD + _OPUS_START + _TAIL, "10k_strategy")
+    opus = [r for r in got if "seeking partnerships" in r["sentence"]]
+    assert opus, got
+    assert opus[0]["sentence"].startswith("We will also continue developing or seeking partnerships"), opus
+    assert "prior to the Opus Acquisition" in opus[0]["sentence"]
+    got = extract_priorities(_HEAD + _BIOGEN + _TAIL, "10k_strategy")
+    bio = [r for r in got if "our mission through the commitment" in r["sentence"]]
+    assert bio, got
+    assert bio[0]["sentence"].startswith("We support our mission through"), bio
+    assert bio[0]["sentence"].endswith("scientific adjacencies.")
+
+
+def test_negation_guard_refuses_opus_class():
+    """Opus Scffcdfdcf539e686 second capture (verbatim from p2c evidence):
+    "nor do we plan to acquire" was clipped into an apparent priority at
+    p1; the expanded sentence now trips the negation guard and no row is
+    produced. The S1e6a836 line is a SYNTHETIC reconstruction of the same
+    class (its source text is unavailable in the record — manual rule 8.7,
+    stated as such); its stored p1 row keeps routing garbled via the
+    validator test above."""
+    got = extract_priorities(_HEAD + _OPUS_NEGATED + _TAIL, "10k_strategy")
+    assert not any("plan to acquire, the infrastructure" in r["sentence"] for r in got), got
+    synth = (
+        "We do not currently have, nor do we plan to acquire, the infrastructure or "
+        "capability internally to manufacture drug supplies for our ongoing clinical "
+        "trials or any future clinical trials that we may conduct."
+    )
+    got = extract_priorities(_HEAD + synth + _TAIL, "10k_strategy")
+    assert not any("plan to acquire" in r["sentence"] for r in got), got
+
+
+def test_bullet_debris_refused_s02a95e_verbatim():
+    """S02a95e (verbatim from the vocabulary-gap decision record): a
+    capture can no longer span bullet debris — the \u2022-excluding char
+    classes refuse the garbled risk-factor splice at extraction."""
+    debris = (
+        "we seek to acquire carry on business; and \u2022 our inability to generate "
+        "revenue from acquired technology and/or products sufficient to meet our "
+        "objectives in undertaking the acquisition or even to offset the associated "
+        "acquisition and maintenance costs."
+    )
+    got = extract_priorities(_HEAD + "We seek to acquire " + debris[18:] + _TAIL, "10k_strategy")
+    assert not any("carry on business" in r["sentence"] for r in got), got

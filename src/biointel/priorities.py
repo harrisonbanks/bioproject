@@ -249,22 +249,22 @@ def item1_slice(text: str) -> str:
 PRIORITY_RULES = (
     # Akorn 10-K 2015 (03fdcee3d8f8): "We seek to acquire businesses assets
     # and products that we believe complement our existing business ..."
-    ("pipeline_gap", re.compile(r"\bWe\s+(?:actively\s+)?seek\s+to\s+acquire\b[^.]{10,300}\.", re.IGNORECASE), None),
+    ("pipeline_gap", re.compile(r"\bWe\s+(?:actively\s+)?seek\s+to\s+acquire\b[^.\u2022]{10,300}\.", re.IGNORECASE), None),
     # BMY 10-K 2019 (62ab199b8ecc): "Our four strategic priorities are to
     # ... in-licensing or acquiring investigational compounds ..."
-    ("pipeline_gap", re.compile(r"\bstrategic priorities are to\b[^.]{0,500}\.", re.IGNORECASE), re.compile(r"acquir|in-licens", re.IGNORECASE)),
+    ("pipeline_gap", re.compile(r"\bstrategic priorities are to\b[^.\u2022]{0,500}\.", re.IGNORECASE), re.compile(r"acquir|in-licens", re.IGNORECASE)),
     # Tenax 10-K 2018 (e49b72a0ef3e): "Our principal business objective is
     # to identify, develop, and commercialize novel therapeutic products
     # for disease indications ..."
-    ("therapeutic_area", re.compile(r"\bprincipal (?:business )?objective is to\b[^.]{10,300}\.", re.IGNORECASE), re.compile(r"therapeutic|disease|clinical", re.IGNORECASE)),
+    ("therapeutic_area", re.compile(r"\bprincipal (?:business )?objective is to\b[^.\u2022]{10,300}\.", re.IGNORECASE), re.compile(r"therapeutic|disease|clinical", re.IGNORECASE)),
     # BMY 10-K 2019: "... continue to further build a leading franchise in IO ..."
-    ("therapeutic_area", re.compile(r"[^.]{0,420}\bleading franchise in\b[^.]{0,420}\.", re.IGNORECASE), None),  # r6 lesson: the window must fit the real specimen (BMY sentence ~430 chars)
+    ("therapeutic_area", re.compile(r"[^.\u2022]{0,420}\bleading franchise in\b[^.\u2022]{0,420}\.", re.IGNORECASE), None),  # r6 lesson: the window must fit the real specimen (BMY sentence ~430 chars)
     # TXMD investor-day 8-K (662c4aab01a8): "... committed to advancing
     # women's health with new treatments ..."
-    ("therapeutic_area", re.compile(r"[^.]{0,120}\bcommitted to advancing\s+[^.]{0,60}?health\b[^.]{0,200}\.", re.IGNORECASE), None),
+    ("therapeutic_area", re.compile(r"[^.\u2022]{0,120}\bcommitted to advancing\s+[^.\u2022]{0,60}?health\b[^.\u2022]{0,200}\.", re.IGNORECASE), None),
     # Round 3 (seed 124242), Nomad 2019: seeking partners is structurally a
     # partnering priority whatever the disease area - fixed category.
-    ("pipeline_gap", re.compile(r"seeking partners[^.]{5,240}", re.IGNORECASE), None),
+    ("pipeline_gap", re.compile(r"seeking partners[^.\u2022]{5,240}", re.IGNORECASE), None),
 )
 
 
@@ -325,21 +325,65 @@ _DECLARATIONS = (
     # DBV 2022 / Bolt 2024: "Key elements/components of our strategy are: • ..."
     _reC(r"key (?:elements|components) of our strategy (?:is|are)(?: to)?:?\s*(?:\d+ Table of Contents )?[^.\u2022]{0,80}\u2022?[^.\u2022]{10,320}"),
     # aTYR 2016 / Arcutis 2022: "Our strategy is to focus ..."
-    _reC(r"our strategy is to [^.]{10,340}\."),
+    _reC(r"our strategy is to [^.\u2022]{10,340}\."),
     # DBV / Bolt: "Our goal is to ..."
-    _reC(r"our goal is to [^.]{10,340}\."),
+    _reC(r"our goal is to [^.\u2022]{10,340}\."),
     # aTYR: "we aim to build a proprietary pipeline of ..."
-    _reC(r"we aim to [^.]{10,300}\."),
+    _reC(r"we aim to [^.\u2022]{10,300}\."),
     # Oric 2024: constrained intend-to (in-licensing / strategic partnering only)
-    _reC(r"we (?:intend|plan) to (?:in-licens|acquir|licens|evaluate strategic partner)[^.]{0,300}\."),
+    _reC(r"we (?:intend|plan) to (?:in-licens|acquir|licens|evaluate strategic partner)[^.\u2022]{0,300}\."),
     # Round 3 (seed 124242) - identity declarations (Immuneering 2023, Phio
     # 2021): the FLS laundry lists never carry this form.
-    _reC(r"company developing [^.]{10,280}\."),
+    _reC(r"company developing [^.\u2022]{10,280}\."),
     # Omeros 2019 / BioVie 2018: purpose tail excludes FLS boilerplate.
-    _reC(r"(?:committed to|focused on)[^.]{0,60}?developing and commercializing [^.]{10,240}\."),
+    _reC(r"(?:committed to|focused on)[^.\u2022]{0,60}?developing and commercializing [^.\u2022]{10,240}\."),
     # Travere 2022: "our mission to address the unmet needs of patients ..."
-    _reC(r"our mission[^.]{5,280}\."),
+    _reC(r"our mission[^.\u2022]{5,280}\."),
 )
+
+
+# p2 piece 2 (2026-09-10): sentence-start capture + negation guard, written
+# capture-first against the locked specimens (handoff s3.1): Opus
+# Scffcdfdcf539e686 (mid-sentence "seeking partnerships" start AND a negated
+# "nor do we plan to acquire" clip, both recovered verbatim in evidence
+# 20260910_p2c), Biogen S0f15a669a2338908 ("We support our mission" start
+# dropped), S1e6a836 (same negation class, validator keeps routing stored
+# rows garbled), S02a95e (bullet debris, refused structurally by the
+# \u2022-excluding char classes above).
+_SENTENCE_BREAK_RX = re.compile(r"[.!?;\u2022]")
+_SENTENCE_LOOKBACK = 300  # chars; no terminator inside the window = keep the rule's own start
+_NEGATION_RX = re.compile(
+    r"\b(?:do|does|did)\s+not\b[^.\u2022]{0,80}\b(?:plan|intend|seek|aim|expect)\b"
+    r"|\bnor\s+do\s+we\b"
+    r"|\bno\s+(?:current\s+)?plans?\s+to\b"
+    r"|\bnot\s+(?:currently\s+)?(?:plan|intend|seek|aim)\b",
+    re.IGNORECASE,
+)
+
+
+def _sentence_start(body: str, start: int) -> int:
+    """Start of the sentence containing position `start`: one past the last
+    terminator within the lookback window, else `start` unchanged."""
+    lo = max(0, start - _SENTENCE_LOOKBACK)
+    last = None
+    for m in _SENTENCE_BREAK_RX.finditer(body, lo, start):
+        last = m
+    return last.end() if last is not None else start
+
+
+def _capture_sentence(body: str, m: "re.Match") -> str | None:
+    """The rule match expanded to its true sentence start; None when the
+    expanded sentence is negated (the Opus/S1e6a836 inversion class). If
+    expansion would push the joined sentence past the 500-char cap, the
+    rule's own start is kept, so expansion never truncates meaning from the
+    tail (the clip class this fix exists to close)."""
+    start = _sentence_start(body, m.start())
+    sent = " ".join(body[start : m.end()].split())
+    if len(sent) > 500:
+        sent = " ".join(m.group(0).split())
+    if _NEGATION_RX.search(sent):
+        return None
+    return sent[:500]
 
 
 def extract_priorities(text: str, source_type: str) -> list[dict]:
@@ -354,26 +398,30 @@ def extract_priorities(text: str, source_type: str) -> list[dict]:
     else:
         body, section = text, "exhibit"
     out: list[dict] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()  # p2: (category, sentence) — expansion can equalize two rules' texts (BMY dual capture)
     for category, rule, guard in PRIORITY_RULES:
         for m in rule.finditer(body):
-            sent = " ".join(m.group(0).split())[:500]
+            sent = _capture_sentence(body, m)
+            if sent is None:
+                continue
             if guard and not guard.search(sent):
                 continue
-            if sent in seen:
+            if (category, sent) in seen:
                 continue
-            seen.add(sent)
+            seen.add((category, sent))
             out.append(
                 {"category": category, "sentence": sent, "section": section,
                  "source_type": source_type}
             )
     for rule in _DECLARATIONS:
         for m in rule.finditer(body):
-            sent = " ".join(m.group(0).split())[:500]
-            cat = _category_for(sent)
-            if cat is None or sent in seen:
+            sent = _capture_sentence(body, m)
+            if sent is None:
                 continue
-            seen.add(sent)
+            cat = _category_for(sent)
+            if cat is None or (cat, sent) in seen:
+                continue
+            seen.add((cat, sent))
             out.append(
                 {"category": cat, "sentence": sent, "section": section,
                  "source_type": source_type}
