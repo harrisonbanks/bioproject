@@ -54,10 +54,17 @@ precedent = human, always.
 
 ## 2. Process rulings of record (BINDING; do not relitigate)
 
-1. **Access mode: staged files, permanently.** Operator's machine is the sole
-   source of truth; version pinning via pasted HEAD per block; ask in one line
-   for any unattached file needed, then stop. (The public-repo window during
-   this session was temporary.)
+1. **Access mode (operator ruling, final, 2026-09-10): boot clone, then
+   artifacts only.** At boot the operator opens a temporary public window; the
+   session clones ONCE for its baseline tree; the operator re-privates the
+   repo immediately; the session confirms the clone's HEAD against the
+   operator's pasted `git log` line. Thereafter ZERO repo access — no fetch,
+   no pull, no re-clone: all changes flow as delivered artifacts (dated names,
+   hash gates) and all state verification is pasted HEAD per block. The
+   baseline clone exists for accuracy and fidelity of the starting tree;
+   artifacts exist for the integrity of every change after it. Mid-session
+   repo reads remain forbidden — that, not the boot clone, was the root cause
+   on record. (Amends Operating Manual v2 §1.)
 2. **Paths:** evidence and ALL generated outputs → `data\exports\`; docs →
    `docs\` (YYYYMMDD_vN_Name.md); source only in `src\biointel\`, tests only in
    `tests\unit\`; NOTHING at repo root.

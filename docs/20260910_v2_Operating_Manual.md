@@ -22,14 +22,17 @@ as errata.
 - The operator's machine is the SOLE source of truth.
 
 ## 1. Sources and access — POLICY, not circumstance
-- MODE OF RECORD: staged files. Sessions build replicas ONLY from
-  operator attachments, request missing files in one line, and stop.
-- The repo stays PRIVATE; clone/fetch/pull forbidden even when network
-  access exists. Root cause on record: the v47 handoff wrote "clone
-  failed, use staged files" — a circumstance, not a policy — and the
-  moment the repo was briefly public a session self-served and scope
-  drifted. RULES ENCODE POLICY. Temporary loosenings are temporary; the
-  handoff records the standing ruling.
+- MODE OF RECORD (operator ruling, final, 2026-09-10): BOOT CLONE, THEN
+  ARTIFACTS ONLY. At boot the operator opens a temporary public window;
+  the session clones ONCE for its baseline tree; the operator re-privates
+  the repo immediately; the session confirms the clone's HEAD against the
+  operator's pasted `git log` line.
+- Thereafter ZERO repo access — no fetch, no pull, no re-clone: all
+  changes flow as delivered artifacts (dated names, hash gates); all
+  state verification via pasted HEAD per block. The baseline clone exists
+  for accuracy and fidelity of the starting tree; artifacts exist for the
+  integrity of every change after it. MID-SESSION repo reads remain
+  forbidden — that, not the boot clone, was the root cause on record.
 - HEAD pinned per block (`git --no-pager log --oneline -1` verified
   against expectation) replaces clone freshness.
 - Every landed file asserted (Test-Path / hash) before dependence.
