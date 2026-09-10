@@ -28,7 +28,7 @@ THE STATED-PRIORITIES CORPUS IS FULLY JUDGED — zero unjudged rows.
   plus S1e6a836, S02a95, and the misquote pair Sa0aafbb/Sde5e86 with
   Sonnet's text-vs-filing diffs); extraction-side boundary anchoring
   (stem-compound oracle test committed); attribution/successor-name
-  evidence pile (nine rows); operator roadmap doc
+  evidence pile (thirteen rows, listed in the vocabulary-gap record); operator roadmap doc
   20260910_v1_Text_Extraction_Research_and_Roadmap.md (5848d95).
 
 Version 1.26 (superseded). FIX BUNDLE COMMITTED f216973
