@@ -1079,3 +1079,18 @@ def test_bullet_debris_refused_s02a95e_verbatim():
     )
     got = extract_priorities(_HEAD + "We seek to acquire " + debris[18:] + _TAIL, "10k_strategy")
     assert not any("carry on business" in r["sentence"] for r in got), got
+
+
+# ---- p2 piece 3 (2026-09-10): extraction-side boundary anchoring ----
+def test_cat_map_banked_dictionary_traps_closed():
+    """The two traps banked in the 2026-09-09 sweep no longer fire, while
+    the stem-compound oracle above stays the frozen baseline: epidermal
+    keeps firing through the epiderm carve-out, dermatology through the
+    word boundary; alderman, bewilderment, and vindication yield no
+    category."""
+    from biointel.priorities import _category_for
+
+    assert _category_for("the alderman spoke with bewilderment about zoning") is None
+    assert _category_for("a vindication of our approach to markets") is None
+    assert _category_for("deep dermatology expertise") == "therapeutic_area"
+    assert _category_for("epidermal repair products") == "therapeutic_area"

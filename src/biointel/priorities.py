@@ -307,8 +307,16 @@ _CAT_MAP = (
     ("pipeline_gap", _reC(r"acquir|in-licens|\blicens")),
     ("pipeline_gap", _reC(r"\bpipeline\b")),
     ("platform", _reC(r"\bplatform\b|\bmodalit|\btechnolog")),
+    # p2 piece 3 (2026-09-10): the two banked dictionary traps close
+    # (sweep evidence 2026-09-09 above): derm is left-anchored with an
+    # epiderm carve-out (alderman/bewilderment no longer fire; epidermal
+    # still does), indication is left-anchored (vindication no longer
+    # fires). therap/patients/allerg stay intentional stems - the oracle
+    # test (chemotherapy/outpatients/hypoallergenic) is the frozen
+    # baseline this edit is measured against.
     ("therapeutic_area", _reC(
-        r"oncolog|immuno|derm|cancer|\bdisease|indication|therap|patients|"
+        r"oncolog|immuno|(?<![a-z])derm|epiderm|cancer|\bdisease|"
+        r"(?<![a-z])indication|therap|patients|"
         r"allerg|cardiovas|neuro|\brare\b|obesity|\btreat"
     )),
 )
