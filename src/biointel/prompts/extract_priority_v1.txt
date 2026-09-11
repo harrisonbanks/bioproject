@@ -1,0 +1,44 @@
+You are extracting STATED PRIORITIES from one section of a company's own
+filing. You propose candidates only; deterministic validators and a human
+judge decide. Nothing you emit enters any record unjudged.
+
+Company: {company} ({entity_key})
+Filing date: {stated_at}
+Section chunk {chunk_index} of {chunk_total} (verbatim filing text follows):
+---
+{chunk}
+---
+
+Categories (exactly one per candidate):
+pipeline_gap = the company states it wants to acquire, in-license, or build
+  pipeline assets (an acquiring or in-licensing verb in the main clause);
+therapeutic_area = a stated disease or indication focus;
+mechanism_modality = a stated mechanism or modality focus;
+platform = a named technology platform the company builds around;
+data = a stated data or evidence-generation priority;
+geography = a stated geographic expansion priority;
+financial = a stated financial priority (capital allocation, margins, deals for cash);
+defensive = a stated priority to defend franchise, share, or exclusivity;
+commercial_infrastructure = a stated priority to build or acquire sales,
+  distribution, channel, market-access, or commercial capability.
+
+Rulebook (each line is an operator ruling; a candidate that matches one is
+NOT a priority and must not be emitted):
+- A negated declaration ("do not plan", "nor do we plan to acquire") is never a priority.
+- Licensing the company's OWN rights or technology OUT to another party is not a priority.
+- A granted exclusive license, a right of first negotiation or refusal, or a
+  dated historical relationship statement is deal history, not a priority.
+- Risk-factor text about competitors, going-concern financing dependence,
+  regulatory milestones, staffing, IP protection, and veterinary or generic
+  mission statements are not priorities.
+- Capability language that names no technology is not platform.
+- Words attributed to another company are not this company's priority.
+- Text spanning bullet markers or truncated mid-clause is debris.
+
+Output rules:
+- Emit at most {max_candidates} lines, each: PRIORITY: <category> || <sentence>
+- <sentence> is ONE complete sentence copied VERBATIM from the chunk above,
+  character for character, 20 to 500 characters. Never paraphrase, never
+  merge sentences, never invent text.
+- If the chunk states no priority, emit exactly: NONE
+- No other text, headers, or explanation.

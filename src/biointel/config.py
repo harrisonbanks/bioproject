@@ -104,3 +104,10 @@ TRIAGE_MODELS = ("claude-sonnet-5", "claude-haiku-4-5")  # both measured 1.000 a
 TRIAGE_CALL_CAP = 2000  # calls/run (operator run-to-completion ruling 2026-09-09; was 500)
 TRIAGE_AUDIT_N = 10  # random audit rows from the machine-agreed set (operator)
 TRIAGE_MAX_TOKENS = 1000  # f216973: the truncated-reason class stays closed
+# R2 holistic extraction pass (gate R2-1, 2026-09-11): repo default OFF; an
+# approved trial flips R2_ENABLED inside its own block's process only
+# (handoff v51 ruling 11). Caps disclosed in the scope, never discovered.
+R2_ENABLED = False
+R2_MODEL = "claude-haiku-4-5"  # trial default on cost; the trial itself measures quality
+R2_CALL_CAP = 400  # calls per trial run
+R2_MAX_TOKENS = 1500  # per-call reply cap

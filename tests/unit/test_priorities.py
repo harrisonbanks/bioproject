@@ -1264,3 +1264,161 @@ def test_sweep_ruled_families_verbatim():
                    "granted-exclusive-license", "provide-technology-to",
                    "historical-relationship-statement"):
         assert suffix in STANDING_RULINGS  # pre-pass auto-apply requires the citation
+
+
+# ---------------------------------------------------------------- R2 holistic pass (gate R2-1, 2026-09-11)
+# The API is never called here: every test passes an explicit fake `call`
+# (stated seam). Specimens are the locked verbatim texts above.
+_R2_BODY = (
+    "Item 1. Business. " + _OPUS_NEGATED + " "
+    "We seek to acquire businesses assets and products that we believe complement our "
+    "existing business and provide us opportunities for growth and synergies. "
+    "Under the Knight Agreement, as amended in August 2018, we granted Knight an exclusive "
+    "license and a right of first negotiation for future products in Canada. "
+    "Our principal business objective is to identify, develop, and commercialize novel "
+    "therapeutic products for disease indications that represent significant areas of "
+    "clinical need. " + ("Filler sentence number %d about operations. " * 1) % 1
+)
+_R2_ACQ = (
+    "We seek to acquire businesses assets and products that we believe complement our "
+    "existing business and provide us opportunities for growth and synergies."
+)
+_R2_KNIGHT = (
+    "Under the Knight Agreement, as amended in August 2018, we granted Knight an exclusive "
+    "license and a right of first negotiation for future products in Canada."
+)
+_R2_NEG = (
+    "We do not currently have, nor do we plan to acquire, the infrastructure or capability "
+    "to internally manufacture our clinical drug supply of product candidates for use in "
+    "the conduct of our nonclinical studies and clinical trials."
+)
+
+
+def test_r2_chunk_item1_short_body_is_one_chunk_and_empty_is_none():
+    assert priorities._chunk_item1("") == []
+    assert priorities._chunk_item1("abc. def.") == ["abc. def."]
+
+
+def test_r2_chunk_item1_cuts_at_terminators_with_overlap_and_covers_body():
+    body = " ".join(f"Sentence number {i} ends here." for i in range(400))
+    chunks = priorities._chunk_item1(body, size=2000, overlap=200)
+    assert len(chunks) > 1
+    assert all(len(c) <= 2000 for c in chunks)
+    assert all(c.rstrip().endswith(".") for c in chunks)
+    assert chunks[0][:100] == body[:100] and chunks[-1][-50:] == body[-50:]
+    # every sentence appears whole in at least one chunk
+    for i in range(400):
+        s = f"Sentence number {i} ends here."
+        assert any(s in c for c in chunks), i
+
+
+def test_r2_parse_reply_well_formed_malformed_none_and_empty():
+    reply = (
+        "PRIORITY: pipeline_gap || " + _R2_ACQ + "\n"
+        "garbage line without the marker\n"
+        "PRIORITY: platform || short\n"
+        "PRIORITY: Therapeutic_Area || Our focus is on rare kidney diseases in adults.\n"
+    )
+    got = priorities._parse_r2_reply(reply)
+    assert [g["category"] for g in got] == ["pipeline_gap", "therapeutic_area"]
+    assert got[0]["sentence"] == _R2_ACQ
+    assert priorities._parse_r2_reply("NONE") == []
+    assert priorities._parse_r2_reply(None) == []
+    assert priorities._parse_r2_reply("") == []
+
+
+def test_r2_parse_reply_caps_candidates():
+    lines = "\n".join(f"PRIORITY: platform || Candidate sentence number {i} for the cap test." for i in range(30))
+    assert len(priorities._parse_r2_reply(lines)) == priorities.R2_MAX_CANDIDATES
+
+
+def test_r2_validate_refuses_unknown_category_and_non_verbatim_span():
+    assert priorities._r2_validate({"category": "growth", "sentence": _R2_ACQ}, _R2_BODY) == (None, "category-enum")
+    para = _R2_ACQ.replace("businesses assets", "companies and assets")
+    assert priorities._r2_validate({"category": "pipeline_gap", "sentence": para}, _R2_BODY) == (None, "span-not-verbatim")
+
+
+def test_r2_validate_opus_negation_refused_verbatim():
+    assert priorities._r2_validate({"category": "pipeline_gap", "sentence": _R2_NEG}, _R2_BODY) == (None, "negation")
+
+
+def test_r2_validate_knight_rofn_refused_by_cluster_rule():
+    got = priorities._r2_validate({"category": "pipeline_gap", "sentence": _R2_KNIGHT}, _R2_BODY)
+    assert got == (None, "right-of-first-negotiation")
+
+
+def test_r2_validate_bullet_debris_refused_by_garbled_branch():
+    debris = (
+        "we seek to acquire carry on business; and \u2022 our inability to generate revenue "
+        "from acquired technology and/or products sufficient to meet our objectives"
+    )
+    body = "Item 1. " + debris + ". More text follows here for the body."
+    assert priorities._r2_validate({"category": "pipeline_gap", "sentence": debris}, body) == (None, "garbled")
+
+
+def test_r2_validate_passes_akorn_acquisition_sentence():
+    assert priorities._r2_validate({"category": "pipeline_gap", "sentence": _R2_ACQ}, _R2_BODY) == ("pipeline_gap", "pass")
+
+
+def test_r2_dedup_is_case_and_whitespace_insensitive_across_chunks():
+    a = {"category": "pipeline_gap", "sentence": _R2_ACQ, "chunk_index": 1}
+    b = {"category": "pipeline_gap", "sentence": "  " + _R2_ACQ.upper() + " ", "chunk_index": 2}
+    c = {"category": "platform", "sentence": _R2_ACQ, "chunk_index": 2}
+    assert priorities._r2_dedup([a, b, c]) == [a, c]
+
+
+def test_r2_extract_llm_end_to_end_with_fake_call(monkeypatch):
+    """Two chunks by a small chunk size; a fake `call` (stated seam, no API)
+    answers every chunk with the same four candidates: one passes, one is
+    negated, one is ROFN deal history, one is not verbatim. Cross-chunk
+    duplicates collapse to one survivor; counters account for every line."""
+    from biointel import config as _config
+
+    monkeypatch.setattr(priorities, "R2_CHUNK_CHARS", 500)
+    monkeypatch.setattr(priorities, "R2_CHUNK_OVERLAP", 50)
+    monkeypatch.setattr(_config, "R2_MODEL", "fake-model")
+    seen_prompts: list[str] = []
+
+    def fake_call(prompt, model, max_tokens):
+        seen_prompts.append(prompt)
+        assert model == "fake-model" and max_tokens == _config.R2_MAX_TOKENS
+        return (
+            "PRIORITY: pipeline_gap || " + _R2_ACQ + "\n"
+            "PRIORITY: pipeline_gap || " + _R2_NEG + "\n"
+            "PRIORITY: pipeline_gap || " + _R2_KNIGHT + "\n"
+            "PRIORITY: platform || We paraphrase this sentence so it is not in the chunk at all.\n"
+        )
+
+    doc = _AKORN[: _AKORN.index("PART I Item 1. Business")] + "PART I Item 1. Business " + _R2_BODY + " Item 1A. Risk Factors " + "risk " * 50
+    res = priorities.extract_priorities_llm(doc, "10k_strategy", "Akorn", "CIK:3116", "2015-03-02", call=fake_call)
+    assert res["sliced"] is True
+    assert res["chunks"] >= 2 and res["calls"] == res["chunks"] == len(seen_prompts)
+    assert res["api_failures"] == 0
+    assert res["candidates"] == 4 * res["chunks"]
+    assert res["deduped"] == 4 * (res["chunks"] - 1)
+    assert res["refused"] == {"negation": 1, "right-of-first-negotiation": 1, "span-not-verbatim": 1}
+    assert [s["statement"] for s in res["survivors"]] == [_R2_ACQ]
+    s = res["survivors"][0]
+    assert s["extractor_version"] == "R2-v1" and s["model_id"] == "fake-model" and s["section"] == "Item 1"
+    assert s["chunk_index"] == 1 and set(s) | {"entity_key", "stated_at", "doc_id"} == set(schema.STATED_PRIORITY_R2_COLS)
+    assert "Akorn (CIK:3116)" in seen_prompts[0] and "chunk 1 of" in seen_prompts[0]
+
+
+def test_r2_extract_llm_unsliceable_doc_makes_no_call_and_failure_counts():
+    calls = []
+    res = priorities.extract_priorities_llm("no item one here at all", "10k_strategy", "X", "CIK:1", "2020-01-01", call=lambda *a: calls.append(a))
+    assert res["sliced"] is False and res["calls"] == 0 and calls == [] and res["survivors"] == []
+    res2 = priorities.extract_priorities_llm("Text. " * 40, "investor_day", "X", "CIK:1", "2020-01-01", call=lambda *a: None)
+    assert res2["calls"] == 1 and res2["api_failures"] == 1 and res2["survivors"] == []
+
+
+def test_r2_config_defaults_off_and_schema_table_declared():
+    from biointel import config as _config
+
+    assert _config.R2_ENABLED is False and _config.R2_CALL_CAP == 400 and _config.R2_MAX_TOKENS == 1500
+    assert schema.SCHEMA_VERSION == "0.22"
+    t = schema.TABLE_BY_PATH["silver/stated_priorities_r2.csv"]
+    assert t.columns == schema.STATED_PRIORITY_R2_COLS and t.enums["category"] == schema.PRIORITY_CATEGORIES
+    from pathlib import Path
+
+    assert (Path(priorities.__file__).parent / "prompts" / "extract_priority_v1.txt").read_text(encoding="utf-8").count("{chunk}") == 1

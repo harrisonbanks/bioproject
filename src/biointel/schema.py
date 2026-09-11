@@ -61,7 +61,7 @@ SCORE_ACQUIRER_SIDE_MARKETCAP = 7.5e10
 SCORE_TARGET_CAP_BAND = (3e8, 4e10)
 FEATURES_FINANCIALS_STALENESS_DAYS = 400
 
-SCHEMA_VERSION = "0.21"  # bumped when TABLES or a table declaration changes
+SCHEMA_VERSION = "0.22"  # bumped when TABLES or a table declaration changes
 
 # ---------------------------------------------------------------- ontology
 # Entity types (Ontology §3.1, §3.1a). `listed` and `has_prices` are the
@@ -589,6 +589,14 @@ STATED_PRIORITY_OVERFLOW_COLS = (
     "entity_key", "stated_at", "category", "statement", "rule_version",
 )
 PRIORITY_SOURCE_TYPES = ("earnings_call", "10k_strategy", "investor_day")
+# R2 holistic pass (gate R2-1, 2026-09-11): LLM-read candidates that survived
+# the deterministic validators land here, never in stated_priorities; every
+# row carries its verbatim span plus extractor/model/chunk provenance so the
+# blind head-to-head against the frozen p2 baseline is auditable per row.
+STATED_PRIORITY_R2_COLS = (
+    "entity_key", "stated_at", "category", "statement", "doc_id", "span",
+    "source_type", "section", "extractor_version", "model_id", "chunk_index",
+)
 # Expert-hypothesis store (decisions of record: docs/20260903_v1_Hypothesis_
 # Store_Decisions.md). One table holds past and future entries alike; they
 # differ only in `as_of`, which is the ARTIFACT date when one exists and the
@@ -1136,6 +1144,14 @@ TABLES: tuple[Table, ...] = (
         "priorities write (F2 p2, piece 4)",
         # no key: multiple runner-ups per (entity, date, category, version)
         types={"stated_at": "date"},
+    ),
+    Table(
+        "silver/stated_priorities_r2.csv",
+        STATED_PRIORITY_R2_COLS,
+        "priorities r2-trial (R2-1)",
+        key=("entity_key", "stated_at", "category", "statement", "extractor_version"),
+        types={"stated_at": "date", "category": "enum"},
+        enums={"category": PRIORITY_CATEGORIES},
     ),
     Table(
         "silver/stated_priorities.csv",

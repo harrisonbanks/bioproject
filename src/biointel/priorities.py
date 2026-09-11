@@ -2272,6 +2272,176 @@ def judge_batch(path: str | None = None, pattern: str | None = None, con=None) -
     return 0
 
 
+# ---------------------------------------------------------------- R2: holistic extraction pass (gate R2-1, 2026-09-11)
+# Roadmap 5848d95 R2: an LLM reads the whole Item 1 (chunked) against the
+# priority schema and the precedent rulebook and emits candidates WITH
+# verbatim spans; deterministic validators built from the ruled machinery
+# (span locate, negation guard, cluster validator, category enum) refuse or
+# relabel before anything is written. The p2 extractor above is untouched;
+# R2 rows live in stated_priorities_r2 and never in stated_priorities.
+R2_PROMPT_VERSION = "extract_priority_v1"
+R2_EXTRACTOR_VERSION = "R2-v1"
+R2_CHUNK_CHARS = 20_000  # input cap per call (disclosed in scope)
+R2_CHUNK_OVERLAP = 1_000  # tail of chunk i re-read at the head of chunk i+1
+R2_MAX_CANDIDATES = 12  # per chunk; the reply cap makes more than this unparseable anyway
+_R2_LINE_RX = re.compile(r"^\s*PRIORITY:\s*([a-z_]+)\s*\|\|\s*(.+?)\s*$", re.IGNORECASE)
+
+
+def _chunk_item1(body: str, size: int | None = None, overlap: int | None = None) -> list[str]:
+    """Chunks of at most `size` chars, cut at the last sentence terminator
+    inside the window, with `overlap` chars of the previous tail re-read at
+    the head of the next chunk so a sentence split by the cut is seen whole
+    at least once. Cross-chunk duplicates are removed by _r2_dedup."""
+    size = int(size or R2_CHUNK_CHARS)
+    overlap = int(overlap or R2_CHUNK_OVERLAP)
+    if not body:
+        return []
+    if len(body) <= size:
+        return [body]
+    out: list[str] = []
+    pos = 0
+    while pos < len(body):
+        end = min(pos + size, len(body))
+        if end < len(body):
+            last = None
+            for m in _SENTENCE_BREAK_RX.finditer(body, pos + size // 2, end):
+                last = m
+            if last is not None:
+                end = last.end()
+        out.append(body[pos:end])
+        if end >= len(body):
+            break
+        pos = max(end - overlap, pos + 1)
+    return out
+
+
+def _r2_prompt(chunk: str, company: str, entity_key: str, stated_at: str, idx: int, total: int) -> str:
+    tpl = (Path(__file__).parent / "prompts" / f"{R2_PROMPT_VERSION}.txt").read_text(encoding="utf-8")
+    return (
+        tpl.replace("{company}", company).replace("{entity_key}", entity_key)
+        .replace("{stated_at}", stated_at).replace("{chunk_index}", str(idx))
+        .replace("{chunk_total}", str(total)).replace("{max_candidates}", str(R2_MAX_CANDIDATES))
+        .replace("{chunk}", chunk)
+    )
+
+
+def _parse_r2_reply(reply: str | None) -> list[dict]:
+    """PRIORITY lines to {category, sentence}; NONE, malformed lines, and
+    empty replies yield nothing (a degraded call records no candidate)."""
+    if not reply:
+        return []
+    out: list[dict] = []
+    for line in reply.splitlines():
+        m = _R2_LINE_RX.match(line)
+        if not m:
+            continue
+        sent = " ".join(m.group(2).split())
+        if len(sent) < 20:
+            continue
+        out.append({"category": m.group(1).lower(), "sentence": sent[:500]})
+        if len(out) >= R2_MAX_CANDIDATES:
+            break
+    return out
+
+
+def _r2_validate(cand: dict, body: str) -> tuple[str | None, str]:
+    """(category_to_write, reason). category None = refused; reason names the
+    refusing branch (or "relabel:<from>" / "pass") so per-branch counters
+    print honestly. Order: enum, verbatim locate, negation, cluster rules."""
+    from biointel import schema as _schema
+
+    cat = str(cand["category"])
+    sent = str(cand["sentence"])
+    if cat not in _schema.PRIORITY_CATEGORIES:
+        return None, "category-enum"
+    if _locate_sentence(body, sent) < 0 or body.find(sent) < 0:
+        return None, "span-not-verbatim"
+    if _NEGATION_RX.search(sent):
+        return None, "negation"
+    hit = _validate_cluster(sent, cat)
+    if hit is None:
+        return cat, "pass"
+    suffix, verdict, relabel = hit
+    if verdict == "wrong":
+        if relabel:
+            return relabel, f"relabel:{suffix}"
+        return None, suffix
+    return cat, "pass"
+
+
+def _r2_dedup(cands: list[dict]) -> list[dict]:
+    """One candidate per (category, whitespace-normalized lower-cased
+    sentence), first occurrence wins — the p2 dedup key, applied across
+    chunks so the overlap window cannot double-write a sentence."""
+    seen: set[tuple[str, str]] = set()
+    out: list[dict] = []
+    for c in cands:
+        k = (str(c["category"]), " ".join(str(c["sentence"]).lower().split()))
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(c)
+    return out
+
+
+def extract_priorities_llm(
+    text: str, source_type: str, company: str, entity_key: str, stated_at: str,
+    model: str | None = None, call=None, max_tokens: int | None = None,
+) -> dict:
+    """R2 pass over one document. Returns counters plus `survivors`, each a
+    row for stated_priorities_r2 minus entity/date (the caller stamps them).
+    `call` defaults to assist._call_api (env-only key; None on failure); tests
+    monkeypatch it and say so. A document the slicer refuses yields nothing."""
+    from biointel import assist as _assist
+    from biointel import config as _config
+
+    call = call or _assist._call_api
+    model = model or str(getattr(_config, "R2_MODEL", "claude-haiku-4-5"))
+    max_tokens = int(max_tokens or getattr(_config, "R2_MAX_TOKENS", 1500))
+    if source_type == "10k_strategy":
+        body, section = item1_slice(text), "Item 1"
+    else:
+        body, section = text, "exhibit"
+    res: dict = {
+        "sliced": bool(body), "chunks": 0, "calls": 0, "api_failures": 0,
+        "candidates": 0, "deduped": 0, "refused": {}, "relabeled": 0, "survivors": [],
+    }
+    if not body:
+        return res
+    chunks = _chunk_item1(body)
+    res["chunks"] = len(chunks)
+    raw: list[dict] = []
+    for i, ch in enumerate(chunks, 1):
+        res["calls"] += 1
+        reply = call(_r2_prompt(ch, company, entity_key, stated_at, i, len(chunks)), model, max_tokens)
+        if reply is None:
+            res["api_failures"] += 1
+            continue
+        for c in _parse_r2_reply(reply):
+            c["chunk_index"] = i
+            raw.append(c)
+    res["candidates"] = len(raw)
+    cands = _r2_dedup(raw)
+    res["deduped"] = len(raw) - len(cands)
+    for c in cands:
+        cat, reason = _r2_validate(c, body)
+        if cat is None:
+            res["refused"][reason] = res["refused"].get(reason, 0) + 1
+            continue
+        if reason.startswith("relabel:"):
+            res["relabeled"] += 1
+        res["survivors"].append({
+            "category": cat, "statement": c["sentence"], "span": c["sentence"][:500],
+            "source_type": source_type, "section": section,
+            "extractor_version": R2_EXTRACTOR_VERSION, "model_id": model,
+            "chunk_index": int(c["chunk_index"]),
+        })
+    res["survivors"] = _r2_dedup([dict(s, sentence=s["statement"]) for s in res["survivors"]])
+    for s in res["survivors"]:
+        s.pop("sentence", None)
+    return res
+
+
 def cli(argv: list[str]) -> int:
     if argv and argv[0] == "probe":
         return probe()
