@@ -1422,3 +1422,223 @@ def test_r2_config_defaults_off_and_schema_table_declared():
     from pathlib import Path
 
     assert (Path(priorities.__file__).parent / "prompts" / "extract_priority_v1.txt").read_text(encoding="utf-8").count("{chunk}") == 1
+
+
+# ---------------------------------------------------------------- R2-2 trial, verdicts, head-to-head (gate R2-2, 2026-09-11)
+# Every test passes a fake `call` (stated seam: no API). The world is the
+# collect fixture above: two 10-Ks whose Item 1 holds the Akorn sentence.
+_R2W_ACQ = "We seek to acquire businesses assets and products."
+_R2W_NEW = "Harness filler prose clearing the round-3 five-hundred-character stub floor."
+
+
+def _r2_world(monkeypatch, tmp_path, capsys):
+    from biointel import config as _config
+
+    p, _f, _u = _collect_world(monkeypatch, tmp_path)
+    assert p.collect(tier="10k_strategy") == 0
+    assert p.write() == 0
+    capsys.readouterr()
+    monkeypatch.setattr(_config, "R2_ENABLED", True)
+    monkeypatch.setattr(_config, "R2_MODEL", "fake-model")
+    return p
+
+
+def _r2_reply(prompt, model, max_tokens):
+    return "PRIORITY: pipeline_gap || " + _R2W_ACQ + "\nPRIORITY: platform || " + _R2W_NEW + "\n"
+
+
+def test_r2_trial_refuses_when_disabled_and_makes_no_call(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import config as _config
+    from biointel import store as _store
+
+    p = _r2_world(monkeypatch, tmp_path, capsys)
+    monkeypatch.setattr(_config, "R2_ENABLED", False)
+    calls = []
+    assert p.r2_trial(2, seed=1, call=lambda *a: calls.append(a)) == 1
+    assert calls == [] and not _store.has_table("stated_priorities_r2")
+    assert "r2 disabled" in capsys.readouterr().out
+
+
+def test_r2_trial_population_equals_p2_write_population(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import store as _store
+
+    p = _r2_world(monkeypatch, tmp_path, capsys)
+    docs = p._r2_docs(_store.connect())
+    p2_docs = {p._r2_unit(r) for r in _store.read_table("stated_priorities")}
+    assert {(d["entity_key"], d["stated_at"], d["doc_id"]) for d in docs} == p2_docs and len(docs) == 2
+    assert all(d["entity_key"] == "CIK:100" and d["company"] == "N1" for d in docs)
+
+
+def test_r2_trial_plan_before_first_call_gauge_ledger_and_rows(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import store as _store
+
+    p = _r2_world(monkeypatch, tmp_path, capsys)
+    seen: list[bool] = []
+
+    def call(prompt, model, max_tokens):
+        seen.append("R2-TRIAL PLAN" in capsys.readouterr().out if not seen else True)
+        return _r2_reply(prompt, model, max_tokens)
+
+    assert p.r2_trial(2, seed=7, call=call) == 0
+    out = capsys.readouterr().out
+    assert seen[0] is True  # the section-5 line printed before the first call
+    assert "R2-GAUGE docs 2/2 calls 2/400" in out and "R2-TRIAL docs 2 chunks 2 calls 2 api_failures 0" in out
+    assert "survivors 4" in out and "docs_with_rows 2" in out
+    rows = _store.read_table("stated_priorities_r2")
+    assert len(rows) == 4 and {r["statement"] for r in rows} == {_R2W_ACQ, _R2W_NEW}
+    assert all(r["extractor_version"] == "R2-v1" and r["model_id"] == "fake-model" and r["entity_key"] == "CIK:100" for r in rows)
+    assert {p._r2_unit(r) for r in rows} == {p._r2_unit(r) for r in _store.read_table("stated_priorities")}
+    runs = [r for r in _store.read_table("runs") if str(r.get("model")) == "priorities-r2-trial"]
+    assert len(runs) == 1
+
+
+def test_r2_trial_cap_stops_before_the_document_that_would_exceed_it(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import config as _config
+    from biointel import store as _store
+
+    p = _r2_world(monkeypatch, tmp_path, capsys)
+    monkeypatch.setattr(_config, "R2_CALL_CAP", 1)
+    calls = []
+
+    def call(prompt, model, max_tokens):
+        calls.append(1)
+        return _r2_reply(prompt, model, max_tokens)
+
+    assert p.r2_trial(2, seed=7, call=call) == 0
+    out = capsys.readouterr().out
+    assert len(calls) == 1 and "capped 1" in out and "cap 1" in out
+    assert len({p._r2_unit(r) for r in _store.read_table("stated_priorities_r2")}) == 1
+
+
+def test_r2_trial_merge_write_is_idempotent_and_keeps_other_documents(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    p = _r2_world(monkeypatch, tmp_path, capsys)
+    other = dict.fromkeys(_schema.STATED_PRIORITY_R2_COLS, "")
+    other.update({"entity_key": "CIK:999", "stated_at": "2019-01-01", "category": "platform", "statement": "Other document row.",
+                  "doc_id": "otherdoc", "span": "Other document row.", "source_type": "10k_strategy", "section": "Item 1",
+                  "extractor_version": "R2-v1", "model_id": "fake-model", "chunk_index": "1"})
+    _store.write_table("stated_priorities_r2", [other], list(_schema.STATED_PRIORITY_R2_COLS))
+    assert p.r2_trial(2, seed=7, call=_r2_reply) == 0
+    assert p.r2_trial(2, seed=7, call=_r2_reply) == 0  # re-run: same rows, no duplicates
+    rows = _store.read_table("stated_priorities_r2")
+    assert len(rows) == 5 and sum(1 for r in rows if str(r["doc_id"]) == "otherdoc") == 1
+    capsys.readouterr()
+
+
+def test_r2_judge_writes_reviews_only_and_both_tables_are_untouched(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import store as _store
+
+    p = _r2_world(monkeypatch, tmp_path, capsys)
+    assert p.r2_trial(2, seed=7, call=_r2_reply) == 0
+    before_p2 = _store.read_table("stated_priorities")
+    before_r2 = _store.read_table("stated_priorities_r2")
+    key = p._r2_key(before_r2[0])
+    assert key.startswith("R") and len(key) == 17
+    assert p.r2_judge(key, "wrong", note="test") == 0
+    assert p.r2_judge("R0000000000000000", "correct") == 1
+    assert p.r2_judge(key, "maybe") == 1
+    assert _store.read_table("stated_priorities") == before_p2
+    assert _store.read_table("stated_priorities_r2") == before_r2
+    rv = [r for r in _store.read_table("candidate_reviews") if str(r["candidate_id"]) == key]
+    assert len(rv) == 1 and rv[0]["verdict"] == "wrong" and str(rv[0]["note"]).startswith("r2:test")
+    assert rv[0]["rule_version"] == p.RULE_VERSION_F2 and rv[0]["reviewer"] == "operator"
+    # an S-key for the same (entity, date, category) triple is never touched
+    s_keys = {p._row_key(r) for r in before_p2}
+    assert not any(str(r["candidate_id"]) in s_keys for r in _store.read_table("candidate_reviews"))
+    capsys.readouterr()
+
+
+def test_r2_verdict_three_outcomes_and_regression():
+    from biointel.priorities import _r2_verdict as v
+
+    assert v(0, 0, 0) == "NO-VERDICTS"
+    assert v(50, 50, 0) == "PASS" and v(12, 13, 0) == "PASS"  # at or above p2's point with lo not below p2's lo
+    assert v(45, 50, 0) == "OPERATOR-JUDGMENT"  # 0.900: lo above p2's, point below p2's
+    assert v(11, 13, 0) == "FAIL" and v(2, 2, 0) == "FAIL"  # lo below p2's 0.667
+    assert v(50, 50, 1) == "FAIL"  # any recall regression on rows not judged wrong at p2
+
+
+def test_r2_compare_counts_worksheet_and_acceptance_line(f2db, monkeypatch, tmp_path, capsys):
+    import csv
+
+    from biointel import config as _config
+    from biointel import store as _store
+
+    p = _r2_world(monkeypatch, tmp_path, capsys)
+    assert p.r2_trial(2, seed=7, call=_r2_reply) == 0
+    capsys.readouterr()
+    assert p.r2_compare(60, seed=3) == 0
+    out = capsys.readouterr().out
+    # p2 wrote one pipeline_gap row per doc whose statement carries lookback text ahead of the Akorn
+    # sentence ("Risk Factors 12 ITEM 1 BUSINESS We seek ..."); R2 emitted the bare sentence plus one
+    # platform row per doc, so the pairing is by containment, not exact
+    assert "R2-COMPARE docs 2 p2_rows 2 r2_rows 4 overlap 2 (exact 0 contained 2) r2_only 2 p2_only 0" in out
+    assert "R2-P2ONLY" not in out
+    assert "R2-WORKSHEET 2 rows" in out and "-> NO-VERDICTS" in out
+    ws = _config.EXPORTS / "priorities_r2_worksheet.csv"
+    with open(ws, newline="", encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 2 and all(r["key"].startswith("R") and r["sentence"] == _R2W_NEW and r["verdict"] == "" for r in rows)
+    # judge through the worksheet path: candidate_reviews only, R-keys, no table writes
+    before_p2 = _store.read_table("stated_priorities")
+    for r in rows:
+        r["verdict"] = "correct"
+    with open(ws, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
+    assert p.judge_batch(str(ws), r2=True) == 0
+    out2 = capsys.readouterr().out
+    assert "JUDGE-BATCH recorded 2 retired 0" in out2
+    assert _store.read_table("stated_priorities") == before_p2
+    assert p.r2_compare(60, seed=3) == 0
+    out3 = capsys.readouterr().out
+    assert "R2-WORKSHEET 0 rows" in out3
+    assert "r2_only_precision 2/2 = 1.000" in out3 and "-> FAIL" in out3  # two verdicts: lo 0.342 < 0.667, thin by construction
+
+
+def test_r2_compare_p2_only_split_judged_wrong_vs_not(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    p = _r2_world(monkeypatch, tmp_path, capsys)
+    # R2 finds nothing on either doc: every p2 row becomes p2-only
+    assert p.r2_trial(2, seed=7, call=lambda *a: "NONE") == 0
+    # R2 must still have written rows for compare to know the trial docs; give it one row per doc under a different sentence
+    p2 = _store.read_table("stated_priorities")
+    assert len(p2) == 2
+    cols = list(_schema.STATED_PRIORITY_R2_COLS)
+    r2rows = []
+    for r in p2:
+        x = dict.fromkeys(cols, "")
+        x.update({"entity_key": r["entity_key"], "stated_at": str(r["stated_at"])[:10], "category": "platform",
+                  "statement": _R2W_NEW, "doc_id": r["doc_id"], "span": _R2W_NEW, "source_type": "10k_strategy",
+                  "section": "Item 1", "extractor_version": "R2-v1", "model_id": "fake-model", "chunk_index": "1"})
+        r2rows.append(x)
+    _store.write_table("stated_priorities_r2", r2rows, cols)
+    # one p2 row judged wrong at p2 (review row appended directly so the p2 table keeps the row for this test)
+    rv = dict.fromkeys(_schema.CANDIDATE_REVIEW_COLS, "")
+    rv.update({"review_id": "x-v1", "candidate_id": p._row_key(p2[0]), "rule_version": p.RULE_VERSION_F2,
+               "verdict": "wrong", "reviewer": "operator", "note": "", "reviewed_at": "2026-09-11T00:00:00+00:00"})
+    _store.append_rows("candidate_reviews", [rv], list(_schema.CANDIDATE_REVIEW_COLS))
+    capsys.readouterr()
+    assert p.r2_compare(60, seed=3) == 0
+    out = capsys.readouterr().out
+    assert "overlap 0 (exact 0 contained 0) r2_only 2 p2_only 2" in out
+    assert "R2-P2ONLY pipeline_gap judged_wrong 1 not_judged_wrong 1" in out
+    assert "regression_not_judged_wrong 1" in out
+
+
+def test_r2_cli_branches_dispatch(monkeypatch, capsys):
+    called = []
+    monkeypatch.setattr(priorities, "r2_trial", lambda n, seed=None: called.append(("trial", n, seed)) or 0)
+    monkeypatch.setattr(priorities, "r2_compare", lambda n, seed=None: called.append(("compare", n, seed)) or 0)
+    monkeypatch.setattr(priorities, "r2_judge", lambda k, v, note="": called.append(("judge", k, v, note)) or 0)
+    monkeypatch.setattr(priorities, "judge_batch", lambda pp, pattern=None, r2=False: called.append(("batch", pp, pattern, r2)) or 0)
+    assert priorities.cli(["r2-trial", "30", "--seed", "5"]) == 0
+    assert priorities.cli(["r2-compare"]) == 0
+    assert priorities.cli(["r2-judge", "Rabc", "correct", "--note", "n"]) == 0
+    assert priorities.cli(["judge-batch", "--r2"]) == 0
+    assert called == [("trial", 30, 5), ("compare", 60, None), ("judge", "Rabc", "correct", "n"), ("batch", None, None, True)]

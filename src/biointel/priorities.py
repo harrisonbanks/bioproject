@@ -2209,7 +2209,7 @@ def worksheet(n: int = 60, tier: str | None = None, seed: int | None = None, con
     return 0
 
 
-def judge_batch(path: str | None = None, pattern: str | None = None, con=None) -> int:
+def judge_batch(path: str | None = None, pattern: str | None = None, con=None, r2: bool = False) -> int:
     """Ingest the edited worksheet CSV: every row whose `verdict` column
     holds correct|wrong|unsure is recorded through the same judge() path
     (wrong retires the row immediately); blanks and unknown values are
@@ -2217,12 +2217,14 @@ def judge_batch(path: str | None = None, pattern: str | None = None, con=None) -
     CLUSTER_ID (operator ruling 2026-09-09, "The judging surface"), every
     verdict is a PATTERN ruling: reviewer="operator-pattern" and the note
     carries the cluster id, so provenance and precision keep pattern
-    verdicts separate from row-by-row ones."""
+    verdicts separate from row-by-row ones. With r2=True (gate R2-2) the
+    worksheet holds R-keys and every verdict records through r2_judge:
+    candidate_reviews only, zero writes to either priorities table."""
     import csv
 
     con = con or store.connect()
     reviewer = "operator-pattern" if pattern else "operator"
-    p = Path(path) if path else (config.EXPORTS / "priorities_worksheet.csv")
+    p = Path(path) if path else (config.EXPORTS / ("priorities_r2_worksheet.csv" if r2 else "priorities_worksheet.csv"))
     if not p.exists():
         print(f"no worksheet at {p}")
         return 1
@@ -2251,19 +2253,22 @@ def judge_batch(path: str | None = None, pattern: str | None = None, con=None) -
             if key in judged_already:
                 counters["already"] += 1
                 continue
-            rc = judge(
-                key, v,
-                note=((f"cluster:{pattern};" if pattern else "") + str(row.get("note") or ""))[:300],
-                relabel=str(row.get("relabel") or "").strip().lower(),
-                reviewer=reviewer,
-                con=con,
-            )
+            if r2:
+                rc = r2_judge(key, v, note=str(row.get("note") or ""), con=con)
+            else:
+                rc = judge(
+                    key, v,
+                    note=((f"cluster:{pattern};" if pattern else "") + str(row.get("note") or ""))[:300],
+                    relabel=str(row.get("relabel") or "").strip().lower(),
+                    reviewer=reviewer,
+                    con=con,
+                )
             if rc != 0:
                 counters["unknown_key"] += 1
                 continue
             judged_already.add(key)
             counters["recorded"] += 1
-            if v == "wrong":
+            if v == "wrong" and not r2:
                 if str(row.get("relabel") or "").strip():
                     counters["relabeled"] = counters.get("relabeled", 0) + 1
                 else:
@@ -2442,6 +2447,326 @@ def extract_priorities_llm(
     return res
 
 
+# ---------------------------------------------------------------- R2-2: trial, verdicts, head-to-head (gate R2-2, 2026-09-11)
+R2_TRIAL_DOCS = 120
+R2_WORKSHEET_N = 60
+R2_ANCHOR_HAIKU = 1.51  # $ per 1,000 calls, S5 cost-ledger errata (Sep 10 Console)
+R2_ANCHOR_SONNET = 5.24  # $ per 1,000 calls, S5 cost-ledger errata (Sep 10 Console)
+R2_P2_BASELINE = (12, 13)  # p2 10k_strategy operator precision, PROJECT_STATUS v1.28 (0.923, wilson 0.667-0.986)
+
+
+def _r2_key(r: dict) -> str:
+    """Key of a stated_priorities_r2 row: R + sha256(entity|date|category|statement).
+    Distinct from S-keys by prefix and by carrying the statement, so an r2
+    verdict can never collide with a p2 key sharing the (entity, date,
+    category) triple (reviewer amendment, 2026-09-11)."""
+    import hashlib as _h
+
+    return "R" + _h.sha256(
+        f"{r['entity_key']}|{str(r['stated_at'])[:10]}|{r['category']}|{r['statement']}".encode()
+    ).hexdigest()[:16]
+
+
+def _r2_norm(sent: str) -> str:
+    return " ".join(str(sent).lower().split())
+
+
+def _r2_docs(con) -> list[dict]:
+    """The trial population: exactly the rows `write` iterates for the
+    10k_strategy tier (captured-by-TOOL references with a parseable cik and
+    file_date, an active capture, readable text) whose Item 1 the slicer
+    accepts. No date or type filter beyond p2's own."""
+    _by_url, by_ref = _capture_index(con)
+    names = {
+        f"CIK:{int(str(c['CIK']))}": str(c["Name"])
+        for c in store.read_table("companies", con=con)
+        if str(c.get("CIK") or "").strip().isdigit()
+    }
+    out: list[dict] = []
+    for r in store.read_table("references", con=con):
+        note = str(r.get("note") or "")
+        if f"captured by {TOOL}" not in note or "source_type=10k_strategy" not in note:
+            continue
+        cap = by_ref.get(str(r["ref_id"]))
+        m = re.search(r"cik=(\d+)", note)
+        d = re.search(r"file_date=(\d{4}-\d{2}-\d{2})", note)
+        if cap is None or not m or not d:
+            continue
+        text = _doc_text_of(cap)
+        if text is None or not item1_slice(text):
+            continue
+        entity = f"CIK:{int(m.group(1))}"
+        out.append({
+            "entity_key": entity, "stated_at": d.group(1), "doc_id": str(cap["capture_id"]),
+            "company": names.get(entity, entity), "text": text,
+        })
+    out.sort(key=lambda x: (x["entity_key"], x["stated_at"], x["doc_id"]))
+    return out
+
+
+def _r2_unit(r: dict) -> tuple[str, str, str]:
+    """The trial's document unit: (entity, filing date, capture). p2 iterates
+    references, and two references can share one capture (identical bytes),
+    so doc_id alone does not identify a p2 unit."""
+    return (str(r["entity_key"]), str(r["stated_at"])[:10], str(r["doc_id"]))
+
+
+def _r2_write_doc(rows: list[dict], unit: tuple[str, str, str], con) -> int:
+    """Merge-write one document's survivors: rows of THIS extractor version
+    and THIS unit are replaced; every other row is kept, so the trial is
+    interruption-safe and re-running a document is idempotent."""
+    from biointel import schema as _schema
+
+    cols = list(_schema.STATED_PRIORITY_R2_COLS)
+    kept = [
+        r for r in (
+            store.read_table("stated_priorities_r2", con=con)
+            if store.has_table("stated_priorities_r2", con)
+            else []
+        )
+        if not (str(r.get("extractor_version")) == R2_EXTRACTOR_VERSION and _r2_unit(r) == unit)
+    ]
+    return store.write_table("stated_priorities_r2", kept + rows, cols, con=con)
+
+
+def r2_trial(n_docs: int = R2_TRIAL_DOCS, seed: int | None = None, con=None, call=None) -> int:
+    """The paid trial (gate R2-2): a seeded sample of the p2 population, the
+    section-5 disclosure line BEFORE the first call, the cap enforced per
+    document, survivors merge-written per document, gauge every 10 docs,
+    measured pace at 25 calls, every counter in the run ledger."""
+    import random as _r
+    import time as _t
+
+    from biointel import config as _config
+
+    if not getattr(_config, "R2_ENABLED", False):
+        print("r2 disabled: set R2_ENABLED = True in this process to run the trial")
+        return 1
+    con = con or store.connect()
+    model = str(getattr(_config, "R2_MODEL", "claude-haiku-4-5"))
+    cap = int(getattr(_config, "R2_CALL_CAP", 400))
+    max_tokens = int(getattr(_config, "R2_MAX_TOKENS", 1500))
+    seed = seed if seed is not None else _dt_seed()
+    pool = _r2_docs(con)
+    _r.seed(seed)
+    _r.shuffle(pool)
+    docs = pool[:n_docs]
+    chunk_counts = [len(_chunk_item1(item1_slice(d["text"]))) for d in docs]
+    projected = sum(chunk_counts)
+    print(
+        f"R2-TRIAL PLAN seed {seed} population {len(pool)} docs {len(docs)} chunks {projected} "
+        f"projected_calls {min(projected, cap)} cap {cap} model {model} max_tokens {max_tokens} "
+        f"cost_at_cap haiku ${cap * R2_ANCHOR_HAIKU / 1000:.2f} sonnet ${cap * R2_ANCHOR_SONNET / 1000:.2f} "
+        f"(anchors: S5 cost-ledger errata); interruption-safe: survivors write per document",
+        flush=True,
+    )
+    tot = {"docs": 0, "chunks": 0, "calls": 0, "api_failures": 0, "candidates": 0, "deduped": 0,
+           "relabeled": 0, "survivors": 0, "docs_with_rows": 0, "capped": 0}
+    refused: dict[str, int] = {}
+    t0 = _t.monotonic()
+    paced = False
+    for i, (d, nchunks) in enumerate(zip(docs, chunk_counts), 1):
+        if tot["calls"] + nchunks > cap:
+            tot["capped"] += 1
+            continue
+        res = extract_priorities_llm(
+            d["text"], "10k_strategy", d["company"], d["entity_key"], d["stated_at"],
+            model=model, call=call, max_tokens=max_tokens,
+        )
+        for k in ("chunks", "calls", "api_failures", "candidates", "deduped", "relabeled"):
+            tot[k] += int(res[k])
+        for k, v in res["refused"].items():
+            refused[k] = refused.get(k, 0) + int(v)
+        rows = [dict(sv, entity_key=d["entity_key"], stated_at=d["stated_at"], doc_id=d["doc_id"]) for sv in res["survivors"]]
+        _r2_write_doc(rows, _r2_unit(d), con)
+        tot["docs"] += 1
+        tot["survivors"] += len(rows)
+        tot["docs_with_rows"] += 1 if rows else 0
+        if not paced and tot["calls"] >= 25:
+            el = _t.monotonic() - t0
+            print(f"R2-PACE {tot['calls']} calls in {el:.0f}s = {tot['calls'] / max(el, 1e-9) * 60:.1f} calls/min", flush=True)
+            paced = True
+        if i % 10 == 0 or i == len(docs):
+            print(
+                f"R2-GAUGE docs {tot['docs']}/{len(docs)} calls {tot['calls']}/{cap} "
+                f"api_failures {tot['api_failures']} survivors {tot['survivors']}",
+                flush=True,
+            )
+    runr = results.start(
+        "priorities-r2-trial", "priorities r2-trial", ["references", "captures", "stated_priorities_r2"],
+        {"rule_version": RULE_VERSION_F2, "extractor_version": R2_EXTRACTOR_VERSION,
+         "model": model, "seed": seed, "n_docs": n_docs, "cap": cap},
+    )
+    for k, v in tot.items():
+        runr.metric("_", k, v)
+    for k, v in refused.items():
+        runr.metric("refused", k, v)
+    run_id = results.finish(runr, note="R2 blind trial; survivors in stated_priorities_r2; verdicts via r2-judge")
+    print(
+        "R2-TRIAL " + " ".join(f"{k} {v}" for k, v in tot.items())
+        + " | refused " + (" ".join(f"{k} {v}" for k, v in sorted(refused.items())) or "none")
+    )
+    log.info(f"run {run_id} recorded")
+    return 0
+
+
+def r2_judge(key: str, verdict: str, note: str = "", con=None) -> int:
+    """Record an operator verdict on an r2 row: candidate_reviews ONLY
+    (candidate_id = R-key, rule_version = the frozen ruleset, note prefixed
+    r2:). Neither stated_priorities nor stated_priorities_r2 is written;
+    the head-to-head leaves both tables untouched by judging."""
+    from biointel import schema as _schema
+
+    con = con or store.connect()
+    if verdict not in ("correct", "wrong", "unsure"):
+        print(f"invalid verdict {verdict}")
+        return 1
+    rows = store.read_table("stated_priorities_r2", con=con) if store.has_table("stated_priorities_r2", con) else []
+    if not any(_r2_key(r) == key for r in rows):
+        print(f"no stated_priorities_r2 row with key {key}")
+        return 1
+    existing = store.read_table("candidate_reviews", con=con) if store.has_table("candidate_reviews", con) else []
+    seq = 1 + sum(1 for r in existing if str(r["candidate_id"]) == key)
+    row = {
+        "review_id": f"{key}-v{seq}", "candidate_id": key, "rule_version": RULE_VERSION_F2,
+        "verdict": verdict, "reviewer": "operator", "note": ("r2:" + note)[:300],
+        "reviewed_at": library._now(),
+    }
+    store.append_rows("candidate_reviews", [row], list(_schema.CANDIDATE_REVIEW_COLS), con=con)
+    print(f"R2-JUDGED {key} {verdict}")
+    return 0
+
+
+def _latest_verdicts(reviews: list[dict]) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for rv in sorted(reviews, key=lambda r: str(r["reviewed_at"])):
+        if str(rv.get("rule_version")) == RULE_VERSION_F2:
+            out[str(rv["candidate_id"])] = rv
+    return out
+
+
+def _r2_verdict(k: int, n_dec: int, regression: int) -> str:
+    """Amendment 1 (Wilson-bound, three outcomes) plus amendment 2 (recall
+    regression on rows not judged wrong at p2 fails): NO-VERDICTS until an
+    operator verdict exists; FAIL if the Wilson lower bound sits below p2's
+    or any regression; PASS if the point estimate reaches p2's; otherwise
+    OPERATOR-JUDGMENT."""
+    from biointel.efts import _wilson
+
+    if n_dec == 0:
+        return "NO-VERDICTS"
+    bk, bn = R2_P2_BASELINE
+    base_lo, base_pt = _wilson(bk, bn)[0], bk / bn
+    lo, _hi = _wilson(k, n_dec)
+    if regression > 0 or lo < base_lo:
+        return "FAIL"
+    if k / n_dec >= base_pt:
+        return "PASS"
+    return "OPERATOR-JUDGMENT"
+
+
+def r2_compare(n: int = R2_WORKSHEET_N, seed: int | None = None, con=None) -> int:
+    """Head-to-head on the trial's documents only. Pairs p2 and R2 rows by
+    (entity, date, category, normalized sentence); prints overlap / R2-only
+    / p2-only, p2-only per category split judged-wrong-at-p2 vs not
+    (amendment 2: only the latter is a regression); writes the <=n R2-only
+    unjudged worksheet; prints the acceptance line from OPERATOR verdicts
+    on R-keys only (amendment 1: Wilson-bound, three outcomes)."""
+    import csv
+    import random as _r
+
+    from biointel.efts import _wilson
+
+    con = con or store.connect()
+    seed = seed if seed is not None else _dt_seed()
+    r2 = [
+        r for r in (store.read_table("stated_priorities_r2", con=con) if store.has_table("stated_priorities_r2", con) else [])
+        if str(r.get("extractor_version")) == R2_EXTRACTOR_VERSION
+    ]
+    docs = {_r2_unit(r) for r in r2}
+    p2 = [r for r in store.read_table("stated_priorities", con=con) if _r2_unit(r) in docs]
+
+    def pk(r: dict) -> tuple:
+        return (str(r["entity_key"]), str(r["stated_at"])[:10], str(r["category"]), _r2_norm(r["statement"]))
+
+    p2_by = {pk(r): r for r in p2}
+    r2_by = {pk(r): r for r in r2}
+    exact = set(p2_by) & set(r2_by)
+    # containment pairing (design decision, gate R2-2): a p2 statement may
+    # carry sentence-start expansion text ahead of the priority sentence
+    # (the _capture_sentence lookback), while an R2 span is the bare sentence;
+    # within one (entity, date, category) the shorter normalized sentence
+    # contained in the longer pairs the two. Each row pairs at most once.
+    p2_left = {k for k in p2_by if k not in exact}
+    r2_left = {k for k in r2_by if k not in exact}
+    contained: list[tuple[tuple, tuple]] = []
+    for rk in sorted(r2_left):
+        for pkk in sorted(p2_left):
+            if rk[:3] == pkk[:3] and (rk[3] in pkk[3] or pkk[3] in rk[3]):
+                contained.append((pkk, rk))
+                p2_left.discard(pkk)
+                break
+    r2_left -= {rk for _pkk, rk in contained}
+    overlap = sorted(exact) + [pkk for pkk, _rk in contained]
+    r2_only = [r2_by[k] for k in sorted(r2_left)]
+    p2_only = [p2_by[k] for k in sorted(p2_left)]
+    reviews = store.read_table("candidate_reviews", con=con) if store.has_table("candidate_reviews", con) else []
+    latest = _latest_verdicts(reviews)
+    p2_only_cat: dict[str, dict[str, int]] = {}
+    regression = 0
+    for r in p2_only:
+        v = latest.get(_row_key(r))
+        judged_wrong = bool(v and str(v["verdict"]) == "wrong")
+        c = p2_only_cat.setdefault(str(r["category"]), {"judged_wrong": 0, "not_judged_wrong": 0})
+        c["judged_wrong" if judged_wrong else "not_judged_wrong"] += 1
+        regression += 0 if judged_wrong else 1
+    print(
+        f"R2-COMPARE docs {len(docs)} p2_rows {len(p2)} r2_rows {len(r2)} overlap {len(overlap)} "
+        f"(exact {len(exact)} contained {len(contained)}) r2_only {len(r2_only)} p2_only {len(p2_only)}"
+    )
+    for cat in sorted(p2_only_cat):
+        c = p2_only_cat[cat]
+        print(f"R2-P2ONLY {cat} judged_wrong {c['judged_wrong']} not_judged_wrong {c['not_judged_wrong']}")
+    # worksheet of unjudged R2-only rows
+    unjudged = [r for r in r2_only if _r2_key(r) not in latest]
+    _r.seed(seed)
+    _r.shuffle(unjudged)
+    names = {
+        f"CIK:{int(str(c['CIK']))}": str(c["Name"])
+        for c in store.read_table("companies", con=con)
+        if str(c.get("CIK") or "").strip().isdigit()
+    }
+    out_path = config.EXPORTS / "priorities_r2_worksheet.csv"
+    config.EXPORTS.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f)
+        w.writerow(["key", "verdict", "ai_reason", "company", "date", "category", "sentence", "doc_url", "note"])
+        for r in unjudged[:n]:
+            w.writerow([_r2_key(r), "", f"r2 {R2_EXTRACTOR_VERSION} {r.get('model_id', '')} chunk {r.get('chunk_index', '')}",
+                        names.get(str(r["entity_key"]), str(r["entity_key"])), str(r["stated_at"])[:10],
+                        str(r["category"]), str(r["statement"])[:400], "", ""])
+    print(f"R2-WORKSHEET {min(len(unjudged), n)} rows (seed {seed}; unjudged R2-only {len(unjudged)}) -> {out_path}; judge with: priorities judge-batch --r2")
+    # acceptance from operator verdicts on R-keys of THIS trial only
+    keys = {_r2_key(r) for r in r2_only}
+    k = n_dec = unsure = 0
+    for key, v in latest.items():
+        if key in keys and str(v.get("reviewer")) == "operator":
+            vd = str(v["verdict"])
+            if vd == "unsure":
+                unsure += 1
+            else:
+                n_dec += 1
+                k += 1 if vd == "correct" else 0
+    lo, hi = _wilson(k, n_dec) if n_dec else (0.0, 0.0)
+    pt = k / n_dec if n_dec else 0.0
+    verdict = _r2_verdict(k, n_dec, regression)
+    print(
+        f"R2-ACCEPTANCE r2_only_precision {k}/{n_dec} = {pt:.3f} (wilson {lo:.3f}-{hi:.3f}; unsure {unsure}) "
+        f"regression_not_judged_wrong {regression} baseline {R2_P2_BASELINE[0]}/{R2_P2_BASELINE[1]} -> {verdict}"
+    )
+    return 0
+
+
 def cli(argv: list[str]) -> int:
     if argv and argv[0] == "probe":
         return probe()
@@ -2492,7 +2817,7 @@ def cli(argv: list[str]) -> int:
     if argv and argv[0] == "judge-batch":
         pp = argv[1] if len(argv) > 1 and not argv[1].startswith("--") else None
         pat = argv[argv.index("--pattern") + 1] if "--pattern" in argv else None
-        return judge_batch(pp, pattern=pat)
+        return judge_batch(pp, pattern=pat, r2=("--r2" in argv))
     if argv and argv[0] == "collect":
         kw: dict = {}
         if "--tier" in argv:
@@ -2504,5 +2829,16 @@ def cli(argv: list[str]) -> int:
         if "--limit" in argv:
             kw["limit"] = int(argv[argv.index("--limit") + 1])
         return collect(**kw)
+    if argv and argv[0] == "r2-trial":
+        nn = next((int(a) for a in argv[1:] if a.isdigit()), R2_TRIAL_DOCS)
+        ss = int(argv[argv.index("--seed") + 1]) if "--seed" in argv else None
+        return r2_trial(nn, seed=ss)
+    if argv and argv[0] == "r2-compare":
+        nn = next((int(a) for a in argv[1:] if a.isdigit()), R2_WORKSHEET_N)
+        ss = int(argv[argv.index("--seed") + 1]) if "--seed" in argv else None
+        return r2_compare(nn, seed=ss)
+    if argv and argv[0] == "r2-judge" and len(argv) >= 3:
+        nt = argv[argv.index("--note") + 1] if "--note" in argv else ""
+        return r2_judge(argv[1], argv[2], note=nt)
     print("usage: priorities probe|probe-calls|collect [...]|sample-misses [N]|reextract")
     return 1
