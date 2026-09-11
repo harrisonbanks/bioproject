@@ -1557,7 +1557,9 @@ def test_r2_verdict_three_outcomes_and_regression():
     assert v(50, 50, 0) == "PASS" and v(12, 13, 0) == "PASS"  # at or above p2's point with lo not below p2's lo
     assert v(45, 50, 0) == "OPERATOR-JUDGMENT"  # 0.900: lo above p2's, point below p2's
     assert v(11, 13, 0) == "FAIL" and v(2, 2, 0) == "FAIL"  # lo below p2's 0.667
-    assert v(50, 50, 1) == "FAIL"  # any recall regression on rows not judged wrong at p2
+    assert v(50, 50, 1) == "FAIL"  # any recall regression on p2-only rows judged correct
+    assert v(50, 50, 0, pending=1) == "PENDING-P2" and v(45, 50, 0, pending=2) == "PENDING-P2"
+    assert v(11, 13, 0, pending=3) == "FAIL"  # a precision fail is not held by pending p2 rows
 
 
 def test_r2_compare_counts_worksheet_and_acceptance_line(f2db, monkeypatch, tmp_path, capsys):
@@ -1574,8 +1576,8 @@ def test_r2_compare_counts_worksheet_and_acceptance_line(f2db, monkeypatch, tmp_
     # p2 wrote one pipeline_gap row per doc whose statement carries lookback text ahead of the Akorn
     # sentence ("Risk Factors 12 ITEM 1 BUSINESS We seek ..."); R2 emitted the bare sentence plus one
     # platform row per doc, so the pairing is by containment, not exact
-    assert "R2-COMPARE version R2-v1 docs 2 p2_rows 2 r2_rows 4 overlap 2 (exact 0 contained 2) r2_only 2 p2_only 0" in out
-    assert "R2-P2ONLY" not in out
+    assert "R2-COMPARE version R2-v1 group ALL docs 2 p2_rows 2 r2_rows 4 overlap 2 (exact 0 contained 2) r2_only 2 p2_only 0" in out
+    assert "R2-P2ONLY group" not in out
     assert "R2-WORKSHEET 2 rows" in out and "-> NO-VERDICTS" in out
     ws = _config.EXPORTS / "priorities_r2_worksheet.csv"
     with open(ws, newline="", encoding="utf-8-sig") as f:
@@ -1596,7 +1598,7 @@ def test_r2_compare_counts_worksheet_and_acceptance_line(f2db, monkeypatch, tmp_
     assert p.r2_compare(60, seed=3) == 0
     out3 = capsys.readouterr().out
     assert "R2-WORKSHEET 0 rows" in out3
-    assert "r2_only_precision 2/2 = 1.000" in out3 and "-> FAIL" in out3  # two verdicts: lo 0.342 < 0.667, thin by construction
+    assert "r2_only_precision 2/2 = 1.000" in out3 and "R2-VERDICT FAIL" in out3  # two verdicts: lo 0.342 < 0.667, thin by construction
 
 
 def test_r2_compare_p2_only_split_judged_wrong_vs_not(f2db, monkeypatch, tmp_path, capsys):
@@ -1627,8 +1629,8 @@ def test_r2_compare_p2_only_split_judged_wrong_vs_not(f2db, monkeypatch, tmp_pat
     assert p.r2_compare(60, seed=3) == 0
     out = capsys.readouterr().out
     assert "overlap 0 (exact 0 contained 0) r2_only 2 p2_only 2" in out
-    assert "R2-P2ONLY pipeline_gap judged_wrong 1 not_judged_wrong 1" in out
-    assert "regression_not_judged_wrong 1" in out
+    assert "R2-P2ONLY group ALL pipeline_gap judged_correct 0 judged_wrong 1 pending 1" in out
+    assert "regression_judged_correct 0 pending_p2only 1 excused_judged_wrong 1" in out and "R2-P2ONLY-WORKSHEET 1 rows" in out
 
 
 def test_r2_cli_branches_dispatch(monkeypatch, capsys):
@@ -1766,9 +1768,9 @@ def test_r2v2_trial_and_compare_version_plumbing(f2db, monkeypatch, tmp_path, ca
     assert rows == v1_rows  # v1 rows untouched by a v2 trial
     assert p.r2_compare(60, seed=3, version="R2-v2") == 0
     out2 = capsys.readouterr().out
-    assert "R2-COMPARE version R2-v2 docs 0 p2_rows 0 r2_rows 0 overlap 0" in out2 and "-> NO-VERDICTS" in out2
+    assert "R2-COMPARE version R2-v2 group HELD-OUT docs 0 p2_rows 0 r2_rows 0 overlap 0" in out2 and "R2-VERDICT NO-VERDICTS" in out2
     assert p.r2_compare(60, seed=3) == 0
-    assert "R2-COMPARE version R2-v1 docs 2 p2_rows 2 r2_rows 4" in capsys.readouterr().out
+    assert "R2-COMPARE version R2-v1 group ALL docs 2 p2_rows 2 r2_rows 4" in capsys.readouterr().out
 
 
 def test_r2v2_cli_flags(monkeypatch):
@@ -1779,3 +1781,92 @@ def test_r2v2_cli_flags(monkeypatch):
     assert priorities.cli(["r2-compare", "--v2"]) == 0 and priorities.cli(["r2-compare"]) == 0
     assert called == [("trial", 120, 20260911, "R2-v2"), ("compare", 60, "R2-v2"), ("compare", 60, "R2-v1")]
 
+
+
+# ---------------------------------------------------------------- R2v2-2a: snapshot, held-out split, p2-only verdicts (2026-09-11)
+def test_r2v2_2a_snapshot_freezes_p2_side_across_verdicts(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import config as _config
+    from biointel import store as _store
+
+    p = _r2_world(monkeypatch, tmp_path, capsys)
+    monkeypatch.setattr(_config, "SNAPSHOTS", tmp_path / "snapshots")
+    assert p.r2_trial(2, seed=7, call=lambda *a: "NONE") == 0  # R2 finds nothing: every p2 row is p2-only
+    # compare needs r2 rows on the units: plant one v1 row per unit under another sentence
+    from biointel import schema as _schema
+
+    p2 = _store.read_table("stated_priorities")
+    cols = list(_schema.STATED_PRIORITY_R2_COLS)
+    _store.write_table("stated_priorities_r2", [dict(dict.fromkeys(cols, ""), entity_key=r["entity_key"], stated_at=str(r["stated_at"])[:10],
+                       category="platform", statement=_R2W_NEW, doc_id=r["doc_id"], span=_R2W_NEW, source_type="10k_strategy", section="Item 1",
+                       extractor_version="R2-v1", model_id="fake-model", chunk_index="1") for r in p2], cols)
+    capsys.readouterr()
+    assert p.r2_compare(60, seed=3) == 0
+    out = capsys.readouterr().out
+    assert "R2-SNAPSHOT CREATED 2 p2 rows on 2 units" in out and "p2_only 2" in out
+    assert "pending_p2only 2" in out and "R2-P2ONLY-WORKSHEET 2 rows" in out and "R2-VERDICT NO-VERDICTS" in out
+    assert (tmp_path / "snapshots" / "r2_compare_p2_snapshot_R2-v1.json").exists()
+    # judge one p2-only row wrong through the REAL path: it retires from the table, the snapshot keeps it
+    key = p._row_key(p2[0])
+    assert p.judge(key, "wrong", note="test") == 0
+    assert len(_store.read_table("stated_priorities")) == 1
+    capsys.readouterr()
+    assert p.r2_compare(60, seed=3) == 0
+    out2 = capsys.readouterr().out
+    assert "R2-SNAPSHOT CREATED" not in out2 and "p2_rows 2" in out2 and "p2_only 2" in out2  # denominators frozen
+    assert "judged_correct 0 judged_wrong 1 pending 1" in out2 and "excused_judged_wrong 1" in out2 and "R2-P2ONLY-WORKSHEET 1 rows" in out2
+    # the p2-only worksheet carries S-keys that resolve through judge
+    import csv
+
+    with open(_config.EXPORTS / "priorities_p2only_worksheet.csv", newline="", encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 1 and rows[0]["key"] == p._row_key(p2[1]) and rows[0]["key"].startswith("S")
+
+
+def test_r2v2_2a_held_out_split_and_pending_then_fail(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import config as _config
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    p = _r2_world(monkeypatch, tmp_path, capsys)
+    monkeypatch.setattr(_config, "SNAPSHOTS", tmp_path / "snapshots")
+    p2 = _store.read_table("stated_priorities")
+    u_fit, u_out = p2[0], p2[1]
+    cols = list(_schema.STATED_PRIORITY_R2_COLS)
+
+    def row(src, version, statement, category="platform"):
+        return dict(dict.fromkeys(cols, ""), entity_key=src["entity_key"], stated_at=str(src["stated_at"])[:10], category=category,
+                    statement=statement, doc_id=src["doc_id"], span=statement, source_type="10k_strategy", section="Item 1",
+                    extractor_version=version, model_id="fake-model", chunk_index="1")
+
+    # unit 0 has an R2-v1 survivor (FIT); unit 1 has none (HELD-OUT); v2 rows on both, neither reproducing the p2 sentence
+    _store.write_table("stated_priorities_r2", [row(u_fit, "R2-v1", _R2W_NEW), row(u_fit, "R2-v2", _R2W_NEW), row(u_out, "R2-v2", _R2W_NEW)], cols)
+    capsys.readouterr()
+    assert p.r2_compare(60, seed=3, version="R2-v2") == 0
+    out = capsys.readouterr().out
+    assert "R2-COMPARE version R2-v2 group HELD-OUT docs 1 p2_rows 1 r2_rows 1 overlap 0" in out
+    assert "R2-COMPARE version R2-v2 group FIT docs 1 p2_rows 1 r2_rows 1 overlap 0" in out
+    assert "R2-ACCEPTANCE group HELD-OUT (decides)" in out and "R2-ACCEPTANCE group FIT r2_only" in out
+    assert "R2-VERDICT NO-VERDICTS" in out
+    # an operator verdict on the held-out R2-only row, p2-only row still pending -> PENDING-P2 on HELD-OUT
+    v2_out = [r for r in _store.read_table("stated_priorities_r2") if r["extractor_version"] == "R2-v2" and p._r2_unit(r) == p._r2_unit(u_out)][0]
+    assert p.r2_judge(p._r2_key(v2_out), "correct") == 0
+    capsys.readouterr()
+    assert p.r2_compare(60, seed=3, version="R2-v2") == 0
+    out2 = capsys.readouterr().out
+    assert "R2-ACCEPTANCE group HELD-OUT (decides) r2_only_precision 1/1" in out2 and "pending_p2only 1" in out2 and "R2-VERDICT FAIL" in out2  # lo 0.207 < 0.667
+    # judge the held-out p2-only row correct: regression 1 (a real drop), still FAIL, pending 0
+    assert p.judge(p._row_key(u_out), "correct") == 0
+    capsys.readouterr()
+    assert p.r2_compare(60, seed=3, version="R2-v2") == 0
+    out3 = capsys.readouterr().out
+    assert "regression_judged_correct 1 pending_p2only 0" in out3
+
+
+def test_r2v2_2a_trial_cap_follows_measured_stage1_count(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import config as _config
+
+    p = _r2_world(monkeypatch, tmp_path, capsys)
+    monkeypatch.setattr(_config, "R2_CALL_CAP", 0)
+    assert p.r2_trial(2, seed=7, call=lambda *a: "NONE", version="R2-v2") == 0
+    out = capsys.readouterr().out
+    assert "calls_needed 0 configured_cap 0" in out and "capped 0" in out

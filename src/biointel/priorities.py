@@ -2555,7 +2555,9 @@ def r2_trial(n_docs: int = R2_TRIAL_DOCS, seed: int | None = None, con=None, cal
     if v2:
         s1 = [len(_r2v2_candidates(item1_slice(d["text"]))[0]) for d in docs]
         chunk_counts = [(n + R2V2_BATCH - 1) // R2V2_BATCH for n in s1]
-        print(f"R2V2-STAGE1 candidates {sum(s1)} across {len(docs)} docs (batches of {R2V2_BATCH})", flush=True)
+        need = sum(chunk_counts)
+        print(f"R2V2-STAGE1 candidates {sum(s1)} across {len(docs)} docs (batches of {R2V2_BATCH}) calls_needed {need} configured_cap {cap}", flush=True)
+        cap = max(cap, need)  # gate R2v2-2a: the cap follows the measured count, never truncates a v2 trial
     else:
         chunk_counts = [len(_chunk_item1(item1_slice(d["text"]))) for d in docs]
     projected = sum(chunk_counts)
@@ -2652,11 +2654,13 @@ def _latest_verdicts(reviews: list[dict]) -> dict[str, dict]:
     return out
 
 
-def _r2_verdict(k: int, n_dec: int, regression: int) -> str:
+def _r2_verdict(k: int, n_dec: int, regression: int, pending: int = 0) -> str:
     """Amendment 1 (Wilson-bound, three outcomes) plus amendment 2 (recall
-    regression on rows not judged wrong at p2 fails): NO-VERDICTS until an
-    operator verdict exists; FAIL if the Wilson lower bound sits below p2's
-    or any regression; PASS if the point estimate reaches p2's; otherwise
+    regression on p2 rows the operator judged CORRECT fails) plus the
+    gate R2v2-2a rule: unjudged p2-only rows hold the verdict at PENDING-P2.
+    NO-VERDICTS until an operator verdict exists; FAIL if the Wilson lower
+    bound sits below p2's or any regression; PENDING-P2 while p2-only rows
+    await verdicts; PASS if the point estimate reaches p2's; otherwise
     OPERATOR-JUDGMENT."""
     from biointel.efts import _wilson
 
@@ -2667,31 +2671,19 @@ def _r2_verdict(k: int, n_dec: int, regression: int) -> str:
     lo, _hi = _wilson(k, n_dec)
     if regression > 0 or lo < base_lo:
         return "FAIL"
+    if pending > 0:
+        return "PENDING-P2"
     if k / n_dec >= base_pt:
         return "PASS"
     return "OPERATOR-JUDGMENT"
 
 
-def r2_compare(n: int = R2_WORKSHEET_N, seed: int | None = None, con=None, version: str = R2_EXTRACTOR_VERSION) -> int:
-    """Head-to-head on the trial's documents only. Pairs p2 and R2 rows by
-    (entity, date, category, normalized sentence); prints overlap / R2-only
-    / p2-only, p2-only per category split judged-wrong-at-p2 vs not
-    (amendment 2: only the latter is a regression); writes the <=n R2-only
-    unjudged worksheet; prints the acceptance line from OPERATOR verdicts
-    on R-keys only (amendment 1: Wilson-bound, three outcomes)."""
-    import csv
-    import random as _r
-
-    from biointel.efts import _wilson
-
-    con = con or store.connect()
-    seed = seed if seed is not None else _dt_seed()
-    r2 = [
-        r for r in (store.read_table("stated_priorities_r2", con=con) if store.has_table("stated_priorities_r2", con) else [])
-        if str(r.get("extractor_version")) == version
-    ]
-    docs = {_r2_unit(r) for r in r2}
-    p2 = [r for r in store.read_table("stated_priorities", con=con) if _r2_unit(r) in docs]
+def _r2_pair(p2: list[dict], r2: list[dict]) -> dict:
+    """Pair p2 and R2 rows: exact (entity, date, category, normalized
+    sentence) first, then containment within the same (entity, date,
+    category) because a p2 statement may carry _capture_sentence lookback
+    text ahead of the priority sentence while an R2 span is the bare
+    sentence. Each row pairs at most once."""
 
     def pk(r: dict) -> tuple:
         return (str(r["entity_key"]), str(r["stated_at"])[:10], str(r["category"]), _r2_norm(r["statement"]))
@@ -2699,11 +2691,6 @@ def r2_compare(n: int = R2_WORKSHEET_N, seed: int | None = None, con=None, versi
     p2_by = {pk(r): r for r in p2}
     r2_by = {pk(r): r for r in r2}
     exact = set(p2_by) & set(r2_by)
-    # containment pairing (design decision, gate R2-2): a p2 statement may
-    # carry sentence-start expansion text ahead of the priority sentence
-    # (the _capture_sentence lookback), while an R2 span is the bare sentence;
-    # within one (entity, date, category) the shorter normalized sentence
-    # contained in the longer pairs the two. Each row pairs at most once.
     p2_left = {k for k in p2_by if k not in exact}
     r2_left = {k for k in r2_by if k not in exact}
     contained: list[tuple[tuple, tuple]] = []
@@ -2714,63 +2701,134 @@ def r2_compare(n: int = R2_WORKSHEET_N, seed: int | None = None, con=None, versi
                 p2_left.discard(pkk)
                 break
     r2_left -= {rk for _pkk, rk in contained}
-    overlap = sorted(exact) + [pkk for pkk, _rk in contained]
-    r2_only = [r2_by[k] for k in sorted(r2_left)]
-    p2_only = [p2_by[k] for k in sorted(p2_left)]
+    return {
+        "exact": len(exact), "contained": len(contained), "overlap": len(exact) + len(contained),
+        "r2_only": [r2_by[k] for k in sorted(r2_left)], "p2_only": [p2_by[k] for k in sorted(p2_left)],
+    }
+
+
+def _r2_snapshot_path(version: str) -> Path:
+    return config.SNAPSHOTS / f"r2_compare_p2_snapshot_{version}.json"
+
+
+def _r2_p2_snapshot(units: set, con, version: str) -> list[dict]:
+    """The comparison's frozen p2 side (gate R2v2-2a snapshot amendment):
+    the first compare for a version writes the p2 rows on the trial units to
+    data/snapshots; later compares read that file, so operator verdicts that
+    retire p2 rows (p2 law) cannot shift the denominators between runs."""
+    path = _r2_snapshot_path(version)
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+    rows = [
+        {k: str(v) for k, v in r.items()}
+        for r in store.read_table("stated_priorities", con=con) if _r2_unit(r) in units
+    ]
+    config.SNAPSHOTS.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rows, ensure_ascii=False, indent=0), encoding="utf-8")
+    print(f"R2-SNAPSHOT CREATED {len(rows)} p2 rows on {len(units)} units -> {path}")
+    return rows
+
+
+def _r2_write_worksheet(path: Path, rows: list[dict], keyfn, reason: str, names: dict) -> int:
+    import csv
+
+    config.EXPORTS.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f)
+        w.writerow(["key", "verdict", "ai_reason", "company", "date", "category", "sentence", "doc_url", "note"])
+        for r in rows:
+            w.writerow([keyfn(r), "", reason, names.get(str(r["entity_key"]), str(r["entity_key"])),
+                        str(r["stated_at"])[:10], str(r["category"]), str(r["statement"])[:400], "", ""])
+    return len(rows)
+
+
+def r2_compare(n: int = R2_WORKSHEET_N, seed: int | None = None, con=None, version: str = R2_EXTRACTOR_VERSION) -> int:
+    """Head-to-head on the trial's documents only, against the frozen p2
+    snapshot. For R2-v2 the units split into HELD-OUT (no R2-v1 survivor
+    rows: the fit set came from R2-v1 survivors) and FIT; each group prints
+    its own pairing and acceptance line and only HELD-OUT decides. Writes
+    the <=n R2-only unjudged worksheet (R-keys, judge-batch --r2) and the
+    p2-only worksheet (S-keys, the real judge path). Regression counts only
+    p2-only rows the operator judged CORRECT; unjudged ones hold PENDING-P2."""
+    import random as _r
+
+    from biointel.efts import _wilson
+
+    con = con or store.connect()
+    seed = seed if seed is not None else _dt_seed()
+    all_r2 = store.read_table("stated_priorities_r2", con=con) if store.has_table("stated_priorities_r2", con) else []
+    r2 = [r for r in all_r2 if str(r.get("extractor_version")) == version]
+    units = {_r2_unit(r) for r in r2}
+    p2_snap = _r2_p2_snapshot(units, con, version)
     reviews = store.read_table("candidate_reviews", con=con) if store.has_table("candidate_reviews", con) else []
     latest = _latest_verdicts(reviews)
-    p2_only_cat: dict[str, dict[str, int]] = {}
-    regression = 0
-    for r in p2_only:
-        v = latest.get(_row_key(r))
-        judged_wrong = bool(v and str(v["verdict"]) == "wrong")
-        c = p2_only_cat.setdefault(str(r["category"]), {"judged_wrong": 0, "not_judged_wrong": 0})
-        c["judged_wrong" if judged_wrong else "not_judged_wrong"] += 1
-        regression += 0 if judged_wrong else 1
-    print(
-        f"R2-COMPARE version {version} docs {len(docs)} p2_rows {len(p2)} r2_rows {len(r2)} overlap {len(overlap)} "
-        f"(exact {len(exact)} contained {len(contained)}) r2_only {len(r2_only)} p2_only {len(p2_only)}"
-    )
-    for cat in sorted(p2_only_cat):
-        c = p2_only_cat[cat]
-        print(f"R2-P2ONLY {cat} judged_wrong {c['judged_wrong']} not_judged_wrong {c['not_judged_wrong']}")
-    # worksheet of unjudged R2-only rows
-    unjudged = [r for r in r2_only if _r2_key(r) not in latest]
-    _r.seed(seed)
-    _r.shuffle(unjudged)
     names = {
         f"CIK:{int(str(c['CIK']))}": str(c["Name"])
         for c in store.read_table("companies", con=con)
         if str(c.get("CIK") or "").strip().isdigit()
     }
-    out_path = config.EXPORTS / "priorities_r2_worksheet.csv"
-    config.EXPORTS.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", newline="", encoding="utf-8-sig") as f:
-        w = csv.writer(f)
-        w.writerow(["key", "verdict", "ai_reason", "company", "date", "category", "sentence", "doc_url", "note"])
-        for r in unjudged[:n]:
-            w.writerow([_r2_key(r), "", f"r2 {version} {r.get('model_id', '')} chunk {r.get('chunk_index', '')}",
-                        names.get(str(r["entity_key"]), str(r["entity_key"])), str(r["stated_at"])[:10],
-                        str(r["category"]), str(r["statement"])[:400], "", ""])
-    print(f"R2-WORKSHEET {min(len(unjudged), n)} rows (seed {seed}; unjudged R2-only {len(unjudged)}) -> {out_path}; judge with: priorities judge-batch --r2")
-    # acceptance from operator verdicts on R-keys of THIS trial only
-    keys = {_r2_key(r) for r in r2_only}
-    k = n_dec = unsure = 0
-    for key, v in latest.items():
-        if key in keys and str(v.get("reviewer")) == "operator":
-            vd = str(v["verdict"])
-            if vd == "unsure":
-                unsure += 1
-            else:
-                n_dec += 1
-                k += 1 if vd == "correct" else 0
-    lo, hi = _wilson(k, n_dec) if n_dec else (0.0, 0.0)
-    pt = k / n_dec if n_dec else 0.0
-    verdict = _r2_verdict(k, n_dec, regression)
-    print(
-        f"R2-ACCEPTANCE r2_only_precision {k}/{n_dec} = {pt:.3f} (wilson {lo:.3f}-{hi:.3f}; unsure {unsure}) "
-        f"regression_not_judged_wrong {regression} baseline {R2_P2_BASELINE[0]}/{R2_P2_BASELINE[1]} -> {verdict}"
-    )
+    if version == R2V2_EXTRACTOR_VERSION:
+        fit_units = {_r2_unit(r) for r in all_r2 if str(r.get("extractor_version")) == R2_EXTRACTOR_VERSION}
+        groups = [("HELD-OUT", units - fit_units), ("FIT", units & fit_units)]
+    else:
+        groups = [("ALL", units)]
+    r2_only_all: list[dict] = []
+    p2_only_all: list[dict] = []
+    deciding = None
+    for gname, gunits in groups:
+        gp2 = [r for r in p2_snap if _r2_unit(r) in gunits]
+        gr2 = [r for r in r2 if _r2_unit(r) in gunits]
+        pr = _r2_pair(gp2, gr2)
+        r2_only_all += pr["r2_only"]
+        p2_only_all += pr["p2_only"]
+        print(
+            f"R2-COMPARE version {version} group {gname} docs {len(gunits)} p2_rows {len(gp2)} r2_rows {len(gr2)} "
+            f"overlap {pr['overlap']} (exact {pr['exact']} contained {pr['contained']}) r2_only {len(pr['r2_only'])} p2_only {len(pr['p2_only'])}"
+        )
+        cat: dict[str, dict[str, int]] = {}
+        regression = pending = excused = 0
+        for r in pr["p2_only"]:
+            v = latest.get(_row_key(r))
+            state = "pending" if v is None else ("judged_wrong" if str(v["verdict"]) == "wrong" else "judged_correct")
+            c = cat.setdefault(str(r["category"]), {"judged_correct": 0, "judged_wrong": 0, "pending": 0})
+            c[state] += 1
+            regression += state == "judged_correct"
+            pending += state == "pending"
+            excused += state == "judged_wrong"
+        for cname in sorted(cat):
+            c = cat[cname]
+            print(f"R2-P2ONLY group {gname} {cname} judged_correct {c['judged_correct']} judged_wrong {c['judged_wrong']} pending {c['pending']}")
+        keys = {_r2_key(r) for r in pr["r2_only"]}
+        k = n_dec = unsure = 0
+        for key, v in latest.items():
+            if key in keys and str(v.get("reviewer")) == "operator":
+                vd = str(v["verdict"])
+                if vd == "unsure":
+                    unsure += 1
+                else:
+                    n_dec += 1
+                    k += 1 if vd == "correct" else 0
+        lo, hi = _wilson(k, n_dec) if n_dec else (0.0, 0.0)
+        pt = k / n_dec if n_dec else 0.0
+        verdict = _r2_verdict(k, n_dec, regression, pending)
+        decides = gname in ("HELD-OUT", "ALL")
+        deciding = verdict if decides else deciding
+        print(
+            f"R2-ACCEPTANCE group {gname}{' (decides)' if decides else ''} r2_only_precision {k}/{n_dec} = {pt:.3f} "
+            f"(wilson {lo:.3f}-{hi:.3f}; unsure {unsure}) regression_judged_correct {regression} pending_p2only {pending} "
+            f"excused_judged_wrong {excused} baseline {R2_P2_BASELINE[0]}/{R2_P2_BASELINE[1]} -> {verdict}"
+        )
+    unjudged = [r for r in r2_only_all if _r2_key(r) not in latest]
+    _r.seed(seed)
+    _r.shuffle(unjudged)
+    ws = config.EXPORTS / "priorities_r2_worksheet.csv"
+    _r2_write_worksheet(ws, unjudged[:n], _r2_key, f"r2 {version}", names)
+    print(f"R2-WORKSHEET {min(len(unjudged), n)} rows (seed {seed}; unjudged R2-only {len(unjudged)}) -> {ws}; judge with: priorities judge-batch --r2")
+    p2ws = config.EXPORTS / "priorities_p2only_worksheet.csv"
+    p2_pending = [r for r in p2_only_all if _row_key(r) not in latest]
+    _r2_write_worksheet(p2ws, p2_pending, _row_key, "p2 row R2 dropped; a p2 verdict (wrong retires)", names)
+    print(f"R2-P2ONLY-WORKSHEET {len(p2_pending)} rows -> {p2ws}; judge with: priorities judge-batch {p2ws}")
+    print(f"R2-VERDICT {deciding}")
     return 0
 
 
