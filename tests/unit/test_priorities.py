@@ -1574,7 +1574,7 @@ def test_r2_compare_counts_worksheet_and_acceptance_line(f2db, monkeypatch, tmp_
     # p2 wrote one pipeline_gap row per doc whose statement carries lookback text ahead of the Akorn
     # sentence ("Risk Factors 12 ITEM 1 BUSINESS We seek ..."); R2 emitted the bare sentence plus one
     # platform row per doc, so the pairing is by containment, not exact
-    assert "R2-COMPARE docs 2 p2_rows 2 r2_rows 4 overlap 2 (exact 0 contained 2) r2_only 2 p2_only 0" in out
+    assert "R2-COMPARE version R2-v1 docs 2 p2_rows 2 r2_rows 4 overlap 2 (exact 0 contained 2) r2_only 2 p2_only 0" in out
     assert "R2-P2ONLY" not in out
     assert "R2-WORKSHEET 2 rows" in out and "-> NO-VERDICTS" in out
     ws = _config.EXPORTS / "priorities_r2_worksheet.csv"
@@ -1633,8 +1633,8 @@ def test_r2_compare_p2_only_split_judged_wrong_vs_not(f2db, monkeypatch, tmp_pat
 
 def test_r2_cli_branches_dispatch(monkeypatch, capsys):
     called = []
-    monkeypatch.setattr(priorities, "r2_trial", lambda n, seed=None: called.append(("trial", n, seed)) or 0)
-    monkeypatch.setattr(priorities, "r2_compare", lambda n, seed=None: called.append(("compare", n, seed)) or 0)
+    monkeypatch.setattr(priorities, "r2_trial", lambda n, seed=None, version="R2-v1": called.append(("trial", n, seed)) or 0)
+    monkeypatch.setattr(priorities, "r2_compare", lambda n, seed=None, version="R2-v1": called.append(("compare", n, seed)) or 0)
     monkeypatch.setattr(priorities, "r2_judge", lambda k, v, note="": called.append(("judge", k, v, note)) or 0)
     monkeypatch.setattr(priorities, "judge_batch", lambda pp, pattern=None, r2=False: called.append(("batch", pp, pattern, r2)) or 0)
     assert priorities.cli(["r2-trial", "30", "--seed", "5"]) == 0
@@ -1642,3 +1642,140 @@ def test_r2_cli_branches_dispatch(monkeypatch, capsys):
     assert priorities.cli(["r2-judge", "Rabc", "correct", "--note", "n"]) == 0
     assert priorities.cli(["judge-batch", "--r2"]) == 0
     assert called == [("trial", 30, 5), ("compare", 60, None), ("judge", "Rabc", "correct", "n"), ("batch", None, None, True)]
+
+
+# ---------------------------------------------------------------- R2-v2 stance-first (gate R2v2-1, 2026-09-11)
+# Fit set: the 60 operator verdicts of 2026-09-11 (fixture, verbatim). The
+# 120-document rerun is the held-out test. Every API seam is a fake `call`.
+def _r2v2_fixture():
+    import csv
+    import pathlib as _pl
+
+    with open(_pl.Path(__file__).parent / "fixtures" / "r2_verdicts_20260911.csv", newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def test_r2v2_stage1_meets_record_s3_3_with_pinned_numbers_and_per_rule_attribution():
+    """Decision record §3.3: all 10 corrects pass, >= 40 of 49 wrongs refused.
+    Pinned to the measured numbers and to which rule caught each row, so a
+    rule that ever widens beyond its intended class is named here."""
+    import collections
+
+    rows = _r2v2_fixture()
+    assert len(rows) == 60 and collections.Counter(r["verdict"] for r in rows) == {"correct": 10, "wrong": 49, "unsure": 1}
+    att: dict = collections.Counter()
+    passed: dict = collections.Counter()
+    for r in rows:
+        ok, rule = priorities._fls_stage1(r["sentence"])
+        att[(r["verdict"], rule)] += 1
+        passed[(r["verdict"], ok)] += 1
+    assert passed[("correct", True)] == 10  # floor 10 (all)
+    assert passed[("wrong", False)] == 46  # floor 40
+    assert passed[("unsure", True)] == 0
+    assert dict(att) == {
+        ("correct", "fls-trigger"): 3, ("correct", "imperative"): 2, ("correct", "progressive"): 4, ("correct", "heading"): 1,
+        ("wrong", "refuse-lexicon"): 11, ("wrong", "refuse-date"): 5, ("wrong", "none"): 30, ("wrong", "fls-trigger"): 3,
+        ("unsure", "none"): 1,
+    }
+    # the heading rule catches exactly one row, and it is this one
+    heading = [r["sentence"] for r in rows if priorities._fls_stage1(r["sentence"])[1] == "heading"]
+    assert len(heading) == 1 and heading[0].startswith("Increasing product uptake and sales of PROCYSBI")
+
+
+def test_r2v2_stage1_rule_order_and_trap_words():
+    assert priorities._fls_stage1("We plan to expand our pipeline into rare kidney diseases.") == (True, "fls-trigger")
+    assert priorities._fls_stage1("We plan to expand our pipeline but we may not be able to fund it.") == (False, "refuse-lexicon")
+    assert priorities._fls_stage1("On July 18, 2022, we entered into a collaboration agreement with Vertex.") == (False, "refuse-lexicon")
+    assert priorities._fls_stage1("In 2019 we intend to grow our footprint in Europe.") == (False, "refuse-date")
+    assert priorities._fls_stage1("Build a leading, fully integrated cellular therapy company.") == (True, "imperative")
+    assert priorities._fls_stage1("We are developing a broad set of delivery technologies.") == (True, "progressive")
+    # trigger words inside other words never fire; no first-person subject never fires
+    assert priorities._fls_stage1("Goodwill and planetary willow targeted therapies were described.") == (False, "none")
+    assert priorities._fls_stage1("The sponsor intends to seek approval of its own product.") == (False, "none")
+    assert priorities._fls_stage1("These efforts at RGC have led to the identification of more than 30 novel genetic targets.") == (False, "none")
+
+
+def test_r2v2_candidates_split_filter_and_counts():
+    body = ("We plan to expand our pipeline into rare kidney diseases. " + "Filler text with no stance at all here. " * 3
+            + "We may not be able to raise capital. Short. " + "We are developing a broad set of delivery technologies.")
+    cands, counts = priorities._r2v2_candidates(body)
+    assert [c["rule"] for c in cands] == ["fls-trigger", "progressive"]
+    assert counts == {"fls-trigger": 1, "none": 3, "refuse-lexicon": 1, "progressive": 1}
+
+
+def test_r2v2_parse_reply_indices_refuse_and_garbage():
+    rep = "1: pipeline_gap\n2: refuse\n3) Platform\nx: data\n9: data\n2: financial\n"
+    assert priorities._parse_r2v2_reply(rep, 3) == {1: "pipeline_gap", 2: "refuse", 3: "platform"}
+    assert priorities._parse_r2v2_reply(None, 3) == {} and priorities._parse_r2v2_reply("", 3) == {}
+
+
+def test_r2v2_extract_end_to_end_span_by_index_no_span_not_verbatim(monkeypatch):
+    from biointel import config as _config
+
+    monkeypatch.setattr(_config, "R2_MODEL", "fake-model")
+    monkeypatch.setattr(priorities, "R2V2_BATCH", 2)
+    item1 = ("We plan to expand our pipeline into rare kidney diseases. "
+             "We are developing a broad set of delivery technologies to support our programs. "
+             + _OPUS_NEGATED + " "
+             "Build a leading, fully integrated cellular therapy company. "
+             "We seek to acquire businesses assets and products that complement our business. ")
+    doc = "PART I Item 1. Business. " + item1 + " Item 1A. Risk Factors " + "risk " * 50
+    prompts: list[str] = []
+    # stage 1 yields 6 candidates in order: plan-expand, developing, intend-rely, nor-do-we-plan (negated:
+    # stage 1 passes it by form; the negation validator refuses it at stage 2), Build-a-leading, seek-acquire
+    replies = {1: "1: pipeline_gap\n2: platform\n", 2: "1: refuse\n2: pipeline_gap\n", 3: "1: pipeline_gap\n2: pipeline_gap\n"}
+
+    def call(prompt, model, max_tokens):
+        prompts.append(prompt)
+        return replies[len(prompts)]
+
+    res = priorities.extract_priorities_llm_v2(doc, "10k_strategy", "X", "CIK:1", "2020-01-01", call=call)
+    assert res["sliced"] and res["stage1_pass"] == 6 and res["chunks"] == 3 and res["calls"] == 3
+    assert {k: res["stage1"][k] for k in ("fls-trigger", "progressive", "imperative")} == {"fls-trigger": 4, "progressive": 1, "imperative": 1}
+    assert res["refused"] == {"model-refuse": 1, "negation": 1} and "span-not-verbatim" not in res["refused"]
+    stmts = [s["statement"] for s in res["survivors"]]
+    assert stmts == ["We plan to expand our pipeline into rare kidney diseases",
+                     "We are developing a broad set of delivery technologies to support our programs",
+                     "Build a leading, fully integrated cellular therapy company",
+                     "We seek to acquire businesses assets and products that complement our business"]
+    assert all(s in item1 for s in stmts) and all(s["extractor_version"] == "R2-v2" for s in res["survivors"])
+    assert [s["chunk_index"] for s in res["survivors"]] == [1, 1, 3, 3]
+    assert "1: We plan to expand our pipeline" in prompts[0] and "Batch 1 of 3" in prompts[0]
+
+
+def test_r2v2_trial_and_compare_version_plumbing(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import store as _store
+
+    p = _r2_world(monkeypatch, tmp_path, capsys)
+    # v1 rows already present must be untouched by a v2 trial
+    assert p.r2_trial(2, seed=7, call=_r2_reply) == 0
+    v1_rows = _store.read_table("stated_priorities_r2")
+    calls = []
+
+    def call(prompt, model, max_tokens):
+        calls.append(prompt)
+        return "\n".join(f"{i}: pipeline_gap" for i in range(1, prompt.count("\n") + 1))
+
+    assert p.r2_trial(2, seed=7, call=call, version="R2-v2") == 0
+    out = capsys.readouterr().out
+    # the fixture's only stance sentence sits in a heading run-on ("... Risk Factors 12 ITEM 1 BUSINESS We seek
+    # to acquire ..."), so stage 1 refuses it by the risk lexicon: zero candidates, zero calls, nothing written
+    assert "R2V2-STAGE1 candidates 0 across 2 docs" in out and "R2-TRIAL PLAN version R2-v2" in out
+    assert calls == [] and "calls 0" in out and "survivors 0" in out
+    rows = _store.read_table("stated_priorities_r2")
+    assert rows == v1_rows  # v1 rows untouched by a v2 trial
+    assert p.r2_compare(60, seed=3, version="R2-v2") == 0
+    out2 = capsys.readouterr().out
+    assert "R2-COMPARE version R2-v2 docs 0 p2_rows 0 r2_rows 0 overlap 0" in out2 and "-> NO-VERDICTS" in out2
+    assert p.r2_compare(60, seed=3) == 0
+    assert "R2-COMPARE version R2-v1 docs 2 p2_rows 2 r2_rows 4" in capsys.readouterr().out
+
+
+def test_r2v2_cli_flags(monkeypatch):
+    called = []
+    monkeypatch.setattr(priorities, "r2_trial", lambda n, seed=None, version="R2-v1": called.append(("trial", n, seed, version)) or 0)
+    monkeypatch.setattr(priorities, "r2_compare", lambda n, seed=None, version="R2-v1": called.append(("compare", n, version)) or 0)
+    assert priorities.cli(["r2-trial", "120", "--seed", "20260911", "--v2"]) == 0
+    assert priorities.cli(["r2-compare", "--v2"]) == 0 and priorities.cli(["r2-compare"]) == 0
+    assert called == [("trial", 120, 20260911, "R2-v2"), ("compare", 60, "R2-v2"), ("compare", 60, "R2-v1")]
+

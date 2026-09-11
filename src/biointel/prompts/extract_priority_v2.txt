@@ -1,0 +1,34 @@
+You classify CANDIDATE SENTENCES from one company's own filing. Each
+candidate already passed a deterministic forward-looking-language filter.
+You decide, per sentence, whether it states a DECLARED INTENT of the
+company and, if so, which category. You propose only; validators and a
+human judge decide. Nothing you emit enters any record unjudged.
+
+Company: {company} ({entity_key})
+Filing date: {stated_at}
+Batch {batch_index} of {batch_total}
+
+Declared intent (operator ruling 2026-09-11): the sentence must state what
+the company intends, plans, aims, seeks, or is building toward. Descriptions
+of products, studies, trial status, risks, history, financing needs,
+staffing, market conditions, or what the company merely may or must do are
+refusals. A sentence about another company is a refusal.
+
+Categories (exactly one):
+pipeline_gap = wants to acquire, in-license, or build pipeline assets;
+therapeutic_area = a stated disease or indication focus;
+mechanism_modality = a stated mechanism or modality focus;
+platform = a named technology platform the company builds around;
+data = a stated data or evidence-generation priority;
+geography = a stated geographic expansion priority;
+financial = a stated financial priority (capital allocation, margins);
+defensive = a stated priority to defend franchise, share, or exclusivity;
+commercial_infrastructure = a stated priority to build or acquire sales,
+  distribution, channel, market-access, or commercial capability.
+
+Candidates (numbered; verbatim from the filing):
+{candidates}
+
+Output rules:
+- One line per candidate, in order: N: <category>  or  N: refuse
+- Every candidate number must appear exactly once. No other text.

@@ -2511,7 +2511,7 @@ def _r2_unit(r: dict) -> tuple[str, str, str]:
     return (str(r["entity_key"]), str(r["stated_at"])[:10], str(r["doc_id"]))
 
 
-def _r2_write_doc(rows: list[dict], unit: tuple[str, str, str], con) -> int:
+def _r2_write_doc(rows: list[dict], unit: tuple[str, str, str], con, version: str = R2_EXTRACTOR_VERSION) -> int:
     """Merge-write one document's survivors: rows of THIS extractor version
     and THIS unit are replaced; every other row is kept, so the trial is
     interruption-safe and re-running a document is idempotent."""
@@ -2524,12 +2524,12 @@ def _r2_write_doc(rows: list[dict], unit: tuple[str, str, str], con) -> int:
             if store.has_table("stated_priorities_r2", con)
             else []
         )
-        if not (str(r.get("extractor_version")) == R2_EXTRACTOR_VERSION and _r2_unit(r) == unit)
+        if not (str(r.get("extractor_version")) == version and _r2_unit(r) == unit)
     ]
     return store.write_table("stated_priorities_r2", kept + rows, cols, con=con)
 
 
-def r2_trial(n_docs: int = R2_TRIAL_DOCS, seed: int | None = None, con=None, call=None) -> int:
+def r2_trial(n_docs: int = R2_TRIAL_DOCS, seed: int | None = None, con=None, call=None, version: str = R2_EXTRACTOR_VERSION) -> int:
     """The paid trial (gate R2-2): a seeded sample of the p2 population, the
     section-5 disclosure line BEFORE the first call, the cap enforced per
     document, survivors merge-written per document, gauge every 10 docs,
@@ -2551,10 +2551,16 @@ def r2_trial(n_docs: int = R2_TRIAL_DOCS, seed: int | None = None, con=None, cal
     _r.seed(seed)
     _r.shuffle(pool)
     docs = pool[:n_docs]
-    chunk_counts = [len(_chunk_item1(item1_slice(d["text"]))) for d in docs]
+    v2 = version == R2V2_EXTRACTOR_VERSION
+    if v2:
+        s1 = [len(_r2v2_candidates(item1_slice(d["text"]))[0]) for d in docs]
+        chunk_counts = [(n + R2V2_BATCH - 1) // R2V2_BATCH for n in s1]
+        print(f"R2V2-STAGE1 candidates {sum(s1)} across {len(docs)} docs (batches of {R2V2_BATCH})", flush=True)
+    else:
+        chunk_counts = [len(_chunk_item1(item1_slice(d["text"]))) for d in docs]
     projected = sum(chunk_counts)
     print(
-        f"R2-TRIAL PLAN seed {seed} population {len(pool)} docs {len(docs)} chunks {projected} "
+        f"R2-TRIAL PLAN version {version} seed {seed} population {len(pool)} docs {len(docs)} chunks {projected} "
         f"projected_calls {min(projected, cap)} cap {cap} model {model} max_tokens {max_tokens} "
         f"cost_at_cap haiku ${cap * R2_ANCHOR_HAIKU / 1000:.2f} sonnet ${cap * R2_ANCHOR_SONNET / 1000:.2f} "
         f"(anchors: S5 cost-ledger errata); interruption-safe: survivors write per document",
@@ -2569,7 +2575,8 @@ def r2_trial(n_docs: int = R2_TRIAL_DOCS, seed: int | None = None, con=None, cal
         if tot["calls"] + nchunks > cap:
             tot["capped"] += 1
             continue
-        res = extract_priorities_llm(
+        fn = extract_priorities_llm_v2 if v2 else extract_priorities_llm
+        res = fn(
             d["text"], "10k_strategy", d["company"], d["entity_key"], d["stated_at"],
             model=model, call=call, max_tokens=max_tokens,
         )
@@ -2578,7 +2585,7 @@ def r2_trial(n_docs: int = R2_TRIAL_DOCS, seed: int | None = None, con=None, cal
         for k, v in res["refused"].items():
             refused[k] = refused.get(k, 0) + int(v)
         rows = [dict(sv, entity_key=d["entity_key"], stated_at=d["stated_at"], doc_id=d["doc_id"]) for sv in res["survivors"]]
-        _r2_write_doc(rows, _r2_unit(d), con)
+        _r2_write_doc(rows, _r2_unit(d), con, version=version)
         tot["docs"] += 1
         tot["survivors"] += len(rows)
         tot["docs_with_rows"] += 1 if rows else 0
@@ -2594,7 +2601,7 @@ def r2_trial(n_docs: int = R2_TRIAL_DOCS, seed: int | None = None, con=None, cal
             )
     runr = results.start(
         "priorities-r2-trial", "priorities r2-trial", ["references", "captures", "stated_priorities_r2"],
-        {"rule_version": RULE_VERSION_F2, "extractor_version": R2_EXTRACTOR_VERSION,
+        {"rule_version": RULE_VERSION_F2, "extractor_version": version,
          "model": model, "seed": seed, "n_docs": n_docs, "cap": cap},
     )
     for k, v in tot.items():
@@ -2665,7 +2672,7 @@ def _r2_verdict(k: int, n_dec: int, regression: int) -> str:
     return "OPERATOR-JUDGMENT"
 
 
-def r2_compare(n: int = R2_WORKSHEET_N, seed: int | None = None, con=None) -> int:
+def r2_compare(n: int = R2_WORKSHEET_N, seed: int | None = None, con=None, version: str = R2_EXTRACTOR_VERSION) -> int:
     """Head-to-head on the trial's documents only. Pairs p2 and R2 rows by
     (entity, date, category, normalized sentence); prints overlap / R2-only
     / p2-only, p2-only per category split judged-wrong-at-p2 vs not
@@ -2681,7 +2688,7 @@ def r2_compare(n: int = R2_WORKSHEET_N, seed: int | None = None, con=None) -> in
     seed = seed if seed is not None else _dt_seed()
     r2 = [
         r for r in (store.read_table("stated_priorities_r2", con=con) if store.has_table("stated_priorities_r2", con) else [])
-        if str(r.get("extractor_version")) == R2_EXTRACTOR_VERSION
+        if str(r.get("extractor_version")) == version
     ]
     docs = {_r2_unit(r) for r in r2}
     p2 = [r for r in store.read_table("stated_priorities", con=con) if _r2_unit(r) in docs]
@@ -2721,7 +2728,7 @@ def r2_compare(n: int = R2_WORKSHEET_N, seed: int | None = None, con=None) -> in
         c["judged_wrong" if judged_wrong else "not_judged_wrong"] += 1
         regression += 0 if judged_wrong else 1
     print(
-        f"R2-COMPARE docs {len(docs)} p2_rows {len(p2)} r2_rows {len(r2)} overlap {len(overlap)} "
+        f"R2-COMPARE version {version} docs {len(docs)} p2_rows {len(p2)} r2_rows {len(r2)} overlap {len(overlap)} "
         f"(exact {len(exact)} contained {len(contained)}) r2_only {len(r2_only)} p2_only {len(p2_only)}"
     )
     for cat in sorted(p2_only_cat):
@@ -2742,7 +2749,7 @@ def r2_compare(n: int = R2_WORKSHEET_N, seed: int | None = None, con=None) -> in
         w = csv.writer(f)
         w.writerow(["key", "verdict", "ai_reason", "company", "date", "category", "sentence", "doc_url", "note"])
         for r in unjudged[:n]:
-            w.writerow([_r2_key(r), "", f"r2 {R2_EXTRACTOR_VERSION} {r.get('model_id', '')} chunk {r.get('chunk_index', '')}",
+            w.writerow([_r2_key(r), "", f"r2 {version} {r.get('model_id', '')} chunk {r.get('chunk_index', '')}",
                         names.get(str(r["entity_key"]), str(r["entity_key"])), str(r["stated_at"])[:10],
                         str(r["category"]), str(r["statement"])[:400], "", ""])
     print(f"R2-WORKSHEET {min(len(unjudged), n)} rows (seed {seed}; unjudged R2-only {len(unjudged)}) -> {out_path}; judge with: priorities judge-batch --r2")
@@ -2765,6 +2772,187 @@ def r2_compare(n: int = R2_WORKSHEET_N, seed: int | None = None, con=None) -> in
         f"regression_not_judged_wrong {regression} baseline {R2_P2_BASELINE[0]}/{R2_P2_BASELINE[1]} -> {verdict}"
     )
     return 0
+
+
+# ---------------------------------------------------------------- R2-v2: stance-first two-stage extraction (gate R2v2-1, 2026-09-11)
+# Decision record docs/20260911_v1_R2v2_Stance_First_Extraction_Decision_Record.md.
+# Stage 1 is deterministic and free: a sentence is a candidate only when it
+# carries declared intent by form (safe-harbor FLS trigger with a first-person
+# subject in the trigger clause; or a strategy-verb imperative, heading, or
+# present-progressive) and matches no refusal pattern (risk, financing, HR,
+# dated history, SPAC). Stage 2 sends only numbered stage-1 sentences to the
+# model and takes the span BY INDEX, so span-not-verbatim cannot occur.
+# Fit set: the 60 operator verdicts of 2026-09-11 (tests/unit/fixtures);
+# held-out test: the 120-document rerun (gate R2v2-2).
+R2V2_EXTRACTOR_VERSION = "R2-v2"
+R2V2_PROMPT_VERSION = "extract_priority_v2"
+R2V2_BATCH = 40  # candidate sentences per call
+_STRATEGY_VERBS = (
+    r"(?:expand(?:ing)?|build(?:ing)?|develop(?:ing)?|advanc(?:e|ing)|establish(?:ing)?|increas(?:e|ing)|"
+    r"grow(?:ing)?|accelerat(?:e|ing)|strengthen(?:ing)?|leverag(?:e|ing)|launch(?:ing)?|commercializ(?:e|ing)|"
+    r"invest(?:ing)?|position(?:ing)?|maximiz(?:e|ing)|creat(?:e|ing)|deliver(?:ing)?|broaden(?:ing)?|"
+    r"enhanc(?:e|ing)|driv(?:e|ing)|extend(?:ing)?|secur(?:e|ing)|obtain(?:ing)?|achiev(?:e|ing)|becom(?:e|ing)|"
+    r"transform(?:ing)?|scal(?:e|ing))"
+)
+_FLS_TRIGGER_RX = re.compile(
+    r"\b(?:intends?|intended|intending|plans?|planned|planning|goals?|targets?|targeting|strateg(?:y|ies|ic)|"
+    r"aims?|aimed|aiming|seeks?|seeking|sought|objectives?|priorit(?:y|ies|ize|izing)|committed to|"
+    r"focus(?:ed|es|ing)? on|pursu(?:e|es|ing)|will|expects? to|anticipates?)\b",
+    re.I,
+)
+_FLS_SUBJECT_RX = re.compile(r"\b(?:we|our|us|the company)\b", re.I)
+_FLS_IMPERATIVE_RX = re.compile(
+    r"^\s*(?:to\s+)?(?:selectively|actively|continue to|rapidly|further|aggressively)?\s*" + _STRATEGY_VERBS + r"\b",
+    re.I,
+)
+_FLS_HEADING_NOUN_RX = re.compile(
+    r"\b(?:our|a leading|company|sales|products?|pipeline|portfolio|platform|programs?|markets?|franchise)\b", re.I
+)
+_FLS_PROGRESSIVE_RX = re.compile(
+    r"\bwe are (?:\w+ing\s+(?:\w+\s+){0,6})?(?:to\s+)?(?:actively\s+)?" + _STRATEGY_VERBS + r"\b", re.I
+)
+_FLS_REFUSE_RX = re.compile(
+    r"\b(?:may not|might not|not be able|unable|difficult|costly|adverse(?:ly)?|fail(?:ure|s|ed)?|risks?|"
+    r"uncertaint|substantial additional (?:funding|capital)|require .{0,40}funding|debt|covenants?|indebtedness|"
+    r"prepayments?|going concern|dilut|employees|talent|hire|hiring|consultants|entered into|must include|"
+    r"required to|may license|if so|business combination|shareholder value)\b",
+    re.I,
+)
+_FLS_DATE_RX = re.compile(
+    r"\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},\s+"
+    r"(?:19|20)\d\d\b|\bin (?:19|20)\d\d\b",
+    re.I,
+)
+_FLS_CLAUSE_SPLIT_RX = re.compile(r"[;:,]|\band\b|\bbut\b", re.I)
+
+
+def _fls_stage1(sentence: str) -> tuple[bool, str]:
+    """(candidate?, rule). Rules, in order: refuse-lexicon, refuse-date,
+    imperative, heading, progressive, fls-trigger, none. The rule name is the
+    per-row attribution the fixture test pins (operator condition)."""
+    s = " ".join(str(sentence).split())
+    if _FLS_REFUSE_RX.search(s):
+        return False, "refuse-lexicon"
+    if _FLS_DATE_RX.search(s):
+        return False, "refuse-date"
+    if _FLS_IMPERATIVE_RX.match(s):
+        if re.search(r"\bour\b|\ba leading\b|\bcompany\b", s, re.I):
+            return True, "imperative"
+        if _FLS_HEADING_NOUN_RX.search(s):
+            return True, "heading"
+    if _FLS_PROGRESSIVE_RX.search(s):
+        return True, "progressive"
+    for clause in _FLS_CLAUSE_SPLIT_RX.split(s):
+        if _FLS_TRIGGER_RX.search(clause) and _FLS_SUBJECT_RX.search(clause):
+            return True, "fls-trigger"
+    return False, "none"
+
+
+def _r2v2_candidates(body: str) -> tuple[list[dict], dict[str, int]]:
+    """Split Item 1 on the p2 sentence-break class, keep stage-1 passes.
+    Returns (candidates with sentence + rule, stage-1 counts by rule)."""
+    counts: dict[str, int] = {}
+    out: list[dict] = []
+    for raw in _SENTENCE_BREAK_RX.split(body):
+        sent = " ".join(raw.split())
+        if len(sent) < 20 or len(sent) > 500:
+            continue
+        ok, rule = _fls_stage1(sent)
+        counts[rule] = counts.get(rule, 0) + 1
+        if ok:
+            out.append({"sentence": sent, "rule": rule})
+    return out, counts
+
+
+_R2V2_LINE_RX = re.compile(r"^\s*(\d+)\s*[:.)-]\s*([a-z_]+)\s*$", re.IGNORECASE)
+
+
+def _parse_r2v2_reply(reply: str | None, n: int) -> dict[int, str]:
+    """{index: category_or_refuse} for indices 1..n; malformed lines, unknown
+    indices, and duplicates (first wins) are dropped; an empty reply is {}."""
+    out: dict[int, str] = {}
+    if not reply:
+        return out
+    for line in reply.splitlines():
+        m = _R2V2_LINE_RX.match(line)
+        if not m:
+            continue
+        i = int(m.group(1))
+        if 1 <= i <= n and i not in out:
+            out[i] = m.group(2).lower()
+    return out
+
+
+def _r2v2_prompt(cands: list[dict], company: str, entity_key: str, stated_at: str, idx: int, total: int) -> str:
+    tpl = (Path(__file__).parent / "prompts" / f"{R2V2_PROMPT_VERSION}.txt").read_text(encoding="utf-8")
+    listing = "\n".join(f"{i}: {c['sentence']}" for i, c in enumerate(cands, 1))
+    return (
+        tpl.replace("{company}", company).replace("{entity_key}", entity_key)
+        .replace("{stated_at}", stated_at).replace("{batch_index}", str(idx))
+        .replace("{batch_total}", str(total)).replace("{candidates}", listing)
+    )
+
+
+def extract_priorities_llm_v2(
+    text: str, source_type: str, company: str, entity_key: str, stated_at: str,
+    model: str | None = None, call=None, max_tokens: int | None = None,
+) -> dict:
+    """R2-v2 pass over one document: stage 1 free, stage 2 by numbered index.
+    Same result shape as extract_priorities_llm plus `stage1` counts by rule;
+    survivors carry extractor_version R2-v2 and chunk_index = batch index."""
+    from biointel import assist as _assist
+    from biointel import config as _config
+
+    call = call or _assist._call_api
+    model = model or str(getattr(_config, "R2_MODEL", "claude-haiku-4-5"))
+    max_tokens = int(max_tokens or getattr(_config, "R2_MAX_TOKENS", 1500))
+    if source_type == "10k_strategy":
+        body, section = item1_slice(text), "Item 1"
+    else:
+        body, section = text, "exhibit"
+    res: dict = {
+        "sliced": bool(body), "chunks": 0, "calls": 0, "api_failures": 0, "candidates": 0,
+        "deduped": 0, "refused": {}, "relabeled": 0, "survivors": [], "stage1": {}, "stage1_pass": 0,
+    }
+    if not body:
+        return res
+    cands, counts = _r2v2_candidates(body)
+    res["stage1"] = counts
+    res["stage1_pass"] = len(cands)
+    batches = [cands[i:i + R2V2_BATCH] for i in range(0, len(cands), R2V2_BATCH)]
+    res["chunks"] = len(batches)
+    raw: list[dict] = []
+    for b, batch in enumerate(batches, 1):
+        res["calls"] += 1
+        reply = call(_r2v2_prompt(batch, company, entity_key, stated_at, b, len(batches)), model, max_tokens)
+        if reply is None:
+            res["api_failures"] += 1
+            continue
+        for i, cat in _parse_r2v2_reply(reply, len(batch)).items():
+            if cat == "refuse":
+                res["refused"]["model-refuse"] = res["refused"].get("model-refuse", 0) + 1
+                continue
+            raw.append({"category": cat, "sentence": batch[i - 1]["sentence"], "chunk_index": b, "rule": batch[i - 1]["rule"]})
+    res["candidates"] = len(raw)
+    deduped = _r2_dedup(raw)
+    res["deduped"] = len(raw) - len(deduped)
+    for c in deduped:
+        cat, reason = _r2_validate(c, body)
+        if cat is None:
+            res["refused"][reason] = res["refused"].get(reason, 0) + 1
+            continue
+        if reason.startswith("relabel:"):
+            res["relabeled"] += 1
+        res["survivors"].append({
+            "category": cat, "statement": c["sentence"], "span": c["sentence"][:500],
+            "source_type": source_type, "section": section,
+            "extractor_version": R2V2_EXTRACTOR_VERSION, "model_id": model,
+            "chunk_index": int(c["chunk_index"]),
+        })
+    res["survivors"] = _r2_dedup([dict(s, sentence=s["statement"]) for s in res["survivors"]])
+    for s in res["survivors"]:
+        s.pop("sentence", None)
+    return res
 
 
 def cli(argv: list[str]) -> int:
@@ -2832,11 +3020,11 @@ def cli(argv: list[str]) -> int:
     if argv and argv[0] == "r2-trial":
         nn = next((int(a) for a in argv[1:] if a.isdigit()), R2_TRIAL_DOCS)
         ss = int(argv[argv.index("--seed") + 1]) if "--seed" in argv else None
-        return r2_trial(nn, seed=ss)
+        return r2_trial(nn, seed=ss, version=(R2V2_EXTRACTOR_VERSION if "--v2" in argv else R2_EXTRACTOR_VERSION))
     if argv and argv[0] == "r2-compare":
         nn = next((int(a) for a in argv[1:] if a.isdigit()), R2_WORKSHEET_N)
         ss = int(argv[argv.index("--seed") + 1]) if "--seed" in argv else None
-        return r2_compare(nn, seed=ss)
+        return r2_compare(nn, seed=ss, version=(R2V2_EXTRACTOR_VERSION if "--v2" in argv else R2_EXTRACTOR_VERSION))
     if argv and argv[0] == "r2-judge" and len(argv) >= 3:
         nt = argv[argv.index("--note") + 1] if "--note" in argv else ""
         return r2_judge(argv[1], argv[2], note=nt)
