@@ -2,6 +2,67 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.28. Supersedes v1.27. p2 (L3-a3-p2) COMPLETE END TO END
+(2026-09-10/11): rules frozen, corpus regenerated, fully judged, measured.
+- Commits: 7f4222d (piece 1, commercial_infrastructure ninth category),
+  941e79a (piece 2, sentence-start capture + negation guard + bullet-debris
+  refusal, locked specimens verbatim), 99a756e (piece 3, boundary anchoring,
+  banked traps closed against the stem-compound oracle), 27b6f59 (piece 4,
+  stated_priorities_overflow table with rule-version provenance), 0b0f619
+  (piece 5 phase B: version bump, version-scoped proposals, triage-prepass,
+  excerpt full-sentence anchor, per-category counters + gauges), c4e432a
+  (five sweep-surfaced validator families). Operator docs commits: 16f84c0
+  (Addendum A, tone), 68ecbc9 (Addendum A errata 2; errata 1 same day).
+  Schema 0.21, suite 302, ruff exactly 3.
+- Phase A regeneration (evidence 20260910_p2h): parse rates held —
+  10k_strategy 3,519/6,500 docs (54.1%, level with p1), investor_day 85/492
+  (17.3%); rows 6,942; table of record 4,742; FIRST commercial_infrastructure
+  yield 119 sentences (118 10-K + 1 investor-day). Overflow table: 2,200 p2
+  runner-ups + 2,207 imported p1 rows tagged L3-a3-p1.
+- ERRATA: v1.24 recorded 2,221 overflow lines; the txt held 2,207 at import
+  (2026-09-11), self-consistent (2,207 parsed = 2,207 table rows, 0
+  unparseable). Cause hypothesis — the 2026-09-09 verdict-aware write re-run
+  regenerated the file after retirements — is UNVERIFIED (original file
+  gone). The piece-4 commit message carries the stale 2,221; this errata is
+  the correction of record.
+- Judging (evidence 20260911_p2j/p2k/p2n): deterministic pre-pass settled
+  4,331 rows free across 27 standing clusters (91.3% of the table, zero
+  calls); paid sweep 758 calls (379 rows x 2 models), 0 api_failures, 297
+  settled by two-model agreement; 82 disagreement rows surfaced; operator
+  verdicts 10 (round 1) + 67 (corpus-end batch: 21 specific + 46 tail
+  wrong-no-relabel; the reviewer draft's "49" was a count error, reconciled
+  before recording) + 5 free look-alikes under the five new families.
+  New validator families of record (c4e432a): right-of-first-negotiation,
+  license-full-rights-to, granted-exclusive-license, provide-technology-to,
+  historical-relationship-statement.
+- Amendment-1 exit criterion PASS: all 60 carry-forward p1-wrong keys hold a
+  p2 verdict; the p2 pool is empty (EXIT-CHECK carry-forward: 0).
+- Measurement (evidence 20260911_p2o): operator row-level 10k_strategy
+  12/13 = 0.923 (wilson 0.667-0.986; thin by design — the pre-pass and
+  agreement absorbed the mass); investor_day: no operator-tier sample this
+  round; relabeled 0/12 and retired 0/52 read as intended (those verdicts
+  assert the stamp was wrong); PATTERN-RULED 2,185 correct / 2,151 wrong;
+  297 machine drafts recorded, never counted. ASSIST-AGREEMENT 14/77 =
+  0.182 carries a strong selection effect (judged rows were almost all
+  model-disagreements) and is NOT comparable to p1's 0.532.
+- False-misquote class RESOLVED (evidence 20260910_p2d): Sa0aafbb/Sde5e86
+  extracted text is genuine filing text; docs carry near-identical
+  boilerplate variants sharing their first 80 chars, and the old excerpt
+  builder (sent[:80] find) aimed the judge at the wrong variant. Fixed at
+  0b0f619 (_locate_sentence, full-sentence anchor with progressive
+  fallback).
+- Cost: per docs/20260911_v1_Manual_S5_Cost_Ledger_Errata.md — measured
+  anchors Sep 9 $15.18 / Sep 10 $15.31 (Sonnet ~$5.24 per 1k calls, Haiku
+  ~$1.51 per 1k, blended ~$3.37 per 1k at this workload); the 758-call
+  sweep ~$2.56 extrapolated, marked as such until the Console row
+  populates; campaign total ~$31.60 + the pending sweep row.
+- Next (operator roadmap 5848d95): R2 — section-scan + LLM inference with
+  span citations, validated by the rulebook, judged through the existing
+  surface; acceptance is a blind head-to-head against the frozen p2
+  baseline. Then R3 (classifier tier), R4 (similarity features), R5
+  (opportunistic). Standing queue unchanged (52 stakes verdicts behind the
+  F1-era retire-path repair, 707 M3, successor aliases, GUI order).
+
 Version 1.27. Supersedes v1.26. F2 SECOND HALF COMPLETE (2026-09-10):
 THE STATED-PRIORITIES CORPUS IS FULLY JUDGED — zero unjudged rows.
 - Final ledger: 2,873 machine verdicts recorded (draft-agree, never
