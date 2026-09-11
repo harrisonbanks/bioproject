@@ -1794,6 +1794,24 @@ def _validate_cluster(sentence: str, stamp: str) -> tuple[str, str, str] | None:
         return ("going-concern", "wrong", "")
     # out-licensing (Arbutus) BEFORE acq: license-OUT direction is wrong,
     # development partnering (Nomad) is not detected here and stays residual
+    # p2 operator rulings 2026-09-11 (five families encoded from the sweep's
+    # surfaced dissents; each named branch cites its family so look-alikes
+    # among the residual settle free on the next pre-pass). Ordered BEFORE
+    # the generic out-licensing branch so notes cite the precise family.
+    if re.search(r"right of first (?:negotiation|refusal)", s, re.IGNORECASE):
+        return ("right-of-first-negotiation", "wrong", "")
+    if re.search(r"\blicense (?:full )?(?:our )?(?:product )?rights? to\b", s, re.IGNORECASE):
+        return ("license-full-rights-to", "wrong", "")
+    if re.search(r"\bgranted\b[^.\u2022]{0,40}\bexclusive license\b", s, re.IGNORECASE):
+        return ("granted-exclusive-license", "wrong", "")
+    if re.search(r"agreement to provide[^.\u2022]{0,80}technolog", s, re.IGNORECASE):
+        return ("provide-technology-to", "wrong", "")
+    if re.search(
+        r"\bin \w+ \d{4},? we (?:established|entered into|announced)\b[^.\u2022]{0,80}"
+        r"(?:relationship|agreement|collaboration)",
+        s, re.IGNORECASE,
+    ):
+        return ("historical-relationship-statement", "wrong", "")
     if any(t in s for t in _OUTLICENSE_TERMS) or _OUTLICENSE_RX.search(sentence):
         return ("out-licensing", "wrong", "")
     if _hit(s, _CHANNEL_TERMS):
@@ -2035,6 +2053,11 @@ STANDING_RULINGS: dict[str, str] = {
     # superseded at p2 piece 1 (2026-09-10): kept so recorded verdicts citing
     # the hold keep a live citation; the validator no longer emits it.
     "commercial-hold-p2": "commercial-infrastructure hold (unsure; superseded p2)",
+    "right-of-first-negotiation": "right-of-first-negotiation/refusal is deal history, not a priority (ruling 2026-09-11)",
+    "license-full-rights-to": "licensing own product rights OUT is not pipeline_gap (ruling 2026-09-11)",
+    "granted-exclusive-license": "granted-exclusive-license is out-licensing history (ruling 2026-09-11)",
+    "provide-technology-to": "agreement to provide own technology to another party is out-licensing (ruling 2026-09-11)",
+    "historical-relationship-statement": "dated historical relationship statement, not a stated priority (ruling 2026-09-11)",
     "commercial-correct": "commercial_infrastructure payload correct (ruling 2026-09-08, live p2)",
     "commercial-relabel": "payload beats stamp flavor (commercial_infrastructure, ruling 2026-09-08)",
     "acquisition-correct": "Fortress/Abpro: acquisition intent correct",

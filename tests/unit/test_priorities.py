@@ -1231,3 +1231,36 @@ def test_excerpt_anchor_targets_full_sentence_variant(f2db, monkeypatch, tmp_pat
     capsys.readouterr()
     assert seen_prompts
     assert all("UNIQUEBETA" in pr for pr in seen_prompts)  # excerpt centered on the true variant
+
+
+# ---- p2 operator rulings 2026-09-11: five sweep-surfaced families ----
+def test_sweep_ruled_families_verbatim():
+    """Verbatim rows from the 20260911 surface, each now a named validator
+    branch (operator rulings 2026-09-11): look-alikes settle free on the
+    pre-pass instead of consuming operator judgment."""
+    from biointel.priorities import STANDING_RULINGS
+    from biointel.priorities import _validate_cluster as V
+
+    knight = ("Knight Under the Knight Agreement, as amended in August 2018, we granted Knight an "
+              "exclusive license to commercialize Probuphine in Canada as well as a right of first "
+              "negotiation in the event we intend to license our right to commercialize any of our "
+              "other products in Canada.")
+    assert V(knight, "pipeline_gap") == ("right-of-first-negotiation", "wrong", "")
+    achaogen = ("Outside the United States, we intend to license full product rights to global and "
+                "regional commercialization partners who can help us develop and market our products.")
+    assert V(achaogen, "pipeline_gap") == ("license-full-rights-to", "wrong", "")
+    agtc = ("In April 2021, we announced a licensing agreement to provide its proprietary cone "
+            "specific promoter technology to SparingVision SAS, a genomic medicine company "
+            "developing vision saving treatments for ocular diseases.")
+    assert V(agtc, "pipeline_gap")[1] == "wrong"
+    assert V(agtc, "pipeline_gap")[0] in ("provide-technology-to", "historical-relationship-statement")
+    granted = "we granted Partner an exclusive license to commercialize the product in Japan."
+    assert V(granted, "pipeline_gap") == ("granted-exclusive-license", "wrong", "")
+    beam = ("Additionally, in September 2019, we established a strategic relationship with Beam "
+            "Therapeutics, a biotechnology company developing gene editing products using its "
+            "proprietary base editing technology.")
+    assert V(beam, "platform") == ("historical-relationship-statement", "wrong", "")
+    for suffix in ("right-of-first-negotiation", "license-full-rights-to",
+                   "granted-exclusive-license", "provide-technology-to",
+                   "historical-relationship-statement"):
+        assert suffix in STANDING_RULINGS  # pre-pass auto-apply requires the citation
