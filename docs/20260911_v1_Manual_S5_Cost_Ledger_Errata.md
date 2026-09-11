@@ -25,7 +25,7 @@ disclosure uses these measured anchors until superseded by a newer Console row.
 
 - EXTRAPOLATED from the Sep-10 anchor: ~$2.56. Marked extrapolated; replace
   this line with the Console row when it populates (open-queue item in
-  handoff v49 §3.2).
+  handoff v51 §3 item 2).
 
 ## Campaign total
 
