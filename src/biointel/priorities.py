@@ -2708,7 +2708,12 @@ def _r2_pair(p2: list[dict], r2: list[dict]) -> dict:
 
 
 def _r2_snapshot_path(version: str) -> Path:
-    return config.SNAPSHOTS / f"r2_compare_p2_snapshot_{version}.json"
+    """Under config.DATA (data/snapshots in production), read at call time so
+    the test fixture's DATA redirect isolates it. Failure of record
+    2026-09-11: the first cut used config.SNAPSHOTS, which the fixture does
+    not redirect, so the operator's suite run wrote fixture-world snapshots
+    into the live data folder and the R2-v2 compare read p2_rows 0."""
+    return Path(config.DATA) / "snapshots" / f"r2_compare_p2_snapshot_{version}.json"
 
 
 def _r2_p2_snapshot(units: set, con, version: str) -> list[dict]:
@@ -2723,7 +2728,7 @@ def _r2_p2_snapshot(units: set, con, version: str) -> list[dict]:
         {k: str(v) for k, v in r.items()}
         for r in store.read_table("stated_priorities", con=con) if _r2_unit(r) in units
     ]
-    config.SNAPSHOTS.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(rows, ensure_ascii=False, indent=0), encoding="utf-8")
     print(f"R2-SNAPSHOT CREATED {len(rows)} p2 rows on {len(units)} units -> {path}")
     return rows

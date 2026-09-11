@@ -1789,7 +1789,6 @@ def test_r2v2_2a_snapshot_freezes_p2_side_across_verdicts(f2db, monkeypatch, tmp
     from biointel import store as _store
 
     p = _r2_world(monkeypatch, tmp_path, capsys)
-    monkeypatch.setattr(_config, "SNAPSHOTS", tmp_path / "snapshots")
     assert p.r2_trial(2, seed=7, call=lambda *a: "NONE") == 0  # R2 finds nothing: every p2 row is p2-only
     # compare needs r2 rows on the units: plant one v1 row per unit under another sentence
     from biointel import schema as _schema
@@ -1823,12 +1822,10 @@ def test_r2v2_2a_snapshot_freezes_p2_side_across_verdicts(f2db, monkeypatch, tmp
 
 
 def test_r2v2_2a_held_out_split_and_pending_then_fail(f2db, monkeypatch, tmp_path, capsys):
-    from biointel import config as _config
     from biointel import schema as _schema
     from biointel import store as _store
 
     p = _r2_world(monkeypatch, tmp_path, capsys)
-    monkeypatch.setattr(_config, "SNAPSHOTS", tmp_path / "snapshots")
     p2 = _store.read_table("stated_priorities")
     u_fit, u_out = p2[0], p2[1]
     cols = list(_schema.STATED_PRIORITY_R2_COLS)
@@ -1870,3 +1867,19 @@ def test_r2v2_2a_trial_cap_follows_measured_stage1_count(f2db, monkeypatch, tmp_
     assert p.r2_trial(2, seed=7, call=lambda *a: "NONE", version="R2-v2") == 0
     out = capsys.readouterr().out
     assert "calls_needed 0 configured_cap 0" in out and "capped 0" in out
+
+
+def test_r2v2_2c_snapshot_path_follows_data_redirect_never_live_snapshots(f2db, monkeypatch, tmp_path, capsys):
+    """Hotfix of record 2026-09-11: the fixture redirects DATA but not
+    SNAPSHOTS; the snapshot must live under DATA so a suite run can never
+    write into the live data/snapshots folder."""
+    from biointel import config as _config
+
+    assert priorities._r2_snapshot_path("R2-v2") == tmp_path / "snapshots" / "r2_compare_p2_snapshot_R2-v2.json"
+    assert not str(priorities._r2_snapshot_path("R2-v1")).startswith(str(_config.SNAPSHOTS))
+    p = _r2_world(monkeypatch, tmp_path, capsys)
+    assert p.r2_trial(2, seed=7, call=_r2_reply) == 0
+    capsys.readouterr()
+    assert p.r2_compare(60, seed=3) == 0
+    assert (tmp_path / "snapshots" / "r2_compare_p2_snapshot_R2-v1.json").exists()
+    assert "R2-SNAPSHOT CREATED" in capsys.readouterr().out
