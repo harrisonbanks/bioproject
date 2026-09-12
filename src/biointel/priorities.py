@@ -3075,7 +3075,7 @@ _R2V2_BRANCHES: tuple[tuple[str, "re.Pattern[str]"], ...] = (
         r"^\s*over the (?:last|past)\b|\bwe (?:have )?implemented\b|\bform the foundation of\b|\bwe conduct internal\b|\bcontract with one or more manufacturers\b",
         re.I)),
     # round 3: table-of-contents and page debris
-    ("debris", re.compile(r"\bTable of Contents\b", re.I)),
+    ("debris", re.compile(r"\bTable of Contents\b|[\u25cf\u2022\u25aa\u25a0]", re.I)),  # round-4 escape: a filled-circle bullet inside the span
 )
 _R2V2_BELIEF_RX = re.compile(r"^\s*we believe\b", re.I)
 _R2V2_PLAN_RX = re.compile(r"\b(?:plan|plans|intend|intends|aim|aims|seek|seeks|strategy|focus|focused|goal|priorit|will (?:continue|pursue|seek|expand|build|develop))\w*\b", re.I)
@@ -3093,8 +3093,8 @@ def _r2v2_stage2_refuse(sentence: str) -> str | None:
         return "designed-based-description"
     if _R2V2_BELIEF_RX.search(s) and not _R2V2_PLAN_RX.search(s):
         return "belief-without-plan"
-    if len(s.split()) < 6:
-        return "fragment"
+    if len(s.split()) < 6 or s[:1] in ",;:" or s.lower().startswith(("and ", "or ", "but ")):
+        return "fragment"  # round-4 escape: a comma- or conjunction-opener is a clause cut from its sentence
     return None
 
 

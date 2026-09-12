@@ -2070,3 +2070,20 @@ def test_r2v2_4_tagged_round_counts_only_that_round(f2db, monkeypatch, tmp_path,
     assert "tag round4 r2_only_precision 1/1" in out  # the untagged wrong verdict is not counted
     assert p.r2_compare(60, seed=3, version="R2-v2") == 0
     assert "r2_only_precision 1/2" in capsys.readouterr().out  # untagged compare counts both
+
+
+# ---------------------------------------------------------------- R2v2-5: closure (2026-09-11) - two branch escapes as fixtures, no re-measurement claimed
+def test_r2v2_5_round4_escapes_are_refused_and_round_fixtures_hold():
+    f = priorities._r2v2_stage2_refuse
+    assert f(", we will focus our initial marketing of DAXI on these core specialties") == "fragment"
+    assert f("and \u25cf We have the potential to pursue other indications such as chronic pruritus using the HT-001 formulation") == "debris"
+    assert f("We intend to expand our pipeline to treat additional rare diseases") is None
+    import collections
+    import csv
+    import pathlib as _pl
+
+    for name, corrects in (("r2v2_verdicts_20260911.csv", 23), ("r2v2_verdicts_round3_20260911.csv", 30), ("r2v2_verdicts_round4_20260911.csv", 29)):
+        with open(_pl.Path(__file__).parent / "fixtures" / name, newline="", encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+        att = collections.Counter((r["verdict"], f(r["sentence"]) is None) for r in rows)
+        assert att[("correct", True)] == corrects, name  # every operator-correct row survives the branches, all rounds
