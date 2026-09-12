@@ -2,6 +2,79 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.32. Supersedes v1.31. R3-0c LEVEL 1-2 RECOVERY CENSUS DONE
+(2026-09-12, block v57k, HEAD 5eae6b6); architecture of record adopted
+(docs/20260912_v1_Document_Processing_and_Evidence_Architecture.md); R3-0d
+scope ruled and bounded.
+- Gate R3-0c-ii DONE (commit 5eae6b6, parent d44308c): src\biointel\recovery.py
+  (three separated authorities, multi-artifact provenance, source hashing,
+  era/session grouping, deterministic audit bundles, pre-suppression replay on
+  the unresolved remainder only), 15 locking tests, `priorities r3-census`
+  verb. Suite 361 collected and 361 passed on the operator's machine (the four
+  test_stakes failures are container-only, from an unset BIOINTEL_USER_AGENT);
+  ruff unchanged at exactly 3 pre-existing findings; no schema change; zero API
+  calls; no write to any table of record, enforced by a locking test.
+- LEVEL 1-2 RECOVERY CENSUS, the figures of record. Interim R3-0c recovery
+  measurement, Levels 1 to 2 only: 4,834 distinct authoritative reviewed
+  candidate IDs were established. Of these, 2,936 mappings were recovered
+  through direct historical evidence or surviving exact table mappings, 1,869
+  remained unresolved, and 29 were held ambiguous. The 2,936 recovered mappings
+  correspond to 2,308 unique recovered sentence texts. Level 3 extractor replay
+  had not yet run, so 2,936 is a lower bound on final recoverability and 1,869
+  is an upper bound on the final unresolved population.
+- Class counts, with their denominator stated. Among mappings currently
+  carrying both sentence evidence and a verdict, there are 2,277 positive and
+  677 negative verdict observations. These counts do not use recovered_total as
+  their denominator: verdict-bearing ambiguous mappings are included, while
+  recovered `unsure` verdicts belong to neither class. The exact decomposition
+  is deferred to the Level 3 replay census, which will report each class with
+  its own explicit denominator.
+- Identifier populations. 300 distinct authoritative R candidate IDs were
+  measured. No claim is made that this population equals the disjoint union of
+  the R2-JUDGED and worksheet populations until exact authority-form set
+  overlaps are measured; the same discipline applies to S candidate IDs.
+- Other measured figures: recovery by source 2,193 table_direct, 548
+  judging_evidence_direct, 118 worksheet_direct, 77 cluster_direct; unresolved
+  reasons 1,779 no_sentence_evidence, 90 no_verdict_evidence, 29
+  conflicting_sentence_evidence; 423 sentences under multiple reviewed keys, 19
+  with conflicting verdicts, 14 under multiple categories; 2,492 shape matches
+  reported as unclassified_identifier and counted toward no total; 176
+  artifacts totalling 19,659,684 bytes consumed and hashed into
+  data\exports\20260912_v1_r3_recovery_source_manifest.csv, with 16 audit
+  bundles in 20260912_v1_r3_recovery_audit_bundles.json. Recovery is
+  concentrated: the p2h era holds 3,851 of the 4,834 keys and 1,639 of the
+  unresolved, so Level 3 is a bounded target rather than an open forensic
+  exercise.
+- Architecture of record adopted: source evidence, document structure, machine
+  proposals, human adjudication and production state become five layers with
+  independent identities and lifecycles, under the rule that no derived state
+  may be the sole surviving representation of its inputs and no interpretation
+  may destroy the evidence it came from. Nine-phase migration: finish R3-0c;
+  SEG-v1; R3-0d immutable adjudication; proposal/selection separation; typed
+  identities and run lineage; immutable dataset manifests; learned extraction;
+  projection rebuildability; downstream M&A validation. The R3 design governs
+  the current experiment and controls on conflict about it.
+- R3-0d scope ruling (operator, binding): full stated_priorities rebuildability
+  is DEFERRED to architecture phase 8. R3-0d must guarantee rebuildability of
+  the effective adjudication state from the immutable ledger and preserved
+  evidence alone, preserving stable segment identity, exact judged evidence and
+  context, original and resulting identities, append-only correction history,
+  recovery provenance, and sufficient proposal references for later projection
+  reconstruction; it must not require proposal/selection separation in the same
+  gate. Phase 8 owns the proof that stated_priorities is a disposable, exactly
+  reconstructable projection.
+- Named follow-on work: the Level 3 replay gate (unresolved remainder only,
+  pre-suppression pools, longest-wins and overflow identity, never overwriting a
+  direct recovery, ambiguity preserved, full reconciliation to 4,834, new
+  unique-sentence count, class counts with explicit denominators, recovery by
+  era/session, the p2h sub-report, authority-form set overlaps for R and S ids,
+  and the class-count denominator fix). Order of record from here: architecture
+  and status docs, Level 3 replay gate, final R3-0c census, R3-0b SEG-v1.
+- Standing queue unchanged behind R3: gold set, Console Sep-11 cost row, F1-era
+  stakes retire-path repair before the 52 deferred stakes verdicts, 707 open M3
+  entries, successor-name stamping via aliases, GUI build order, scripts\
+  folder disposition, Harrison blocked.
+
 Version 1.31. Supersedes v1.30. R3 RECALIBRATED (operator design of record
 2026-09-12): the objective is no longer a classifier that reproduces p2's
 judgments but an additive recall layer measured against a true ground-truth
