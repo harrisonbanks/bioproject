@@ -2,6 +2,48 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.34. Supersedes v1.33. DOCUMENTATION CORRECTION ONLY: no measured
+figure changes. v1.33's recovery, sentence-class, tie, authority-overlap and
+runtime figures all stand as recorded. Three statements in v1.33 are corrected
+here, and docs/20260912_v1_R3_0c_Final_Recovery_Record.md is corrected in the
+same commit.
+- CORRECTION 1, the 30 non-R2 no-verdict keys. v1.33 said of the 127 unresolved
+  that "the remaining 30 are other no-verdict-evidence cases. These are NOT lost
+  labels." That conclusion is broader than the measurement. The record of
+  account is: of the 90 no-verdict keys, 60 are the regenerated 2026-09-12 R2
+  worksheet entries that were never judged; the remaining 30 are other cases for
+  which no authoritative verdict evidence was recovered. The 60 R2 worksheet
+  cases are not lost labels. The remaining 30 should not be characterised as
+  lost or never-judged labels without additional evidence: what was measured is
+  the absence of recovered verdict evidence, which does not establish that no
+  judgment ever existed.
+- CORRECTION 2, the duration formatter. v1.33 said the formatter "is fixed in
+  the block committing this version". That was not established: v57q committed
+  only two documentation paths, block runners are not tracked in the repository,
+  and a seconds-long execution cannot exercise a longer-than-an-hour duration.
+  The supported statement is only that v57o's own duration line printed 23m28s
+  because its formatter dropped the hour component of the TimeSpan, and that the
+  timestamp-derived elapsed time was 83m28s. The 83-minute cold-sweep anchor is
+  unaffected.
+- CORRECTION 3, the gate sequence. v1.33 listed "R3-0b SEG-v1, R3-0d immutable
+  adjudication ledger, dataset manifests, R3-1", which drops R3-0e. The binding
+  order in the design of record
+  (docs/20260912_v1_R3_Recovery_Benchmark_and_Learned_Extraction_Design.md) is
+  R3-0a, R3-0c, R3-0b, R3-0d, R3-0e, R3-1, R3-2, R3-3, and the unresolved
+  annotation and sampling parameters gate R3-0e rather than R3-0c. No design
+  amendment removing R3-0e has been committed, so the sequence of record is:
+  R3-0b SEG-v1, R3-0d immutable adjudication ledger, R3-0e development and
+  locked document selection with development annotation, then R3-1, R3-2, R3-3.
+  Immutable dataset manifests are architecture phase 6 and land before R3-1
+  training.
+- Everything else in v1.33 stands unchanged: 4,678 recovered of 4,834
+  authoritative reviewed keys with 29 ambiguous and 127 unresolved; both
+  equations True; 3,352 unique recovered sentences partitioned 1,632 / 1,680 /
+  27 / 13 / 0 with the identity True; clean binary training pool 3,312; tie
+  surface 18 indexed keys to 7 recovered mappings to 4 distinct sentences;
+  authority union 4,834 with judged and r2_judged disjoint; cold sweep about 83
+  minutes against about 1 second for a cached census; suite 375 passed; ruff 3.
+- R3-0c remains closed. The next development gate is R3-0b SEG-v1.
 Version 1.33. Supersedes v1.32. R3-0c CLOSED as a measured result
 (docs/20260912_v1_R3_0c_Final_Recovery_Record.md, block v57p, HEAD be4b72c).
 The Level 1-2 interim figures recorded in v1.32 are SUPERSEDED by the final

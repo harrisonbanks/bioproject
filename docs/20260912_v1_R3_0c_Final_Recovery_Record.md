@@ -3,7 +3,8 @@ docs/20260912_v1_R3_0c_Final_Recovery_Record.md
 # R3-0c final recovery record
 
 **Date:** 2026-09-12
-**Status:** CLOSED. This record supersedes the interim Level 1-2 census figures
+**Status:** CLOSED. Content v2 (2026-09-12): three documentation defects
+corrected, no measured figure changed. This record supersedes the interim Level 1-2 census figures
 published in PROJECT_STATUS v1.32 and in
 docs/20260912_v1_Document_Processing_and_Evidence_Architecture.md §58.
 **Gates:** R3-0c-i (block v57a), R3-0c-ii (v57k, commit 5eae6b6), R3-0c-iii
@@ -55,8 +56,12 @@ deterministic reconstruction, not a byte-identical historical replay.
 Of the 127 unresolved reviewed keys, 90 lack authoritative verdict evidence and
 37 were recorded under rule versions not reproduced by the Level 3 index. Of
 the 90 no-verdict keys, 60 are the regenerated 2026-09-12 R2 worksheet entries
-that were never judged; the remaining 30 are other no-verdict-evidence cases.
-These should not be described as lost labels.
+that were never judged; the remaining 30 are other cases for which no
+authoritative verdict evidence was recovered. The 60 R2 worksheet cases are not
+lost labels. The remaining 30 should not be characterised as lost or
+never-judged labels without additional evidence: what was measured is the
+absence of recovered verdict evidence, which does not establish that no
+judgment ever existed.
 
 ## 5. Mapping-level classes, each with its denominator
 
@@ -132,9 +137,10 @@ These should not be described as lost labels.
 25. Unit suite at 375 tests: about 3 minutes.
 26. Correction of record: the "23m28s" figure printed by v57o's own stage line
     is wrong. The block's duration formatter used a minutes-and-seconds format
-    string on a TimeSpan and silently dropped the hour component. The true
-    elapsed was 83m28s. The formatter is fixed in the block that commits this
-    record.
+    string on a TimeSpan and silently dropped the hour component. The
+    timestamp-derived elapsed time was 83m28s. No claim is made here that the
+    formatter is fixed: block runners are not tracked in the repository, and no
+    execution longer than an hour has yet exercised a corrected formatter.
 
 ## 11. What R3-0c did not establish
 
@@ -148,5 +154,8 @@ These should not be described as lost labels.
 ## 12. Disposition
 
 31. R3-0c is closed.
-32. Next: R3-0b SEG-v1, then R3-0d immutable adjudication ledger, then dataset
-    manifests, then R3-1.
+32. Next, per the binding gate order in the design of record: R3-0b SEG-v1,
+    R3-0d immutable adjudication ledger, R3-0e development and locked document
+    selection with development annotation, then R3-1, R3-2, R3-3. Dataset
+    manifests are architecture phase 6 and land before R3-1 training. The
+    unresolved annotation and sampling parameters gate R3-0e, not R3-0c.
