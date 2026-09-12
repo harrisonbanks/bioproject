@@ -2,6 +2,120 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.30. Supersedes v1.29. R2v2 (stance-first two-stage) CLOSED AS A
+MEASURED NEGATIVE RESULT (2026-09-11), four free measurements, one paid
+trial; R3 (verdict-trained classifier) is the next task.
+- Commits since v1.29: 787a8b3 (R2v2-1: stance-first stage 1/2, no API,
+  suite 332), 5e91243 (R2v2-2a: HELD-OUT/FIT split, p2 snapshot, PENDING-P2,
+  no API, suite 335), a3044dc..a5535ca (R2v2-2b trial: 291 calls, 0
+  failures, 1,871 R2-v2 rows on 112/120 docs; hotfix a5535ca for the
+  snapshot-path defect, suite 336), ca63d90 (R2v2-3: 6 branches +
+  r2-refilter + r2-diagnose, no API, suite 342), 30357e6 (R2v2-4: 6 more
+  branches + tagged judging rounds, no API, suite 345), eae0549 (R2v2-5:
+  2 branch-escape fixtures, closure, suite 346). p2 baseline frozen
+  throughout (extract_priorities, judge, write, RULE_VERSION_F2
+  untouched); r2 verdicts write only to candidate_reviews (R-keys), never
+  to either priorities table.
+- Four free judging rounds on the R2-v2 trial's 1,871 survivors, each a
+  60-row worksheet, held-out precision only:
+    round 1 (60 rows, no branches):        10/59 = 0.169 (0.095-0.285)
+    round 2 (60 rows, 6 branches):          23/59 = 0.390 (fresh worksheet)
+    round 3 (60 rows, 6 more branches):     30/60 = 0.500 (plateau begins)
+    round 4 (60 rows, 2 more branches):     21/43 = 0.488 held-out (deciding)
+  vs p2 baseline 12/13 = 0.923 (wilson 0.667-0.986). Trajectory 0.17 to
+  0.39 to 0.50 to 0.488: a plateau, not further convergence.
+- Recall (held-out, frozen p2 snapshot): of 33 p2 rows on 76 held-out
+  documents, R2-v2 paired 18 by containment (0 exact) and dropped 15
+  (regression 14 judged-correct, 1 excused judged-wrong). The branch
+  passes that raised precision cost one previously-paired row, moving
+  recall the wrong direction.
+- Root cause (operator diagnosis, R2_Negative_Result record): the
+  remaining wrong rows are declared-intent sentences about routine
+  operations (financing posture, expense expectations, compliance
+  stance, hedged possibility, regulatory-path plans) that are
+  grammatically identical to strategic priorities; separating them from
+  true priorities is a judgment boundary, not a pattern deterministic
+  branches can encode. Two four-round measurements (10/10, 23/23, 30/30
+  corrects kept across the three branch rounds) show every operator-correct
+  row surviving every branch while precision still plateaus below p2 -
+  proof the branches are precise but the remaining errors are not
+  branch-shaped.
+- Full corpus was never run; the trial's 291 calls (~$0.44 Haiku) and the
+  60-row worksheets are the entire spend of the R2v2 campaign.
+- Disposition: stated_priorities_r2 (1,871 rows across R2-v1/R2-v2,
+  1,485 after the last refilter) is RETAINED under extractor-version
+  provenance and EXCLUDED from the matcher; no downstream code reads it
+  (verified: only priorities.py and its own schema declaration reference
+  the table). docs/20260911_v1_R2_Negative_Result_and_R3_Basis.md is the
+  decision record of closure.
+- The campaign's asset: candidate_reviews holds 10,040 review rows on
+  5,673 distinct judged keys (240 R-keys from the R2 campaign, 4,986
+  S-keys from p1/p2); under the frozen ruleset L3-a3-p2 specifically,
+  4,951 current verdicts (240 R + 4,711 S). This is the R3 training
+  corpus, above the literature's cited sufficiency threshold (Feng Li,
+  SSRN 1267235: 30,000 hand-coded sentences at a different scale;
+  FinBERT precedent: 3,500 MD&A sentences).
+- Failures of record this closure (numbered, all mine): (5) a truncated
+  block paste (v51u) deployed files without the state-check lines
+  running, caught by the next block's HEAD/tracked-changes gate rather
+  than corrupting anything; (6) a stray, unrelated `scripts\` folder
+  from prior work surfaced during cleanup and was left untouched,
+  outside R2 scope.
+- Standing queue unchanged: gold set of 5-10 fully annotated Item 1
+  sections (neither p2 nor R2 recall is measured against ground truth);
+  Console Sep-11 cost row; F1-era stakes retire-path repair before the 52
+  deferred stakes verdicts; 707 open M3 entries; successor-name stamping
+  via aliases; GUI build order; Harrison blocked.
+
+Version 1.29. Supersedes v1.28. (superseded) R2 (holistic extraction pass) BUILT, TRIALED,
+FAILED, CLOSED AS PROMPTED (2026-09-11); rescope gated on review.
+- Commits: 3884f76 (gate R2-1: extract_priorities_llm, deterministic
+  validators from the ruled machinery, cross-chunk dedup, prompt
+  extract_priority_v1, stated_priorities_r2 table, schema 0.22, R2 config
+  knobs default OFF, 13 tests, suite 315), a3044dc (gate R2-2: r2_trial,
+  r2_judge, r2_compare, judge-batch --r2, 10 tests, suite 325), 83cac01
+  (docs: R2 trial record). Docs of record earlier the same day: 08bc8ba
+  (boot Step 0 push rule + S5 pointer fix), f929dea (Manual S3.6 docs-only
+  commit gate). Suite of record 325 passed; ruff exactly 3 pre-existing.
+- p2 baseline frozen throughout: extract_priorities, judge, write,
+  RULE_VERSION_F2 = L3-a3-p2 untouched; stated_priorities untouched by the
+  trial and by judging (r2_judge writes candidate_reviews only, R-keys).
+- Trial of record (evidence 20260911_v51g / v51h; seed 20260911; Haiku 4.5;
+  cap 400): population 5,945 10k_strategy documents (p2's write predicate),
+  sample 120, measured 1,288 chunks (10.7 per document, NOT the 2-3 the
+  scope inferred); 39 documents completed in 400 calls, 0 api_failures, 81
+  capped; candidates 1,667, survivors 1,051 on 37 documents (28.4 per
+  document), refused 567 (span-not-verbatim 273, generic 168,
+  ip-protection 70, other 56).
+- Head-to-head on the 37 documents: p2 13 rows, R2 1,051, overlap 4,
+  R2-only 1,047, p2-only 9 (8 not judged wrong at p2: recall regression).
+  Operator verdicts on the 60-row R2-only worksheet: correct 10, wrong 49,
+  unsure 1; precision 10/59 = 0.169 (wilson 0.095-0.285) vs p2 12/13 =
+  0.923 (0.667-0.986). Verdict FAIL on both axes. Wrong rows: trial-status
+  descriptions, risk-factor text, SPAC/financing boilerplate, historical
+  agreements, product descriptions; the model extracted what the document
+  says, not what the company declares it wants.
+- Operator ruling (2026-09-11): R2 as prompted is closed; any rerun is a new
+  scope, must require declaration language or first-person intent in the
+  span, and goes through review before any call. R3 (classifier on the
+  verdicts) is the alternative live path.
+- Scale figures superseding the roadmap: full corpus ~63,800 calls at the
+  measured chunk rate (~$96 Haiku, ~$334 Sonnet at the S5 anchors), ~52
+  hours at the measured 20.3 calls/min. Trial spend ~$0.60 at the anchor;
+  Console row pending.
+- Failures of record this session (numbered accounting): (1) v51d hashed a
+  stale same-named Download (v1 names reused): reissued as v2; (2) v51c ran
+  the suite in a docs-only commit: Manual S3.6; (3) two blocks carried the
+  name v51g and the cap-400 one ran: every reissue takes a new letter; (4)
+  the 2-3 chunks/doc estimate was inferred, not measured.
+- Assets retained: stated_priorities_r2 holds the 1,051 R2-v1 rows; 60 R-key
+  verdicts in candidate_reviews (rule_version L3-a3-p2, note prefix r2:);
+  a fresh 60-row unjudged worksheet was regenerated by the final compare
+  and is NOT to be judged.
+- Standing queue unchanged: Console Sep-11 row; F1-era stakes retire-path
+  repair before the 52 deferred stakes verdicts; 707 open M3 entries;
+  successor-name stamping via aliases; GUI build order; Harrison blocked.
+
 Version 1.28. Supersedes v1.27. p2 (L3-a3-p2) COMPLETE END TO END
 (2026-09-10/11): rules frozen, corpus regenerated, fully judged, measured.
 - Commits: 7f4222d (piece 1, commercial_infrastructure ninth category),
