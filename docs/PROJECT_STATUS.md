@@ -2,6 +2,94 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.31. Supersedes v1.30. R3 RECALIBRATED (operator design of record
+2026-09-12): the objective is no longer a classifier that reproduces p2's
+judgments but an additive recall layer measured against a true ground-truth
+benchmark; docs/20260912_v1_R3_Recovery_Benchmark_and_Learned_Extraction_Design.md
+is the design of record and supersedes every earlier R3 plan.
+- Objective of record: can a learned method recover additional true strategic
+  priorities that p2 misses without materially reducing the precision of the
+  combined feed. p2 remains the incumbent; the production shape under test is
+  p2 accepted rows UNION learned additions from outside p2. A held-out split
+  of p2-selected candidates is explicitly NOT the acceptance test, because the
+  recovered corpus is biased by p2's own candidate selection.
+- Corrected asset statement: the ~4,951 current-ruleset records are VERDICTS
+  AND KEYS, not 4,951 labeled sentences. candidate_reviews stores no judged
+  sentence text (schema.py CANDIDATE_REVIEW_COLS), a wrong-without-relabel
+  judge() deletes the production row, and the S-key (entity|date|category) is
+  not sentence identity. The recoverable sentence-level count is UNMEASURED
+  and is what gate R3-0c exists to establish.
+- Gate sequence of record: R3-0a definition and benchmark design (documents);
+  R3-0c evidence-first recovery census; R3-0b SEG-v1 full-Item-1 segmentation
+  and stable segment identity; R3-0d immutable adjudication ledger plus
+  backfill; R3-0e development and locked document selection and development
+  annotation; R3-1 TF-IDF and logistic regression baseline; R3-2 optional
+  SetFit or FinBERT-FLS on development only; R3-3 single locked-benchmark run.
+  No classifier work and no new manual annotation until R3-0 completes and the
+  immutable ledger exists.
+- Recovery hierarchy (binding): Level 1 contemporaneous direct evidence under
+  data\exports, Level 2 surviving exact table mappings, Level 3 pre-suppression
+  frozen extractor replay, Level 4 ambiguous or unresolved, never guessed.
+  Recovery must reconstruct candidates BEFORE verdict suppression, or the
+  wrong-judged negatives are erased a second time; a locking test enforces it.
+  Relabel history keeps original reviewed key and category separate from the
+  resulting production key and category.
+- Gate R3-0c-i DONE 2026-09-12 (block v57a, evidence
+  data\exports\20260912_v57a_r30ci_exports_inventory_evidence.txt, read-only,
+  no repository change, HEAD a4e0f95, tracked changes 0): 171 files,
+  19,251,548 bytes inventoried under data\exports; 50 files carry candidate
+  ids with verdict tokens and sentence-like text, 4 carry ids with text, 116
+  text only, 1 neither. Four artifact format classes measured from real
+  specimens: worksheet CSV with header key,verdict,ai_reason,company,date,
+  category,sentence,doc_url,note; triage and full-surface blocks pairing a
+  key header line with an indented VERBATIM sentence line; JUDGED and
+  R2-JUDGED lines carrying key and operator verdict without sentence text;
+  and cluster CSVs. Encodings are mixed (UTF-16 LE with BOM for block
+  evidence, UTF-8 with BOM for worksheets). Seventeen files carry VERBATIM
+  markers; the largest artifact (20260910_p2h_phaseA_regeneration_evidence.txt,
+  sha256 856e6ffc...f8a43f7) holds 4,331 distinct S-shaped ids against 481
+  sentence-like lines and records AUTO-APPLIED 4331 rows across 27 standing
+  clusters, so verdict-bearing and sentence-bearing evidence are separate
+  populations. Whether a given key falls on the sentence-bearing side is what
+  R3-0c-ii measures; no recovery rate is stated before that census.
+- Identifier ruling (operator 2026-09-12, from a defect in the v57a report):
+  no semantic meaning is assigned to an S- or R-shaped token by lexical shape.
+  The v57a inventory's r_keys figure conflated R2 candidate ids with library
+  reference ids, which share the form R plus 16 hex characters. Candidate-key
+  counts come only from authoritative record forms (worksheet key column,
+  JUDGED <key>, R2-JUDGED <key>); raw occurrences and distinct authoritative
+  ids are reported separately; unclassifiable matches are reported as
+  unclassified_identifier and count toward no recovery total; and a locking
+  test keeps library ref_id and candidate id in separate namespaces.
+- Annotation rule SP-ANNOT-v1 ratified on three semantic questions
+  (docs/20260912_v1_Strategic_Priority_Annotation_Rule.md): a positive needs a
+  discernible strategic object rather than a proper name; financial positives
+  need a deliberate capital-allocation or capital-structure direction, not
+  generic financing need; and year-over-year repetition does not demote a
+  still-current priority, with a repeat flag recorded and leakage handled by
+  document-level and company-level splitting.
+- Benchmark design binding
+  (docs/20260912_v1_R3_Benchmark_and_Sampling_Design.md): the permanent recall
+  benchmark is complete Item 1 sections with every frozen SEG-v1 unit labeled,
+  never a random sentence sample; development and locked corpora are separate;
+  locked document ids are frozen early and annotated only after the model,
+  thresholds, candidate logic and adoption rule are frozen; stratum weights,
+  size-class boundaries, year bands and the annotation budget are derived from
+  the measured population rather than chosen in advance; and the three
+  adoption thresholds (union precision floor, required recall gain,
+  incremental precision floor) stay unset until development results exist.
+- The 46 versus 54 percent corpus-coverage correction is NOT adopted: multiple
+  denominators are in circulation (all collected 10-Ks, p2-eligible filings,
+  valid Item 1 slices, documents processed, documents emitting rows) and
+  R3-0c reports every numerator and denominator before any documentation is
+  corrected.
+- Suite of record unchanged at 346; ruff unchanged at exactly 3 pre-existing
+  findings; schema 0.22; ruleset L3-a3-p2 frozen. Standing queue unchanged
+  behind R3: gold set, Console Sep-11 cost row, F1-era stakes retire-path
+  repair before the 52 deferred stakes verdicts, 707 open M3 entries,
+  successor-name stamping via aliases, GUI build order, scripts\ folder
+  disposition, Harrison blocked.
+
 Version 1.30. Supersedes v1.29. R2v2 (stance-first two-stage) CLOSED AS A
 MEASURED NEGATIVE RESULT (2026-09-11), four free measurements, one paid
 trial; R3 (verdict-trained classifier) is the next task.
