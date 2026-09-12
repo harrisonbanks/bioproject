@@ -1883,3 +1883,124 @@ def test_r2v2_2c_snapshot_path_follows_data_redirect_never_live_snapshots(f2db, 
     assert p.r2_compare(60, seed=3) == 0
     assert (tmp_path / "snapshots" / "r2_compare_p2_snapshot_R2-v1.json").exists()
     assert "R2-SNAPSHOT CREATED" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- R2v2-3: stage-2 branches, refilter, diagnose (2026-09-11)
+def _r2v2_fixture2():
+    import csv
+    import pathlib as _pl
+
+    with open(_pl.Path(__file__).parent / "fixtures" / "r2v2_verdicts_20260911.csv", newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def test_r2v2_3_branches_on_the_60_v2_verdicts_with_pinned_attribution():
+    """Fit set: the 60 R2-v2 trial verdicts. Every correct row survives every
+    branch; 33 of 36 wrongs are refused; per-branch attribution pinned so a
+    widening branch is named. The re-filtered worksheet is the held-out test."""
+    import collections
+
+    rows = _r2v2_fixture2()
+    assert len(rows) == 60 and collections.Counter(r["verdict"] for r in rows) == {"correct": 23, "wrong": 36, "unsure": 1}
+    att: dict = collections.Counter()
+    for r in rows:
+        att[(r["verdict"], priorities._r2v2_stage2_refuse(r["sentence"]))] += 1
+    assert att[("correct", None)] == 23 and att[("unsure", None)] == 1
+    assert dict(att) == {
+        ("correct", None): 23, ("unsure", None): 1, ("wrong", None): 3,
+        ("wrong", "trial-milestone"): 8, ("wrong", "risk-conditional"): 5, ("wrong", "out-partnering"): 6,
+        ("wrong", "ops-financial-necessity"): 4, ("wrong", "agreement-terms"): 2, ("wrong", "belief-or-fragment"): 2,
+        ("wrong", "designed-based-description"): 5, ("wrong", "fragment"): 1,
+    }
+
+
+def test_r2v2_3_branch_specimens_and_non_triggers():
+    f = priorities._r2v2_stage2_refuse
+    assert f("We plan to submit an IND to the FDA in the second half of 2022.") == "trial-milestone"
+    assert f("If we do not establish sales and marketing capabilities successfully, we will not be successful.") == "risk-conditional"
+    assert f("We intend to continue to actively evaluate and seek potential partnering opportunities for our ADHD assets.") == "out-partnering"
+    assert f("Our drug candidates are based on our method of targeting galectin proteins.") == "designed-based-description"
+    assert f("Our CAR-T technology is initially focused on ovarian cancer and is based on engineering killer T-cells.") is None  # intent verb present
+    assert f("As a result, we will need to generate significant revenues in order to achieve and maintain profitability.") == "ops-financial-necessity"
+    assert f("We also intend to rely on regulatory exclusivity for protection of our product candidates.") == "agreement-terms"
+    assert f("developing our technology platform") == "fragment"
+    assert f("We will seek to selectively enter strategic collaborations to maximize the potential of the platform.") is None
+    assert f("Broaden our pipeline of targeted therapies and apply our core capabilities to establish a leading franchise.") is None
+
+
+def test_r2v2_3_extractor_applies_branches(monkeypatch):
+    from biointel import config as _config
+
+    monkeypatch.setattr(_config, "R2_MODEL", "fake-model")
+    item1 = ("We plan to submit an IND to the FDA in the second half of 2022 for solid tumors. "
+             "We plan to expand our pipeline into rare kidney diseases. " + "Filler sentence about operations here. " * 20)
+    doc = "PART I Item 1. Business. " + item1 + " Item 1A. Risk Factors " + "risk " * 50
+    res = priorities.extract_priorities_llm_v2(doc, "10k_strategy", "X", "CIK:1", "2020-01-01", call=lambda *a: "1: therapeutic_area\n2: pipeline_gap\n")
+    assert res["refused"] == {"trial-milestone": 1} and [s["statement"] for s in res["survivors"]] == ["We plan to expand our pipeline into rare kidney diseases"]
+
+
+def test_r2v2_3_refilter_restamps_refused_keeps_keys_and_writes_worksheet(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import config as _config
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    p = _r2_world(monkeypatch, tmp_path, capsys)
+    p2 = _store.read_table("stated_priorities")
+    cols = list(_schema.STATED_PRIORITY_R2_COLS)
+
+    def row(src, version, statement):
+        return dict(dict.fromkeys(cols, ""), entity_key=src["entity_key"], stated_at=str(src["stated_at"])[:10], category="pipeline_gap",
+                    statement=statement, doc_id=src["doc_id"], span=statement, source_type="10k_strategy", section="Item 1",
+                    extractor_version=version, model_id="fake-model", chunk_index="1")
+
+    good = "We plan to expand our pipeline into rare kidney diseases."
+    bad = "We plan to submit an IND to the FDA in the second half of 2022 for solid tumors."
+    v1 = row(p2[0], "R2-v1", bad)
+    _store.write_table("stated_priorities_r2", [row(p2[0], "R2-v2", good), row(p2[1], "R2-v2", bad), v1], cols)
+    key_good = p._r2_key(row(p2[0], "R2-v2", good))
+    assert p.r2_judge(key_good, "correct") == 0
+    capsys.readouterr()
+    assert p.r2_refilter(seed=3) == 0
+    out = capsys.readouterr().out
+    assert "R2-REFILTER version R2-v2 rows 2 refused 1 survivors 1 (judged 1 unjudged 0) | trial-milestone 1" in out
+    assert "R2-WORKSHEET 0 rows" in out
+    rows = _store.read_table("stated_priorities_r2")
+    assert sorted(r["extractor_version"] for r in rows) == ["R2-v1", "R2-v2", "R2-v2-refused"]
+    assert [r["statement"] for r in rows if r["extractor_version"] == "R2-v2"] == [good]
+    assert [r for r in rows if r["extractor_version"] == "R2-v1"] == [v1]  # v1 untouched
+    assert (_config.EXPORTS / "priorities_r2_worksheet.csv").exists()
+    # the surviving key still carries its verdict in the compare
+    assert p.r2_compare(60, seed=3, version="R2-v2") == 0
+    assert "r2_only_precision 1/1" in capsys.readouterr().out
+
+
+def test_r2v2_3_diagnose_attributes_p2_only_rows_and_prints_verdict_history(f2db, monkeypatch, tmp_path, capsys):
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    p = _r2_world(monkeypatch, tmp_path, capsys)
+    p2 = _store.read_table("stated_priorities")
+    cols = list(_schema.STATED_PRIORITY_R2_COLS)
+    rows = [dict(dict.fromkeys(cols, ""), entity_key=r["entity_key"], stated_at=str(r["stated_at"])[:10], category="platform",
+                 statement=_R2W_NEW, doc_id=r["doc_id"], span=_R2W_NEW, source_type="10k_strategy", section="Item 1",
+                 extractor_version="R2-v2", model_id="fake-model", chunk_index="1") for r in p2]
+    _store.write_table("stated_priorities_r2", rows, cols)
+    rv = dict.fromkeys(_schema.CANDIDATE_REVIEW_COLS, "")
+    rv.update({"review_id": "h-v1", "candidate_id": p._row_key(p2[0]), "rule_version": "", "verdict": "wrong", "reviewer": "operator",
+               "note": "", "reviewed_at": "2026-09-01T00:00:00+00:00"})
+    _store.append_rows("candidate_reviews", [rv], list(_schema.CANDIDATE_REVIEW_COLS))
+    capsys.readouterr()
+    assert p.r2_diagnose() == 0
+    out = capsys.readouterr().out
+    # the fixture's p2 statement carries "Risk Factors ..." lookback text, so stage 1 refuses it by the risk lexicon
+    assert out.count("R2-DIAG S") == 2 and "cause stage1:refuse-lexicon" in out
+    assert f"R2-DIAG {p._row_key(p2[0])}" in out and "verdicts p1=wrong" in out
+    assert "R2-DIAG-TOTALS p2_only 2 | stage1:refuse-lexicon 2" in out
+
+
+def test_r2v2_3_cli_dispatch(monkeypatch):
+    called = []
+    monkeypatch.setattr(priorities, "r2_refilter", lambda seed=None: called.append(("refilter", seed)) or 0)
+    monkeypatch.setattr(priorities, "r2_diagnose", lambda: called.append(("diagnose",)) or 0)
+    assert priorities.cli(["r2-refilter", "--seed", "4"]) == 0 and priorities.cli(["r2-diagnose"]) == 0
+    assert called == [("refilter", 4), ("diagnose",)]

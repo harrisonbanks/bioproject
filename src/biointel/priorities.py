@@ -3004,6 +3004,10 @@ def extract_priorities_llm_v2(
         if cat is None:
             res["refused"][reason] = res["refused"].get(reason, 0) + 1
             continue
+        branch = _r2v2_stage2_refuse(c["sentence"])
+        if branch is not None:
+            res["refused"][branch] = res["refused"].get(branch, 0) + 1
+            continue
         if reason.startswith("relabel:"):
             res["relabeled"] += 1
         res["survivors"].append({
@@ -3016,6 +3020,142 @@ def extract_priorities_llm_v2(
     for s in res["survivors"]:
         s.pop("sentence", None)
     return res
+
+
+# ---------------------------------------------------------------- R2v2-3: stage-2 refusal branches, refilter, diagnose (2026-09-11)
+# Operator verdicts on the R2-v2 trial worksheet (23 correct / 36 wrong / 1
+# unsure; fixture r2v2_verdicts_20260911.csv): every wrong row carried
+# declared intent by form but fell in a family the p2 rulebook condemns.
+# Six deterministic families plus two residual catches; fit-set measure
+# 33/36 wrongs refused, 23/23 corrects kept (per-branch attribution pinned).
+R2V2_REFUSED_VERSION = "R2-v2-refused"  # refiltered rows are re-stamped, never deleted
+_R2V2_INTENT_RX = re.compile(
+    r"\b(?:plan|plans|planned|intend|intends|aim|aims|seek|seeks|will|strategy|strategic|focus|focused|goal|objective|priorit)\w*\b",
+    re.I,
+)
+_R2V2_DESIGN_RX = re.compile(r"\bbased on\b|\bwe designed\b|\bdesigned to\b|\bTechnology Overview\b|\bin our efforts to discover\b", re.I)
+_R2V2_BRANCHES: tuple[tuple[str, "re.Pattern[str]"], ...] = (
+    ("trial-milestone", re.compile(
+        r"\b(?:submit|file|filing)\b.{0,30}\b(?:IND|NDA|BLA|MAA|CTA)\b|\binitiat\w+ .{0,50}\b(?:phase|trial|cohort|study)\b|"
+        r"\bconduct .{0,40}\b(?:trial|study)\b|\bphase \d\b|\bseek regulatory approvals?\b|\bregistration-enabling\b|\bRP2D\b|"
+        r"\benroll\w* patients\b|\bjoin .{0,40}\btrial\b|\bcombine .{0,30}\bwith other agents\b|\bpursue an (?:initial|additional) indication\b",
+        re.I)),
+    ("risk-conditional", re.compile(
+        r"^\s*(?:if|assuming|unless)\b|\b(?:if|unless) we (?:do not|are not|fail|cannot)\b|\bwould be impaired\b|\bwill not be successful\b|"
+        r"\bmay not be able\b|\bour prospects\b|\bdepend (?:in part )?upon our ability\b",
+        re.I)),
+    ("out-partnering", re.compile(
+        r"\bpartnering opportunities\b|\bcommercial development arrangements\b|\bpartner with .{0,80}\b(?:sales and marketing|to commercialize)\b|"
+        r"\bagreements with third parties to market\b|\bjointly develop, commercialize\b|\bcollaborations to maximize the commercial potential\b|"
+        r"\bwork exclusively with\b|\battract and retain collaborative partners\b",
+        re.I)),
+    ("ops-financial-necessity", re.compile(
+        r"\b(?:will|would) need to\b|\bin order to achieve and maintain profitability\b|\bincur substantial expenses\b|\bare expected to expand\b|"
+        r"\bcosts which are not reimbursed\b|\bcompliance infrastructure\b",
+        re.I)),
+    ("agreement-terms", re.compile(
+        r"\bLicense Agreement\b|\bregain the full rights\b|\bunder specified circumstances\b|\bassert our rights\b|\brely on regulatory exclusivity\b|"
+        r"\bterminated under\b|\bmilestone payments\b",
+        re.I)),
+    ("belief-or-fragment", re.compile(r"\bhighly confident\b|\bcritical element of our efforts\b", re.I)),
+)
+
+
+def _r2v2_stage2_refuse(sentence: str) -> str | None:
+    """Branch name that refuses the sentence, or None. Order: the six named
+    families, then designed/based-on descriptions carrying no intent verb,
+    then fragments under six words."""
+    s = " ".join(str(sentence).split())
+    for name, rx in _R2V2_BRANCHES:
+        if rx.search(s):
+            return name
+    if _R2V2_DESIGN_RX.search(s) and not _R2V2_INTENT_RX.search(s):
+        return "designed-based-description"
+    if len(s.split()) < 6:
+        return "fragment"
+    return None
+
+
+def r2_refilter(con=None, version: str = R2V2_EXTRACTOR_VERSION, n: int = R2_WORKSHEET_N, seed: int | None = None) -> int:
+    """Zero-call pass over the stored survivors of `version`: rows a stage-2
+    branch refuses are re-stamped R2V2_REFUSED_VERSION (kept for audit);
+    survivors keep their version and R-keys, so existing verdicts still
+    attach. Prints refusals per branch and writes a fresh worksheet of
+    unjudged survivors."""
+    import random as _r
+
+    from biointel import schema as _schema
+
+    con = con or store.connect()
+    seed = seed if seed is not None else _dt_seed()
+    cols = list(_schema.STATED_PRIORITY_R2_COLS)
+    rows = store.read_table("stated_priorities_r2", con=con) if store.has_table("stated_priorities_r2", con) else []
+    per: dict[str, int] = {}
+    kept: list[dict] = []
+    survivors: list[dict] = []
+    for r in rows:
+        if str(r.get("extractor_version")) != version:
+            kept.append(r)
+            continue
+        b = _r2v2_stage2_refuse(r["statement"])
+        if b is None:
+            kept.append(r)
+            survivors.append(r)
+        else:
+            per[b] = per.get(b, 0) + 1
+            kept.append(dict(r, extractor_version=R2V2_REFUSED_VERSION))
+    store.write_table("stated_priorities_r2", kept, cols, con=con)
+    reviews = store.read_table("candidate_reviews", con=con) if store.has_table("candidate_reviews", con) else []
+    latest = _latest_verdicts(reviews)
+    judged = [r for r in survivors if _r2_key(r) in latest]
+    unjudged = [r for r in survivors if _r2_key(r) not in latest]
+    _r.seed(seed)
+    _r.shuffle(unjudged)
+    names = {
+        f"CIK:{int(str(c['CIK']))}": str(c["Name"])
+        for c in store.read_table("companies", con=con)
+        if str(c.get("CIK") or "").strip().isdigit()
+    }
+    ws = config.EXPORTS / "priorities_r2_worksheet.csv"
+    _r2_write_worksheet(ws, unjudged[:n], _r2_key, f"r2 {version} refiltered", names)
+    total = sum(per.values())
+    print(
+        f"R2-REFILTER version {version} rows {total + len(survivors)} refused {total} survivors {len(survivors)} "
+        f"(judged {len(judged)} unjudged {len(unjudged)}) | " + (" ".join(f"{k} {v}" for k, v in sorted(per.items())) or "none")
+    )
+    print(f"R2-WORKSHEET {min(len(unjudged), n)} rows (seed {seed}) -> {ws}; judge with: priorities judge-batch --r2")
+    return 0
+
+
+def r2_diagnose(con=None, version: str = R2V2_EXTRACTOR_VERSION) -> int:
+    """Zero-call attribution of every p2-only row in the version's snapshot:
+    stage-1 outcome on the p2 statement, the strongest R2 row on the same
+    unit by containment (if any), and the full verdict history of the S-key
+    across every rule version (the pending-lookup check of 2026-09-11)."""
+    con = con or store.connect()
+    r2 = [
+        r for r in (store.read_table("stated_priorities_r2", con=con) if store.has_table("stated_priorities_r2", con) else [])
+        if str(r.get("extractor_version")) == version
+    ]
+    units = {_r2_unit(r) for r in r2}
+    snap = _r2_p2_snapshot(units, con, version)
+    pr = _r2_pair(snap, r2)
+    reviews = store.read_table("candidate_reviews", con=con) if store.has_table("candidate_reviews", con) else []
+    by_key: dict[str, list[dict]] = {}
+    for rv in reviews:
+        by_key.setdefault(str(rv["candidate_id"]), []).append(rv)
+    causes: dict[str, int] = {}
+    for r in pr["p2_only"]:
+        stmt = str(r["statement"])
+        ok, rule = _fls_stage1(stmt)
+        branch = _r2v2_stage2_refuse(stmt) if ok else None
+        cause = f"stage1:{rule}" if not ok else (f"stage2:{branch}" if branch else "model-or-validator")
+        causes[cause] = causes.get(cause, 0) + 1
+        hist = sorted(by_key.get(_row_key(r), []), key=lambda x: str(x["reviewed_at"]))
+        hist_s = ";".join(f"{h.get('rule_version') or 'p1'}={h['verdict']}" for h in hist) or "none"
+        print(f"R2-DIAG {_row_key(r)} {r['category']} cause {cause} verdicts {hist_s} | {stmt[:120]}")
+    print("R2-DIAG-TOTALS p2_only " + str(len(pr["p2_only"])) + " | " + (" ".join(f"{k} {v}" for k, v in sorted(causes.items())) or "none"))
+    return 0
 
 
 def cli(argv: list[str]) -> int:
@@ -3088,6 +3228,11 @@ def cli(argv: list[str]) -> int:
         nn = next((int(a) for a in argv[1:] if a.isdigit()), R2_WORKSHEET_N)
         ss = int(argv[argv.index("--seed") + 1]) if "--seed" in argv else None
         return r2_compare(nn, seed=ss, version=(R2V2_EXTRACTOR_VERSION if "--v2" in argv else R2_EXTRACTOR_VERSION))
+    if argv and argv[0] == "r2-refilter":
+        ss = int(argv[argv.index("--seed") + 1]) if "--seed" in argv else None
+        return r2_refilter(seed=ss)
+    if argv and argv[0] == "r2-diagnose":
+        return r2_diagnose()
     if argv and argv[0] == "r2-judge" and len(argv) >= 3:
         nt = argv[argv.index("--note") + 1] if "--note" in argv else ""
         return r2_judge(argv[1], argv[2], note=nt)
