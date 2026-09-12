@@ -3260,5 +3260,10 @@ def cli(argv: list[str]) -> int:
     if argv and argv[0] == "r2-judge" and len(argv) >= 3:
         nt = argv[argv.index("--note") + 1] if "--note" in argv else ""
         return r2_judge(argv[1], argv[2], note=nt)
+    if argv and argv[0] == "r3-census":
+        # R3-0c-ii: evidence-first recovery census (read-only; writes only to exports)
+        from biointel import recovery as _recovery
+
+        return _recovery.census()
     print("usage: priorities probe|probe-calls|collect [...]|sample-misses [N]|reextract")
     return 1
