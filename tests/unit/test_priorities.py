@@ -1636,9 +1636,9 @@ def test_r2_compare_p2_only_split_judged_wrong_vs_not(f2db, monkeypatch, tmp_pat
 def test_r2_cli_branches_dispatch(monkeypatch, capsys):
     called = []
     monkeypatch.setattr(priorities, "r2_trial", lambda n, seed=None, version="R2-v1": called.append(("trial", n, seed)) or 0)
-    monkeypatch.setattr(priorities, "r2_compare", lambda n, seed=None, version="R2-v1": called.append(("compare", n, seed)) or 0)
+    monkeypatch.setattr(priorities, "r2_compare", lambda n, seed=None, version="R2-v1", tag="": called.append(("compare", n, seed)) or 0)
     monkeypatch.setattr(priorities, "r2_judge", lambda k, v, note="": called.append(("judge", k, v, note)) or 0)
-    monkeypatch.setattr(priorities, "judge_batch", lambda pp, pattern=None, r2=False: called.append(("batch", pp, pattern, r2)) or 0)
+    monkeypatch.setattr(priorities, "judge_batch", lambda pp, pattern=None, r2=False, tag="": called.append(("batch", pp, pattern, r2)) or 0)
     assert priorities.cli(["r2-trial", "30", "--seed", "5"]) == 0
     assert priorities.cli(["r2-compare"]) == 0
     assert priorities.cli(["r2-judge", "Rabc", "correct", "--note", "n"]) == 0
@@ -1776,7 +1776,7 @@ def test_r2v2_trial_and_compare_version_plumbing(f2db, monkeypatch, tmp_path, ca
 def test_r2v2_cli_flags(monkeypatch):
     called = []
     monkeypatch.setattr(priorities, "r2_trial", lambda n, seed=None, version="R2-v1": called.append(("trial", n, seed, version)) or 0)
-    monkeypatch.setattr(priorities, "r2_compare", lambda n, seed=None, version="R2-v1": called.append(("compare", n, version)) or 0)
+    monkeypatch.setattr(priorities, "r2_compare", lambda n, seed=None, version="R2-v1", tag="": called.append(("compare", n, version)) or 0)
     assert priorities.cli(["r2-trial", "120", "--seed", "20260911", "--v2"]) == 0
     assert priorities.cli(["r2-compare", "--v2"]) == 0 and priorities.cli(["r2-compare"]) == 0
     assert called == [("trial", 120, 20260911, "R2-v2"), ("compare", 60, "R2-v2"), ("compare", 60, "R2-v1")]
@@ -2004,3 +2004,69 @@ def test_r2v2_3_cli_dispatch(monkeypatch):
     monkeypatch.setattr(priorities, "r2_diagnose", lambda: called.append(("diagnose",)) or 0)
     assert priorities.cli(["r2-refilter", "--seed", "4"]) == 0 and priorities.cli(["r2-diagnose"]) == 0
     assert called == [("refilter", 4), ("diagnose",)]
+
+
+# ---------------------------------------------------------------- R2v2-4: round-3 branches, tagged judging rounds (2026-09-11)
+def test_r2v2_4_round3_branches_pinned_and_round1_fixture_unchanged():
+    import collections
+    import csv
+    import pathlib as _pl
+
+    with open(_pl.Path(__file__).parent / "fixtures" / "r2v2_verdicts_round3_20260911.csv", newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 60 and collections.Counter(r["verdict"] for r in rows) == {"correct": 30, "wrong": 30}
+    att: dict = collections.Counter()
+    for r in rows:
+        att[(r["verdict"], priorities._r2v2_stage2_refuse(r["sentence"]))] += 1
+    assert att[("correct", None)] == 30
+    assert dict(att) == {
+        ("correct", None): 30, ("wrong", None): 4,
+        ("wrong", "financing"): 7, ("wrong", "conditional-fragment"): 4, ("wrong", "historical-or-practice"): 4, ("wrong", "trial-milestone"): 4,
+        ("wrong", "may-hedge"): 3, ("wrong", "agreement-terms"): 1, ("wrong", "belief-without-plan"): 1, ("wrong", "debris"): 1, ("wrong", "risk-conditional"): 1,
+    }
+    # round-1 fixture attribution is unchanged by the widenings (regression guard)
+    att1: dict = collections.Counter()
+    for r in _r2v2_fixture2():
+        att1[(r["verdict"], priorities._r2v2_stage2_refuse(r["sentence"]))] += 1
+    assert att1[("correct", None)] == 23 and sum(v for (vd, b), v in att1.items() if vd == "wrong" and b) == 33
+
+
+def test_r2v2_4_may_hedge_versus_intend_main_clause():
+    f = priorities._r2v2_stage2_refuse
+    assert f("As part of our business strategy, we may acquire or make investments in complementary companies.") == "may-hedge"
+    assert f("We intend to develop our portfolio of drug candidates by in-licensing and entering into collaborations.") is None
+    assert f("Although a substantial amount of our efforts are focused on clinical development, a key element is X.") == "conditional-fragment"
+    assert f("We believe TK216 may provide a novel therapeutic approach for prostate cancer patients.") == "belief-without-plan"
+    assert f("We believe the higher rate of EGFR mutations in China confers advantages and we plan to leverage the population.") is None
+
+
+def test_r2v2_4_tagged_round_counts_only_that_round(f2db, monkeypatch, tmp_path, capsys):
+    import csv
+
+    from biointel import config as _config
+    from biointel import schema as _schema
+    from biointel import store as _store
+
+    p = _r2_world(monkeypatch, tmp_path, capsys)
+    p2 = _store.read_table("stated_priorities")
+    cols = list(_schema.STATED_PRIORITY_R2_COLS)
+    a = "We plan to expand our pipeline into rare kidney diseases."
+    b = "We intend to expand our pipeline to treat additional rare diseases."
+    rows = [dict(dict.fromkeys(cols, ""), entity_key=p2[1]["entity_key"], stated_at=str(p2[1]["stated_at"])[:10], category="pipeline_gap",
+                 statement=x, doc_id=p2[1]["doc_id"], span=x, source_type="10k_strategy", section="Item 1",
+                 extractor_version="R2-v2", model_id="fake-model", chunk_index="1") for x in (a, b)]
+    _store.write_table("stated_priorities_r2", rows, cols)
+    assert p.r2_judge(p._r2_key(rows[0]), "wrong", note="round1") == 0  # earlier round, untagged
+    ws = _config.EXPORTS / "priorities_r2_worksheet.csv"
+    _config.EXPORTS.mkdir(parents=True, exist_ok=True)
+    with open(ws, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f)
+        w.writerow(["key", "verdict", "ai_reason", "company", "date", "category", "sentence", "doc_url", "note"])
+        w.writerow([p._r2_key(rows[1]), "correct", "", "", "", "pipeline_gap", b, "", ""])
+    capsys.readouterr()
+    assert p.judge_batch(str(ws), r2=True, tag="round4") == 0
+    assert p.r2_compare(60, seed=3, version="R2-v2", tag="round4") == 0
+    out = capsys.readouterr().out
+    assert "tag round4 r2_only_precision 1/1" in out  # the untagged wrong verdict is not counted
+    assert p.r2_compare(60, seed=3, version="R2-v2") == 0
+    assert "r2_only_precision 1/2" in capsys.readouterr().out  # untagged compare counts both

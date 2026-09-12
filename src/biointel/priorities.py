@@ -2209,7 +2209,7 @@ def worksheet(n: int = 60, tier: str | None = None, seed: int | None = None, con
     return 0
 
 
-def judge_batch(path: str | None = None, pattern: str | None = None, con=None, r2: bool = False) -> int:
+def judge_batch(path: str | None = None, pattern: str | None = None, con=None, r2: bool = False, tag: str = "") -> int:
     """Ingest the edited worksheet CSV: every row whose `verdict` column
     holds correct|wrong|unsure is recorded through the same judge() path
     (wrong retires the row immediately); blanks and unknown values are
@@ -2254,7 +2254,7 @@ def judge_batch(path: str | None = None, pattern: str | None = None, con=None, r
                 counters["already"] += 1
                 continue
             if r2:
-                rc = r2_judge(key, v, note=str(row.get("note") or ""), con=con)
+                rc = r2_judge(key, v, note=(f"{tag} " if tag else "") + str(row.get("note") or ""), con=con)
             else:
                 rc = judge(
                     key, v,
@@ -2747,7 +2747,7 @@ def _r2_write_worksheet(path: Path, rows: list[dict], keyfn, reason: str, names:
     return len(rows)
 
 
-def r2_compare(n: int = R2_WORKSHEET_N, seed: int | None = None, con=None, version: str = R2_EXTRACTOR_VERSION) -> int:
+def r2_compare(n: int = R2_WORKSHEET_N, seed: int | None = None, con=None, version: str = R2_EXTRACTOR_VERSION, tag: str = "") -> int:
     """Head-to-head on the trial's documents only, against the frozen p2
     snapshot. For R2-v2 the units split into HELD-OUT (no R2-v1 survivor
     rows: the fit set came from R2-v1 survivors) and FIT; each group prints
@@ -2806,6 +2806,8 @@ def r2_compare(n: int = R2_WORKSHEET_N, seed: int | None = None, con=None, versi
         keys = {_r2_key(r) for r in pr["r2_only"]}
         k = n_dec = unsure = 0
         for key, v in latest.items():
+            if tag and f"r2:{tag} " not in str(v.get("note") or ""):
+                continue  # a tagged compare counts one judging round only (the un-contaminated held-out measure)
             if key in keys and str(v.get("reviewer")) == "operator":
                 vd = str(v["verdict"])
                 if vd == "unsure":
@@ -2819,7 +2821,7 @@ def r2_compare(n: int = R2_WORKSHEET_N, seed: int | None = None, con=None, versi
         decides = gname in ("HELD-OUT", "ALL")
         deciding = verdict if decides else deciding
         print(
-            f"R2-ACCEPTANCE group {gname}{' (decides)' if decides else ''} r2_only_precision {k}/{n_dec} = {pt:.3f} "
+            f"R2-ACCEPTANCE group {gname}{' (decides)' if decides else ''}{' tag ' + tag if tag else ''} r2_only_precision {k}/{n_dec} = {pt:.3f} "
             f"(wilson {lo:.3f}-{hi:.3f}; unsure {unsure}) regression_judged_correct {regression} pending_p2only {pending} "
             f"excused_judged_wrong {excused} baseline {R2_P2_BASELINE[0]}/{R2_P2_BASELINE[1]} -> {verdict}"
         )
@@ -3038,11 +3040,12 @@ _R2V2_BRANCHES: tuple[tuple[str, "re.Pattern[str]"], ...] = (
     ("trial-milestone", re.compile(
         r"\b(?:submit|file|filing)\b.{0,30}\b(?:IND|NDA|BLA|MAA|CTA)\b|\binitiat\w+ .{0,50}\b(?:phase|trial|cohort|study)\b|"
         r"\bconduct .{0,40}\b(?:trial|study)\b|\bphase \d\b|\bseek regulatory approvals?\b|\bregistration-enabling\b|\bRP2D\b|"
-        r"\benroll\w* patients\b|\bjoin .{0,40}\btrial\b|\bcombine .{0,30}\bwith other agents\b|\bpursue an (?:initial|additional) indication\b",
+        r"\benroll\w* patients\b|\bjoin .{0,40}\btrial\b|\bcombine .{0,30}\bwith other agents\b|\bpursue an (?:initial|additional) indication\b|"
+        r"\binterim futility analysis\b|\bbreakthrough therapy designation\b|\baccelerated approval\b|\bphase (?:I{1,3}V?|IV)\b|\bin combination with .{0,60}\binhibitor",
         re.I)),
     ("risk-conditional", re.compile(
         r"^\s*(?:if|assuming|unless)\b|\b(?:if|unless) we (?:do not|are not|fail|cannot)\b|\bwould be impaired\b|\bwill not be successful\b|"
-        r"\bmay not be able\b|\bour prospects\b|\bdepend (?:in part )?upon our ability\b",
+        r"\bmay not be able\b|\bour prospects\b|\bdepend (?:in part )?(?:up)?on our ability\b",
         re.I)),
     ("out-partnering", re.compile(
         r"\bpartnering opportunities\b|\bcommercial development arrangements\b|\bpartner with .{0,80}\b(?:sales and marketing|to commercialize)\b|"
@@ -3055,10 +3058,27 @@ _R2V2_BRANCHES: tuple[tuple[str, "re.Pattern[str]"], ...] = (
         re.I)),
     ("agreement-terms", re.compile(
         r"\bLicense Agreement\b|\bregain the full rights\b|\bunder specified circumstances\b|\bassert our rights\b|\brely on regulatory exclusivity\b|"
-        r"\bterminated under\b|\bmilestone payments\b",
+        r"\bterminated under\b|\bmilestone payments\b|\bassert the validity\b|\bexclusive forum\b",
         re.I)),
     ("belief-or-fragment", re.compile(r"\bhighly confident\b|\bcritical element of our efforts\b", re.I)),
+    # round 3 (operator verdicts 30/30, 2026-09-11): financing / use of proceeds
+    ("financing", re.compile(
+        r"\bcapital will be needed\b|\bseek additional (?:financial resources|capital)\b|\bshelf registration\b|\braise additional capital\b|"
+        r"\bgeneral corporate purposes\b|\bworking capital\b|\bnear-term capital\b|\bstockholder value\b|\bfund our .{0,40}\b(?:programs|development)\b",
+        re.I)),
+    # round 3: may-hedged boilerplate ("we may acquire") versus a main-clause intent ("we intend to acquire")
+    ("may-hedge", re.compile(r"\bwe (?:may|might|could) (?:also )?(?:seek|acquire|pursue|make|enter|explore|determine)\b|\bmay acquire or make investments\b", re.I)),
+    # round 3: conditional or subordinate-clause openers and clause fragments
+    ("conditional-fragment", re.compile(r"^\s*(?:although|while|in such (?:a )?(?:case|instance)|our ability to|at the appropriate time)\b|\bdetermine whether to\b", re.I)),
+    # round 3: past-tense history and present-practice description
+    ("historical-or-practice", re.compile(
+        r"^\s*over the (?:last|past)\b|\bwe (?:have )?implemented\b|\bform the foundation of\b|\bwe conduct internal\b|\bcontract with one or more manufacturers\b",
+        re.I)),
+    # round 3: table-of-contents and page debris
+    ("debris", re.compile(r"\bTable of Contents\b", re.I)),
 )
+_R2V2_BELIEF_RX = re.compile(r"^\s*we believe\b", re.I)
+_R2V2_PLAN_RX = re.compile(r"\b(?:plan|plans|intend|intends|aim|aims|seek|seeks|strategy|focus|focused|goal|priorit|will (?:continue|pursue|seek|expand|build|develop))\w*\b", re.I)
 
 
 def _r2v2_stage2_refuse(sentence: str) -> str | None:
@@ -3071,6 +3091,8 @@ def _r2v2_stage2_refuse(sentence: str) -> str | None:
             return name
     if _R2V2_DESIGN_RX.search(s) and not _R2V2_INTENT_RX.search(s):
         return "designed-based-description"
+    if _R2V2_BELIEF_RX.search(s) and not _R2V2_PLAN_RX.search(s):
+        return "belief-without-plan"
     if len(s.split()) < 6:
         return "fragment"
     return None
@@ -3208,7 +3230,8 @@ def cli(argv: list[str]) -> int:
     if argv and argv[0] == "judge-batch":
         pp = argv[1] if len(argv) > 1 and not argv[1].startswith("--") else None
         pat = argv[argv.index("--pattern") + 1] if "--pattern" in argv else None
-        return judge_batch(pp, pattern=pat, r2=("--r2" in argv))
+        tg = argv[argv.index("--tag") + 1] if "--tag" in argv else ""
+        return judge_batch(pp, pattern=pat, r2=("--r2" in argv), tag=tg)
     if argv and argv[0] == "collect":
         kw: dict = {}
         if "--tier" in argv:
@@ -3227,7 +3250,8 @@ def cli(argv: list[str]) -> int:
     if argv and argv[0] == "r2-compare":
         nn = next((int(a) for a in argv[1:] if a.isdigit()), R2_WORKSHEET_N)
         ss = int(argv[argv.index("--seed") + 1]) if "--seed" in argv else None
-        return r2_compare(nn, seed=ss, version=(R2V2_EXTRACTOR_VERSION if "--v2" in argv else R2_EXTRACTOR_VERSION))
+        tg = argv[argv.index("--tag") + 1] if "--tag" in argv else ""
+        return r2_compare(nn, seed=ss, version=(R2V2_EXTRACTOR_VERSION if "--v2" in argv else R2_EXTRACTOR_VERSION), tag=tg)
     if argv and argv[0] == "r2-refilter":
         ss = int(argv[argv.index("--seed") + 1]) if "--seed" in argv else None
         return r2_refilter(seed=ss)
