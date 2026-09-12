@@ -75,7 +75,7 @@ def test_model_verdicts_in_a_triage_header_are_not_operator_verdicts():
 def test_wrong_suppressed_key_recovers_to_its_original_sentence():
     arts = [_art("20260909_v48i_triage_run_evidence.txt", TRIAGE, "b" * 64),
             _art("20260910_v48ah_rulings_and_run_evidence.txt", JUDGED, "c" * 64)]
-    maps, _stats = R.resolve(arts)
+    maps, _stats, _x = R.resolve(arts)
     m = next(x for x in maps if x.reviewed_key == "S00cc2d2668c01a25")
     assert m.verdict == "wrong"
     assert m.sentence.startswith("Our goal is to enhance")
@@ -86,7 +86,7 @@ def test_wrong_suppressed_key_recovers_to_its_original_sentence():
 def test_sentence_source_and_verdict_source_are_both_retained():
     arts = [_art("20260909_v48i_triage_run_evidence.txt", TRIAGE, "b" * 64),
             _art("20260910_v48ah_rulings_and_run_evidence.txt", JUDGED, "c" * 64)]
-    maps, _stats = R.resolve(arts)
+    maps, _stats, _x = R.resolve(arts)
     m = next(x for x in maps if x.reviewed_key == "S00cc2d2668c01a25")
     files = {s.filename for s in m.evidence_sources}
     hashes = {s.sha256 for s in m.evidence_sources}
@@ -101,7 +101,7 @@ def test_sentence_source_and_verdict_source_are_both_retained():
 def test_relabel_keeps_reviewed_and_resulting_identity_separate():
     arts = [_art("20260909_v48i_triage_run_evidence.txt", TRIAGE, "b" * 64),
             _art("20260910_v48ah_rulings_and_run_evidence.txt", JUDGED, "c" * 64)]
-    maps, _stats = R.resolve(arts)
+    maps, _stats, _x = R.resolve(arts)
     m = next(x for x in maps if x.reviewed_key == "S00d866a2c5fb2b31")
     assert m.original_category == "therapeutic_area"
     assert m.resulting_category == "commercial_infrastructure"
@@ -115,7 +115,7 @@ def test_r_key_resolves_by_exact_statement_from_the_table_map():
     ent, date, cat, stmt = "CIK:1", "2024-05-16", "commercial_infrastructure", "launching commercial sales"
     rkey = "R" + hashlib.sha256(f"{ent}|{date}|{cat}|{stmt}".encode()).hexdigest()[:16]
     arts = [_art("20260911_v51h_r2_verdicts_evidence.txt", f"R2-JUDGED {rkey} wrong\r\n", "d" * 64)]
-    maps, _stats = R.resolve(arts, table_map={rkey: {"sentence": stmt, "category": cat,
+    maps, _stats, _x = R.resolve(arts, table_map={rkey: {"sentence": stmt, "category": cat,
                                                      "entity_key": ent, "stated_at": date}})
     m = next(x for x in maps if x.reviewed_key == rkey)
     assert m.status == R.SRC_TABLE
@@ -128,57 +128,82 @@ def test_conflicting_sentences_for_one_key_are_held_as_ambiguous():
     alt = TRIAGE.replace("Our goal is to enhance our proven scientific capabilities",
                          "A materially different sentence for the same key")
     b = _art("20260909_v48q_boundary_sweep_triage_evidence.txt", alt, "e" * 64)
-    maps, _stats = R.resolve([a, b])
+    maps, _stats, _x = R.resolve([a, b])
     m = next(x for x in maps if x.reviewed_key == "S00cc2d2668c01a25")
     assert m.status == R.SRC_AMBIGUOUS
     assert m.reason == R.R_CONFLICT_SENTENCE
 
 
 # ---- 8. replay ambiguity is held, and replay never overwrites direct ---------
-def test_replay_with_two_equal_length_candidates_is_ambiguous():
+def test_replay_resolves_a_wrong_suppressed_key_through_the_index():
+    """The index is built pre-suppression, so a judged-wrong key is present."""
     key = R.s_key("CIK:9", "2020-01-01", "platform")
     arts = [_art("20260910_v48ah_rulings_and_run_evidence.txt",
-                 f"JUDGED {key} wrong; retired 1 relabeled 0\r\n"
-                 f"{key} | CIK:9 2020-01-01 platform\r\n", "f" * 64)]
-
-    def replayer(ent, date):
-        return [{"category": "platform", "sentence": "AAAA"}, {"category": "platform", "sentence": "BBBB"}]
-
-    maps, _stats = R.resolve(arts, replayer=replayer)
-    m = next(x for x in maps if x.reviewed_key == key)
-    assert m.status == R.SRC_AMBIGUOUS
-    assert m.reason == R.R_REPLAY_AMBIGUOUS
-
-
-def test_replay_longest_wins_and_direct_provenance_is_never_overwritten():
-    key = R.s_key("CIK:9", "2020-01-01", "platform")
-    arts = [_art("20260910_v48ah_rulings_and_run_evidence.txt",
-                 f"JUDGED {key} wrong; retired 1 relabeled 0\r\n"
-                 f"{key} | CIK:9 2020-01-01 platform\r\n", "f" * 64)]
-
-    def replayer(ent, date):
-        return [{"category": "platform", "sentence": "short"},
-                {"category": "platform", "sentence": "a much longer candidate sentence"}]
-
-    maps, _stats = R.resolve(arts, replayer=replayer)
+                 f"JUDGED {key} wrong; retired 1 relabeled 0\r\n", "f" * 64)]
+    index = {key: {"s_key": key, "entity_key": "CIK:9", "stated_at": "2020-01-01",
+                   "category": "platform", "statement": "a much longer candidate sentence",
+                   "doc_id": "cap1", "source_type": "10k_strategy", "section": "item1",
+                   "rule_version": "L3-a3-p2", "winner_length": 31, "candidate_count": 2,
+                   "tie_at_max_length": False, "runner_ups": [{"statement": "short", "length": 5}]}}
+    maps, _s, _x = R.resolve(arts, index=index, versions={key: "L3-a3-p2"})
     m = next(x for x in maps if x.reviewed_key == key)
     assert m.status == R.SRC_REPLAY
     assert m.sentence == "a much longer candidate sentence"
+    assert m.replay_detail["candidate_count"] == 2
+    assert any("runner_ups=1" in s.raw_ref for s in m.evidence_sources)
 
-    # with direct sentence evidence present, replay must not touch the mapping
+
+def test_replay_is_refused_when_the_rule_version_does_not_match_the_index():
+    key = R.s_key("CIK:9", "2020-01-01", "platform")
+    arts = [_art("20260910_v48ah_rulings_and_run_evidence.txt",
+                 f"JUDGED {key} wrong; retired 1 relabeled 0\r\n", "f" * 64)]
+    index = {key: {"statement": "x", "category": "platform", "entity_key": "CIK:9",
+                   "stated_at": "2020-01-01", "rule_version": "L3-a3-p2"}}
+    maps, _s, _x = R.resolve(arts, index=index, versions={key: "L3-a3-p1"})
+    m = maps[0]
+    assert m.status == R.SRC_UNRESOLVED
+    assert m.reason == R.R_RULE_VERSION_MISMATCH
+
+
+def test_replay_is_refused_when_the_rule_version_is_unknown():
+    key = R.s_key("CIK:9", "2020-01-01", "platform")
+    arts = [_art("20260910_v48ah_rulings_and_run_evidence.txt",
+                 f"JUDGED {key} wrong; retired 1 relabeled 0\r\n", "f" * 64)]
+    index = {key: {"statement": "x", "category": "platform", "entity_key": "CIK:9",
+                   "stated_at": "2020-01-01", "rule_version": "L3-a3-p2"}}
+    maps, _s, _x = R.resolve(arts, index=index, versions={})
+    assert maps[0].status == R.SRC_UNRESOLVED
+    assert maps[0].reason == R.R_RULE_VERSION_UNKNOWN
+
+
+def test_r_keys_never_travel_the_s_key_replay_path():
+    rkey = "R" + "a" * 16
+    arts = [_art("20260911_v51h_r2_verdicts_evidence.txt", f"R2-JUDGED {rkey} wrong\r\n", "d" * 64)]
+    maps, _s, _x = R.resolve(arts, index={rkey: {"statement": "should never be used"}},
+                             versions={rkey: "L3-a3-p2"})
+    m = maps[0]
+    assert m.status == R.SRC_UNRESOLVED
+    assert m.reason == R.R_NOT_S_KEY
+    assert m.sentence == ""
+
+
+def test_replay_never_overwrites_a_direct_recovery():
     direct = [_art("20260909_v48i_triage_run_evidence.txt", TRIAGE, "b" * 64),
               _art("20260910_v48ah_rulings_and_run_evidence.txt", JUDGED, "c" * 64)]
-    maps2, _s2 = R.resolve(direct, replayer=lambda e, d: [{"category": "pipeline_gap", "sentence": "REPLAYED"}])
-    m2 = next(x for x in maps2 if x.reviewed_key == "S00cc2d2668c01a25")
-    assert m2.status == R.SRC_JUDGING
-    assert "REPLAYED" not in m2.sentence
+    idx = {"S00cc2d2668c01a25": {"statement": "REPLAYED", "category": "pipeline_gap",
+                                 "entity_key": "CIK:1792044", "stated_at": "2023-02-27",
+                                 "rule_version": "L3-a3-p2"}}
+    maps, _s, _x = R.resolve(direct, index=idx, versions={"S00cc2d2668c01a25": "L3-a3-p2"})
+    m = next(x for x in maps if x.reviewed_key == "S00cc2d2668c01a25")
+    assert m.status == R.SRC_JUDGING
+    assert "REPLAYED" not in m.sentence
 
 
 # ---- 9. no guessing fallback -------------------------------------------------
 def test_verdict_without_any_sentence_evidence_stays_unresolved():
     arts = [_art("20260910_p2h_phaseA_regeneration_evidence.txt",
                  "JUDGED S1111111111111111 wrong; retired 1 relabeled 0\r\n", "g" * 64)]
-    maps, _stats = R.resolve(arts)
+    maps, _stats, _x = R.resolve(arts)
     m = maps[0]
     assert m.status == R.SRC_UNRESOLVED
     assert m.reason == R.R_NO_SENTENCE
@@ -189,8 +214,8 @@ def test_verdict_without_any_sentence_evidence_stays_unresolved():
 def test_same_artifact_reproduces_the_same_mapping():
     a = _art("20260909_v48i_triage_run_evidence.txt", TRIAGE, "b" * 64)
     b = _art("20260910_v48ah_rulings_and_run_evidence.txt", JUDGED, "c" * 64)
-    one, _ = R.resolve([a, b])
-    two, _ = R.resolve([a, b])
+    one, _s1, _x1 = R.resolve([a, b])
+    two, _s2, _x2 = R.resolve([a, b])
     assert [(m.reviewed_key, m.sentence, m.verdict, m.status) for m in one] == \
            [(m.reviewed_key, m.sentence, m.verdict, m.status) for m in two]
 
@@ -200,14 +225,14 @@ def test_library_ref_ids_are_not_candidate_ids():
     a = _art("library/references.csv", REFERENCES, "h" * 64)
     verds, sents = R.parse_worksheet_csv(a)
     assert verds == [] and sents == []          # no key/sentence columns: refused
-    maps, stats = R.resolve([a])
+    maps, stats, _x = R.resolve([a])
     assert maps == []                            # no candidate id was claimed
     assert stats["unclassified_identifier"] >= 1  # the shape match is reported, not counted
 
 
 def test_shape_match_alone_never_creates_a_mapping():
     a = _art("20260909_notes.txt", "mentions S0123456789abcdef in prose only\r\n", "i" * 64)
-    maps, stats = R.resolve([a])
+    maps, stats, _x = R.resolve([a])
     assert maps == []
     assert stats["unclassified_identifier"] == 1
 
@@ -221,3 +246,52 @@ def test_recovery_module_never_calls_a_store_writer():
     offenders = [f"{i}: {ln.strip()}" for i, ln in enumerate(text.splitlines(), 1)
                  if _WRITERS.search(ln) and not ln.lstrip().startswith("#")]
     assert not offenders, "recovery.py must be read-only against tables of record:\n" + "\n".join(offenders)
+
+
+# ---- 12. the replay path reuses production primitives, it does not reimplement them
+def test_recovery_does_not_reimplement_candidate_selection():
+    text = (SRC / "recovery.py").read_text(encoding="utf-8")
+    for name in ("iter_sweep_documents", "make_candidate", "pool_select"):
+        assert name in text, f"recovery must reuse the production primitive {name}"
+    # no local longest-wins comparison and no local key hashing
+    assert 'len(cand["statement"]) >' not in text
+    assert 'hashlib.sha256(f"{entity_key}' not in text
+
+
+def test_write_uses_the_shared_primitives():
+    text = (SRC / "priorities.py").read_text(encoding="utf-8")
+    body = text[text.index("def write(con=None)"):text.index("def _row_key(")]
+    assert "iter_sweep_documents(" in body
+    assert "make_candidate(" in body
+    assert "pool_select(" in body
+
+
+def test_s_key_delegates_to_the_production_key_derivation():
+    from biointel import priorities as P
+
+    assert R.s_key("CIK:1", "2020-01-02", "platform") == P._skey_of(("CIK:1", "2020-01-02", "platform"))
+
+
+# ---- 13. tie behaviour is production's own rule, reproduced not invented
+def test_pool_select_prefers_the_longer_statement():
+    from biointel import priorities as P
+
+    k = ("CIK:1", "2020-01-01", "platform")
+    a = {"entity_key": k[0], "stated_at": k[1], "category": k[2], "statement": "short"}
+    b = {"entity_key": k[0], "stated_at": k[1], "category": k[2], "statement": "a longer statement"}
+    best, overflow = P.pool_select([(k, a), (k, b)])
+    assert best[k]["statement"] == "a longer statement"
+    assert [o["statement"] for o in overflow] == ["short"]
+
+
+def test_pool_select_keeps_the_first_candidate_on_a_length_tie():
+    """Production compares with strictly-greater, so the first of equal length
+    wins and sweep order is part of the rule. Reproduced, not replaced."""
+    from biointel import priorities as P
+
+    k = ("CIK:1", "2020-01-01", "platform")
+    a = {"entity_key": k[0], "stated_at": k[1], "category": k[2], "statement": "AAAA"}
+    b = {"entity_key": k[0], "stated_at": k[1], "category": k[2], "statement": "BBBB"}
+    best, overflow = P.pool_select([(k, a), (k, b)])
+    assert best[k]["statement"] == "AAAA"
+    assert [o["statement"] for o in overflow] == ["BBBB"]

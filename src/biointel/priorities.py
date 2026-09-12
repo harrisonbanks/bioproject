@@ -902,6 +902,13 @@ def reextract(con=None) -> int:
     return 0
 
 
+def _skey_of(k: tuple) -> str:
+    """S-key of a (entity_key, stated_at, category) triple."""
+    import hashlib as _h
+
+    return "S" + _h.sha256(f"{k[0]}|{k[1]}|{k[2]}".encode()).hexdigest()[:16]
+
+
 def _overflow_row(k: tuple, cand: dict) -> dict:
     """Runner-up row for stated_priorities_overflow (p2 piece 4): the losing
     sentence of a longest-wins key collision, stamped with the rule version
@@ -910,6 +917,83 @@ def _overflow_row(k: tuple, cand: dict) -> dict:
         "entity_key": k[0], "stated_at": k[1], "category": k[2],
         "statement": cand["statement"], "rule_version": RULE_VERSION_F2,
     }
+
+
+# ---------------------------------------------------------------- shared sweep primitives
+# Extracted from `write` (gate R3-0c-iii, 2026-09-12) so that historical
+# pre-suppression replay reuses the SAME candidate generation and selection
+# logic rather than a second implementation that can drift. These three
+# helpers are pure with respect to tables of record: they read, never write.
+def iter_sweep_documents(con, by_ref: dict | None = None, gauge: str = "sweep"):
+    """Yield (tier, entity_key, stated_at, capture_row, normalized_text) for
+    every priorities-collected reference, in the store's own row order. The
+    order matters: the longest-wins rule below keeps the FIRST candidate on a
+    length tie, so sweep order is part of the historical selection semantics."""
+    if by_ref is None:
+        _by_url, by_ref = _capture_index(con)
+    refs = [
+        r for r in store.read_table("references", con=con)
+        if f"captured by {TOOL}" in str(r.get("note") or "")
+    ]
+    total, done = len(refs), 0
+    for r in refs:
+        note = str(r.get("note") or "")
+        done += 1
+        if done % 250 == 0 or done == total:
+            print(f"{gauge} {done}/{total}", flush=True)  # 5.6: long loops print a gauge
+        tier = next((x for x in ("10k_strategy", "investor_day") if f"source_type={x}" in note), None)
+        if tier is None:
+            continue
+        cap = by_ref.get(str(r["ref_id"]))
+        if cap is None:
+            continue
+        m = re.search(r"cik=(\d+)", note)
+        d = re.search(r"file_date=(\d{4}-\d{2}-\d{2})", note)
+        if not m or not d:
+            continue
+        ext = "." + str(cap.get("ext") or "htm")
+        try:
+            text = normalize_text(
+                library.store_path(str(cap["capture_id"]), ext).read_text(
+                    encoding="utf-8", errors="replace"
+                )
+            )
+        except OSError:
+            continue
+        yield tier, f"CIK:{int(m.group(1))}", d.group(1), cap, text
+
+
+def make_candidate(entity: str, stated_at: str, row: dict, cap: dict, tier: str) -> dict:
+    """The stated_priorities row shape produced by one extracted sentence."""
+    return {
+        "entity_key": entity,
+        "stated_at": stated_at,
+        "category": row["category"],
+        "statement": row["sentence"],
+        "doc_id": str(cap["capture_id"]),
+        "span": row["sentence"][:500],
+        "source_type": tier,
+        "section": row["section"],
+    }
+
+
+def pool_select(pairs) -> tuple[dict, list]:
+    """Longest-wins per key over (key_tuple, candidate) pairs IN SWEEP ORDER.
+    Strictly-greater comparison, so on a length tie the first candidate seen
+    wins; that is the historical production rule and is reproduced, not
+    reinvented. Returns (best_by_key, overflow_rows)."""
+    best: dict[tuple, dict] = {}
+    overflow: list[dict] = []
+    for k, cand in pairs:
+        held = best.get(k)
+        if held is None:
+            best[k] = cand
+        elif len(cand["statement"]) > len(held["statement"]):
+            overflow.append(_overflow_row(k, held))
+            best[k] = cand
+        else:
+            overflow.append(_overflow_row(k, cand))
+    return best, overflow
 
 
 # ---------------------------------------------------------------- F2 stage 4: the writer
@@ -952,39 +1036,9 @@ def write(con=None) -> int:
     for skey, v in verdicts.items():
         plain[skey] = v
     verdicts = plain
-    best: dict[tuple, dict] = {}
-    overflow: list[dict] = []  # p2 piece 4: rows for stated_priorities_overflow, rule-version stamped
     stats = {t: {"docs": 0, "rows": 0} for t in ("10k_strategy", "investor_day")}
-    refs = [
-        r for r in store.read_table("references", con=con)
-        if f"captured by {TOOL}" in str(r.get("note") or "")
-    ]
-    wtotal, wdone = len(refs), 0
-    for r in refs:
-        note = str(r.get("note") or "")
-        wdone += 1
-        if wdone % 250 == 0 or wdone == wtotal:
-            print(f"write {wdone}/{wtotal}", flush=True)  # 5.6: long loops print a gauge
-        tier = next((x for x in stats if f"source_type={x}" in note), None)
-        if tier is None:
-            continue
-        cap = by_ref.get(str(r["ref_id"]))
-        if cap is None:
-            continue
-        m = re.search(r"cik=(\d+)", note)
-        d = re.search(r"file_date=(\d{4}-\d{2}-\d{2})", note)
-        if not m or not d:
-            continue
-        entity = f"CIK:{int(m.group(1))}"
-        ext = "." + str(cap.get("ext") or "htm")
-        try:
-            text = normalize_text(
-                library.store_path(str(cap["capture_id"]), ext).read_text(
-                    encoding="utf-8", errors="replace"
-                )
-            )
-        except OSError:
-            continue
+    pairs: list[tuple[tuple, dict]] = []
+    for tier, entity, stated_at, cap, text in iter_sweep_documents(con, by_ref, gauge="write"):
         rows = extract_priorities(text, tier)
         if not rows:
             continue
@@ -993,14 +1047,12 @@ def write(con=None) -> int:
             stats[tier]["rows"] += 1
             ck = "cat_" + str(row["category"])  # per-category yield (operator ruling 2)
             stats[tier][ck] = stats[tier].get(ck, 0) + 1
-            k = (entity, d.group(1), row["category"])
+            k = (entity, stated_at, row["category"])
             # verdict-aware (operator ruling 2026-09-09, "never throw away
             # good information / never resurrect judged lies"): a key judged
             # wrong WITHOUT a relabel is suppressed forever; a relabel
             # rewrites the category before keying.
-            import hashlib as _h
-
-            skey = "S" + _h.sha256(f"{k[0]}|{k[1]}|{k[2]}".encode()).hexdigest()[:16]
+            skey = _skey_of(k)
             v = verdicts.get(skey)
             if v is not None:
                 if v == "":
@@ -1010,26 +1062,10 @@ def write(con=None) -> int:
                     continue
                 row = dict(row)
                 row["category"] = v
-                k = (entity, d.group(1), v)
+                k = (entity, stated_at, v)
                 stats[tier]["relabeled"] = stats[tier].get("relabeled", 0) + 1
-            cand = {
-                "entity_key": entity,
-                "stated_at": d.group(1),
-                "category": row["category"],
-                "statement": row["sentence"],
-                "doc_id": str(cap["capture_id"]),
-                "span": row["sentence"][:500],
-                "source_type": tier,
-                "section": row["section"],
-            }
-            held = best.get(k)
-            if held is None:
-                best[k] = cand
-            elif len(cand["statement"]) > len(held["statement"]):
-                overflow.append(_overflow_row(k, held))
-                best[k] = cand
-            else:
-                overflow.append(_overflow_row(k, cand))
+            pairs.append((k, make_candidate(entity, stated_at, row, cap, tier)))
+    best, overflow = pool_select(pairs)
     written = store.write_table("stated_priorities", list(best.values()), cols, con=con)
     # p2 piece 4 (amendment 3): runner-ups land in a table of record with
     # rule-version provenance. Idempotent PER VERSION: this run replaces only
@@ -3261,9 +3297,9 @@ def cli(argv: list[str]) -> int:
         nt = argv[argv.index("--note") + 1] if "--note" in argv else ""
         return r2_judge(argv[1], argv[2], note=nt)
     if argv and argv[0] == "r3-census":
-        # R3-0c-ii: evidence-first recovery census (read-only; writes only to exports)
+        # R3-0c-ii/iii: evidence-first recovery census (read-only; writes only to exports)
         from biointel import recovery as _recovery
 
-        return _recovery.census()
+        return _recovery.census(replay="--no-replay" not in argv)
     print("usage: priorities probe|probe-calls|collect [...]|sample-misses [N]|reextract")
     return 1

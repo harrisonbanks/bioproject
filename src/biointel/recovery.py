@@ -38,7 +38,8 @@ from pathlib import Path
 
 from biointel import config, store
 
-PARSER_VERSION = "REC-v1"
+PARSER_VERSION = "REC-v2"
+RULE_VERSION_REPLAYED = "L3-a3-p2"
 
 # ---------------------------------------------------------------- identifiers
 # Shape only. A shape match is never, by itself, a candidate id.
@@ -80,6 +81,9 @@ R_CONFLICT_SENTENCE = "conflicting_sentence_evidence"
 R_REPLAY_AMBIGUOUS = "replay_multiple_candidates"
 R_REPLAY_NO_CAPTURE = "replay_capture_unavailable"
 R_REPLAY_NO_MATCH = "replay_no_candidate"
+R_RULE_VERSION_MISMATCH = "rule_version_not_replayable"
+R_RULE_VERSION_UNKNOWN = "rule_version_unknown"
+R_NOT_S_KEY = "not_an_s_key_replay_path"
 
 _SESSION_RX = re.compile(r"_(v\d+[a-z]{0,2}|p2[a-z]|r\d+|F\d+)_", re.IGNORECASE)
 _DATE_RX = re.compile(r"(20\d{6})")
@@ -118,6 +122,10 @@ class Mapping:
     parser_version: str = PARSER_VERSION
     evidence_sources: list[EvidenceSource] = field(default_factory=list)
     segment_id: str = ""  # filled at R3-0b, when SEG-v1 exists
+    era: str = ""
+    session: str = ""
+    rule_version: str = ""
+    replay_detail: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------- artifacts
@@ -328,9 +336,10 @@ def unclassified_shape_matches(a: Artifact, claimed: set[str]) -> int:
 
 # ---------------------------------------------------------------- keys
 def s_key(entity_key: str, stated_at: str, category: str) -> str:
-    return "S" + hashlib.sha256(
-        f"{entity_key}|{str(stated_at)[:10]}|{category}".encode()
-    ).hexdigest()[:16]
+    """Delegates to the production key derivation; no second implementation."""
+    from biointel import priorities as _p
+
+    return _p._skey_of((entity_key, str(stated_at)[:10], category))
 
 
 # ---------------------------------------------------------------- levels
@@ -342,24 +351,30 @@ def level1(arts: list[Artifact]) -> tuple[dict[str, list], dict[str, list], dict
     claimed: set[str] = set()
     stats = {"artifacts": 0, "worksheet_rows": 0, "judged_lines": 0, "header_verbatim": 0,
              "cluster_rows": 0, "unclassified_identifier": 0}
+    authority: dict[str, set] = {"worksheet": set(), "judged": set(), "r2_judged": set(),
+                                 "header": set(), "cluster": set()}
     for a in arts:
         stats["artifacts"] += 1
         wv, ws = parse_worksheet_csv(a)
         for key, v, src in wv:
             v_by_key.setdefault(key, []).append(({"verdict": v, "relabeled": 0, "relabel_to": ""}, src, SRC_WORKSHEET))
             claimed.add(key)
+            authority["worksheet"].add(key)
             stats["worksheet_rows"] += 1
         for key, payload, src in ws:
             s_by_key.setdefault(key, []).append((payload, src, SRC_WORKSHEET))
             claimed.add(key)
+            authority["worksheet"].add(key)
         bv, bs = parse_block_evidence(a)
         for key, payload, src in bv:
             v_by_key.setdefault(key, []).append((payload, src, SRC_JUDGING))
             claimed.add(key)
+            authority["r2_judged" if src.parser == "r2_judged_line" else "judged"].add(key)
             stats["judged_lines"] += 1
         for key, payload, src in bs:
             s_by_key.setdefault(key, []).append((payload, src, SRC_JUDGING))
             claimed.add(key)
+            authority["header"].add(key)
             stats["header_verbatim"] += 1
         for key, payload, src in parse_key_identities(a):
             ident.setdefault(key, {"entity_key": payload["entity_key"],
@@ -368,10 +383,11 @@ def level1(arts: list[Artifact]) -> tuple[dict[str, list], dict[str, list], dict
         for key, payload, src in parse_cluster_csv(a):
             s_by_key.setdefault(key, []).append((payload, src, SRC_CLUSTER))
             claimed.add(key)
+            authority["cluster"].add(key)
             stats["cluster_rows"] += 1
         stats["unclassified_identifier"] += unclassified_shape_matches(a, claimed)
     stats["key_headers"] = len(ident)
-    return v_by_key, s_by_key, ident, stats
+    return v_by_key, s_by_key, ident, stats, authority
 
 
 def level2_tables(con=None) -> dict[str, dict]:
@@ -394,44 +410,116 @@ def level2_tables(con=None) -> dict[str, dict]:
     return out
 
 
-def level3_replay(unresolved: list[str], meta: dict[str, dict], replayer=None) -> dict[str, dict]:
-    """Pre-suppression replay, on the unresolved remainder ONLY.
-
-    `replayer(entity_key, stated_at)` returns the FULL candidate list for that
-    document under the frozen extractor, before any verdict suppression is
-    consulted. Longest-wins per (entity, date, category) reproduces the writer's
-    choice. More than one surviving candidate for a key is ambiguous, never
-    resolved by preference."""
-    out: dict[str, dict] = {}
-    if replayer is None:
+def rule_versions(con=None) -> dict[str, str]:
+    """Latest rule_version per reviewed key, from candidate_reviews. READ ONLY.
+    Replay eligibility is decided by this, not by the key's lexical shape."""
+    out: dict[str, str] = {}
+    con = con or store.connect()
+    if not store.has_table("candidate_reviews", con):
         return out
+    for r in sorted(store.read_table("candidate_reviews", con=con),
+                    key=lambda x: str(x.get("reviewed_at"))):
+        out[str(r["candidate_id"])] = str(r.get("rule_version") or "")
+    return out
+
+
+def build_candidate_index(con=None, gauge: str = "replay") -> tuple[dict, dict]:
+    """Pre-suppression candidate index over the frozen corpus.
+
+    Reuses the production sweep primitives (`iter_sweep_documents`,
+    `extract_priorities`, `make_candidate`, `pool_select`) so candidate
+    generation, longest-wins and tie behaviour are the SAME logic the writer
+    runs, not a second implementation. No verdict map is consulted, so a
+    judged-wrong key's candidate is present.
+
+    The tie rule reproduced here is production's own: strictly-greater
+    comparison in sweep order, so the first candidate of maximal length wins.
+    Keys whose winner was decided by such a tie are counted and reported.
+    """
+    from biointel import priorities as _p
+
+    con = con or store.connect()
+    pairs: list[tuple[tuple, dict]] = []
+    pop = {"documents_read": 0, "documents_with_rows": 0, "candidates": 0}
+    for tier, entity, stated_at, cap, text in _p.iter_sweep_documents(con, gauge=gauge):
+        pop["documents_read"] += 1
+        rows = _p.extract_priorities(text, tier)
+        if not rows:
+            continue
+        pop["documents_with_rows"] += 1
+        for row in rows:
+            pop["candidates"] += 1
+            pairs.append(((entity, stated_at, row["category"]),
+                          _p.make_candidate(entity, stated_at, row, cap, tier)))
+
+    best, overflow = _p.pool_select(pairs)
+
+    lengths: dict[tuple, list[int]] = {}
+    for k, c in pairs:
+        lengths.setdefault(k, []).append(len(str(c["statement"])))
+    runners: dict[str, list[dict]] = {}
+    for row in overflow:
+        rk = s_key(str(row["entity_key"]), str(row["stated_at"]), str(row["category"]))
+        runners.setdefault(rk, []).append({"statement": str(row["statement"]),
+                                           "length": len(str(row["statement"]))})
+
+    index: dict[str, dict] = {}
+    ties = 0
+    for k, c in best.items():
+        sk = s_key(k[0], k[1], k[2])
+        ls = lengths.get(k, [])
+        top = max(ls) if ls else 0
+        tie = sum(1 for x in ls if x == top) > 1
+        ties += 1 if tie else 0
+        index[sk] = {
+            "s_key": sk, "entity_key": c["entity_key"], "stated_at": c["stated_at"],
+            "category": c["category"], "statement": c["statement"], "doc_id": c["doc_id"],
+            "source_type": c["source_type"], "section": c["section"],
+            "rule_version": _p.RULE_VERSION_F2,
+            "winner_length": len(str(c["statement"])), "candidate_count": len(ls),
+            "tie_at_max_length": tie, "runner_ups": runners.get(sk, []),
+        }
+    pop["distinct_keys"] = len(index)
+    pop["overflow_rows"] = len(overflow)
+    pop["keys_won_on_tie"] = ties
+    return index, pop
+
+
+def level3_replay(unresolved: list[str], index: dict, versions: dict[str, str]) -> dict[str, dict]:
+    """Join the unresolved remainder against the pre-suppression index.
+
+    Eligibility: S-keys only, and only where the key's recorded rule version is
+    the one the index reproduces. Anything else stays unresolved with a named
+    reason rather than being forced through a generator that did not produce it.
+    """
+    from biointel import priorities as _p
+
+    out: dict[str, dict] = {}
     for key in unresolved:
-        m = meta.get(key) or {}
-        ent, date = m.get("entity_key", ""), m.get("stated_at", "")
-        if not ent or not date:
-            out[key] = {"status": SRC_UNRESOLVED, "reason": R_REPLAY_NO_CAPTURE}
+        if not key.startswith("S"):
+            out[key] = {"status": SRC_UNRESOLVED, "reason": R_NOT_S_KEY}
             continue
-        cands = replayer(ent, date) or []
-        if not cands:
-            out[key] = {"status": SRC_UNRESOLVED, "reason": R_REPLAY_NO_CAPTURE}
+        rv = versions.get(key)
+        if rv is None:
+            out[key] = {"status": SRC_UNRESOLVED, "reason": R_RULE_VERSION_UNKNOWN}
             continue
-        hits = [c for c in cands if s_key(ent, date, str(c.get("category", ""))) == key]
-        if not hits:
+        if rv != _p.RULE_VERSION_F2:
+            out[key] = {"status": SRC_UNRESOLVED, "reason": R_RULE_VERSION_MISMATCH}
+            continue
+        hit = index.get(key)
+        if hit is None:
             out[key] = {"status": SRC_UNRESOLVED, "reason": R_REPLAY_NO_MATCH}
             continue
-        longest = max(len(str(c.get("sentence", ""))) for c in hits)
-        winners = [c for c in hits if len(str(c.get("sentence", ""))) == longest]
-        if len(winners) != 1:
-            out[key] = {"status": SRC_AMBIGUOUS, "reason": R_REPLAY_AMBIGUOUS}
-            continue
-        out[key] = {"status": SRC_REPLAY, "sentence": str(winners[0]["sentence"]),
-                    "category": str(winners[0].get("category", "")), "entity_key": ent, "stated_at": date}
+        out[key] = {"status": SRC_REPLAY, "sentence": hit["statement"],
+                    "category": hit["category"], "entity_key": hit["entity_key"],
+                    "stated_at": hit["stated_at"], "detail": hit}
     return out
 
 
 # ---------------------------------------------------------------- resolver
-def resolve(arts: list[Artifact], table_map: dict[str, dict] | None = None, replayer=None) -> tuple[list[Mapping], dict]:
-    v_by_key, s_by_key, ident, stats = level1(arts)
+def resolve(arts: list[Artifact], table_map: dict[str, dict] | None = None,
+            index: dict | None = None, versions: dict[str, str] | None = None) -> tuple[list[Mapping], dict, dict]:
+    v_by_key, s_by_key, ident, stats, authority = level1(arts)
     table_map = table_map or {}
     mappings: list[Mapping] = []
     meta: dict[str, dict] = {}
@@ -496,10 +584,15 @@ def resolve(arts: list[Artifact], table_map: dict[str, dict] | None = None, repl
         # ---- relabel identity (design §9): keep all three
         if m.resulting_category and m.entity_key and m.stated_at:
             m.resulting_key = s_key(m.entity_key, m.stated_at, m.resulting_category)
+        if m.evidence_sources:
+            m.era = m.evidence_sources[0].era
+            m.session = m.evidence_sources[0].session
+        m.rule_version = (versions or {}).get(key, "")
         mappings.append(m)
 
     # ---- Level 3 on the unresolved remainder only; never dilutes direct provenance
-    replayed = level3_replay(unresolved_for_replay, meta, replayer)
+    pre = {m.reviewed_key: m.status for m in mappings}
+    replayed = level3_replay(unresolved_for_replay, index or {}, versions or {}) if index is not None else {}
     by_key = {m.reviewed_key: m for m in mappings}
     for key, r in replayed.items():
         m = by_key[key]
@@ -513,15 +606,22 @@ def resolve(arts: list[Artifact], table_map: dict[str, dict] | None = None, repl
             m.entity_key = r.get("entity_key", "")
             m.stated_at = r.get("stated_at", "")
             m.sentence_source_class = SRC_REPLAY
+            m.replay_detail = r.get("detail", {})
+            d = m.replay_detail
             m.evidence_sources.append(EvidenceSource(
-                filename="replay:frozen_extractor", sha256="", parser=f"replay/{PARSER_VERSION}",
-                era="", session="", raw_ref="pre-suppression candidate pool", raw_lines=[], role="sentence"))
+                filename=f"replay:frozen_extractor:{d.get('doc_id', '')}", sha256="",
+                parser=f"replay/{PARSER_VERSION}", era="", session="",
+                raw_ref=(f"pre-suppression pool; candidates={d.get('candidate_count', 0)} "
+                         f"winner_length={d.get('winner_length', 0)} tie={d.get('tie_at_max_length', False)} "
+                         f"runner_ups={len(d.get('runner_ups', []))} rule={d.get('rule_version', '')}"),
+                raw_lines=[str(d.get("statement", ""))[:400]], role="sentence"))
         else:
             m.status = r["status"]
             m.reason = r["reason"]
         if m.resulting_category and m.entity_key and m.stated_at:
             m.resulting_key = s_key(m.entity_key, m.stated_at, m.resulting_category)
-    return mappings, stats
+    transitions = {"pre_status": pre, "replayed_keys": sorted(replayed)}
+    return mappings, stats, {"authority": authority, "transitions": transitions}
 
 
 # ---------------------------------------------------------------- census
@@ -548,106 +648,195 @@ def audit_bundles(mappings: list[Mapping], per_class: int = 3, seed: int = 20260
     return out
 
 
-def census(root: Path | None = None, con=None, replayer=None, out_dir: Path | None = None) -> int:
+def census(root: Path | None = None, con=None, replay: bool = True, out_dir: Path | None = None) -> int:
     arts = manifest(root)
+    con = con or store.connect()
+
     table_map: dict[str, dict] = {}
     try:
         table_map = level2_tables(con)
     except Exception as exc:  # noqa: BLE001 - a missing database is reported, not fatal
         print(f"LEVEL2 UNAVAILABLE {type(exc).__name__}: {exc}")
-    mappings, stats = resolve(arts, table_map, replayer)
+    versions: dict[str, str] = {}
+    try:
+        versions = rule_versions(con)
+    except Exception as exc:  # noqa: BLE001
+        print(f"RULE VERSIONS UNAVAILABLE {type(exc).__name__}: {exc}")
+
+    index: dict | None = None
+    pop: dict = {}
+    if replay:
+        print("--- LEVEL 3 PRE-SUPPRESSION INDEX")
+        try:
+            index, pop = build_candidate_index(con)
+        except Exception as exc:  # noqa: BLE001
+            print(f"LEVEL3 INDEX UNAVAILABLE {type(exc).__name__}: {exc}")
+            index = None
+
+    mappings, stats, extra = resolve(arts, table_map, index, versions)
+    authority = extra["authority"]
+    pre_status = extra["transitions"]["pre_status"]
 
     exports = Path(out_dir or config.EXPORTS)
-    print(f"R3-0c-ii RECOVERY CENSUS parser {PARSER_VERSION}")
+    print(f"R3-0c-iii RECOVERY CENSUS parser {PARSER_VERSION}")
     print(f"generated_utc {datetime.now(timezone.utc).isoformat(timespec='seconds')}")
     print(f"artifacts {len(arts)} total_bytes {sum(a.size for a in arts)}")
     for k, v in sorted(stats.items()):
         print(f"stat {k} {v}")
 
+    # ---- input population of the replay index (clarification 1)
+    print("--- REPLAY INPUT POPULATION")
+    if index is None:
+        print("replay_ran no")
+    else:
+        for k, v in sorted(pop.items()):
+            print(f"pop {k} {v}")
+        print("pop_note the index is a RECONSTRUCTION from the current frozen corpus under "
+              f"rule {RULE_VERSION_REPLAYED}; it is not asserted to be a byte-identical replay of any "
+              "historical sweep, because the historical reference and capture set was never recorded "
+              "as an input manifest. Compare pop documents_read against the historical sweep total "
+              "before treating a replayed mapping as byte-for-byte historical.")
+
+    # ---- status and class accounting, every count with its denominator
     by_status: dict[str, int] = {}
-    by_class: dict[str, int] = {}
     reasons: dict[str, int] = {}
-    pos = neg = 0
-    sentences: dict[str, int] = {}
     for m in mappings:
         by_status[m.status] = by_status.get(m.status, 0) + 1
-        by_class[m.key_class] = by_class.get(m.key_class, 0) + 1
         if m.reason:
             reasons[m.reason] = reasons.get(m.reason, 0) + 1
-        if m.sentence and m.verdict:
-            if m.verdict == "correct":
-                pos += 1
-            elif m.verdict == "wrong":
-                neg += 1
-        if m.sentence:
-            sentences[m.sentence] = sentences.get(m.sentence, 0) + 1
-    recovered = sum(n for s, n in by_status.items() if s in (SRC_WORKSHEET, SRC_JUDGING, SRC_CLUSTER, SRC_TABLE, SRC_REPLAY))
+    recovered_statuses = (SRC_WORKSHEET, SRC_JUDGING, SRC_CLUSTER, SRC_TABLE, SRC_REPLAY)
+    recovered = [m for m in mappings if m.status in recovered_statuses]
+    ambiguous = [m for m in mappings if m.status == SRC_AMBIGUOUS]
+    unresolved = [m for m in mappings if m.status == SRC_UNRESOLVED]
+
     print(f"reviewed_keys {len(mappings)}")
     for s, n in sorted(by_status.items()):
         print(f"status {s} {n}")
-    for c, n in sorted(by_class.items()):
-        print(f"key_class {c} {n}")
     for r, n in sorted(reasons.items()):
         print(f"reason {r} {n}")
-    print(f"recovered_total {recovered}")
-    print(f"recoverable_positives {pos}")
-    print(f"recoverable_negatives {neg}")
-    print(f"unique_recovered_sentences {len(sentences)}")
-    dup = {}
-    for n in sentences.values():
-        dup[n] = dup.get(n, 0) + 1
-    for n in sorted(dup):
-        print(f"duplicate_frequency sentences_appearing_{n}x {dup[n]}")
+    print(f"key_class_S {sum(1 for m in mappings if m.key_class == 'S')}")
+    print(f"key_class_R {sum(1 for m in mappings if m.key_class == 'R')}")
 
-    # conflicts
-    key_by_sentence: dict[str, set[str]] = {}
-    cats_by_sentence: dict[str, set[str]] = {}
-    verds_by_sentence: dict[str, set[str]] = {}
-    for m in mappings:
+    print("--- MAPPING-LEVEL CLASSES (denominator: recovered mappings)")
+    print(f"denominator recovered_mappings {len(recovered)}")
+    for v in ("correct", "wrong", "unsure"):
+        print(f"recovered_verdict_{v} {sum(1 for m in recovered if m.verdict == v)}")
+    print(f"recovered_without_usable_verdict {sum(1 for m in recovered if m.verdict not in VERDICTS)}")
+    print("--- MAPPING-LEVEL CLASSES (denominator: ambiguous mappings)")
+    print(f"denominator ambiguous_mappings {len(ambiguous)}")
+    print(f"ambiguous_verdict_bearing {sum(1 for m in ambiguous if m.verdict in VERDICTS)}")
+    for v in ("correct", "wrong", "unsure"):
+        print(f"ambiguous_verdict_{v} {sum(1 for m in ambiguous if m.verdict == v)}")
+    print("--- MAPPING-LEVEL CLASSES (denominator: unresolved mappings)")
+    print(f"denominator unresolved_mappings {len(unresolved)}")
+    print(f"unresolved_verdict_bearing {sum(1 for m in unresolved if m.verdict in VERDICTS)}")
+
+    # ---- sentence-level truth, reported separately from mapping counts
+    print("--- SENTENCE-LEVEL (denominator: unique recovered sentences)")
+    verd_by_sentence: dict[str, set] = {}
+    cats_by_sentence: dict[str, set] = {}
+    keys_by_sentence: dict[str, set] = {}
+    for m in recovered:
         if not m.sentence:
             continue
-        key_by_sentence.setdefault(m.sentence, set()).add(m.reviewed_key)
+        keys_by_sentence.setdefault(m.sentence, set()).add(m.reviewed_key)
+        if m.verdict in VERDICTS:
+            verd_by_sentence.setdefault(m.sentence, set()).add(m.verdict)
         if m.original_category:
             cats_by_sentence.setdefault(m.sentence, set()).add(m.original_category)
-        if m.verdict:
-            verds_by_sentence.setdefault(m.sentence, set()).add(m.verdict)
-    print(f"same_sentence_multiple_keys {sum(1 for v in key_by_sentence.values() if len(v) > 1)}")
-    print(f"same_sentence_multiple_categories {sum(1 for v in cats_by_sentence.values() if len(v) > 1)}")
-    print(f"same_sentence_conflicting_verdicts {sum(1 for v in verds_by_sentence.values() if len(v) > 1)}")
+    uniq = set(keys_by_sentence)
+    consistent_pos = sum(1 for s in uniq if verd_by_sentence.get(s) == {"correct"})
+    consistent_neg = sum(1 for s in uniq if verd_by_sentence.get(s) == {"wrong"})
+    conflicting = sum(1 for s in uniq if len(verd_by_sentence.get(s, set())) > 1)
+    no_verdict = sum(1 for s in uniq if not verd_by_sentence.get(s))
+    print(f"denominator unique_recovered_sentences {len(uniq)}")
+    print(f"unique_sentences_consistent_positive {consistent_pos}")
+    print(f"unique_sentences_consistent_negative {consistent_neg}")
+    print(f"unique_sentences_conflicting_verdicts {conflicting}")
+    print(f"unique_sentences_without_verdict {no_verdict}")
+    print(f"unique_sentences_multi_category {sum(1 for s in uniq if len(cats_by_sentence.get(s, set())) > 1)}")
+    print(f"unique_sentences_multiple_reviewed_keys {sum(1 for s in uniq if len(keys_by_sentence[s]) > 1)}")
+    dup: dict[int, int] = {}
+    for s in uniq:
+        n = len(keys_by_sentence[s])
+        dup[n] = dup.get(n, 0) + 1
+    for n in sorted(dup):
+        print(f"duplicate_frequency sentences_under_{n}_keys {dup[n]}")
+    print("class_note mapping-level verdict observations are NOT a sentence-level training-class "
+          "balance; the sentence-level lines above are the ones a training corpus may use.")
 
-    # era / session
+    # ---- Level 3 transitions, explicit equations
+    print("--- LEVEL 3 TRANSITIONS")
+    was_unresolved = [m for m in mappings if pre_status.get(m.reviewed_key) == SRC_UNRESOLVED]
+    newly_recovered = sum(1 for m in was_unresolved if m.status == SRC_REPLAY)
+    newly_ambiguous = sum(1 for m in was_unresolved if m.status == SRC_AMBIGUOUS)
+    still_unres = sum(1 for m in was_unresolved if m.status == SRC_UNRESOLVED)
+    print(f"level12_unresolved {len(was_unresolved)}")
+    print(f"replay_recovered {newly_recovered}")
+    print(f"replay_created_ambiguous {newly_ambiguous}")
+    print(f"still_unresolved {still_unres}")
+    print(f"TRANSITION_EQUATION {len(was_unresolved)} == {newly_recovered} + {newly_ambiguous} + {still_unres} "
+          f"-> {newly_recovered + newly_ambiguous + still_unres == len(was_unresolved)}")
+    pre_recovered = sum(1 for m in mappings if pre_status.get(m.reviewed_key) in recovered_statuses)
+    pre_ambiguous = sum(1 for m in mappings if pre_status.get(m.reviewed_key) == SRC_AMBIGUOUS)
+    print(f"pre_existing_recovered {pre_recovered}")
+    print(f"pre_existing_ambiguous {pre_ambiguous}")
+    print(f"RECONCILIATION_EQUATION {len(mappings)} == {pre_recovered} + {newly_recovered} + "
+          f"{pre_ambiguous} + {newly_ambiguous} + {still_unres} -> "
+          f"{pre_recovered + newly_recovered + pre_ambiguous + newly_ambiguous + still_unres == len(mappings)}")
+
+    # ---- p2h sub-report on the same accounting
+    print("--- P2H SUB-REPORT")
+    p2h = [m for m in mappings if m.session == "p2h"]
+    p2h_pre_unres = [m for m in p2h if pre_status.get(m.reviewed_key) == SRC_UNRESOLVED]
+    print(f"p2h_keys {len(p2h)}")
+    print(f"p2h_level12_unresolved {len(p2h_pre_unres)}")
+    print(f"p2h_replay_recovered {sum(1 for m in p2h_pre_unres if m.status == SRC_REPLAY)}")
+    print(f"p2h_replay_created_ambiguous {sum(1 for m in p2h_pre_unres if m.status == SRC_AMBIGUOUS)}")
+    print(f"p2h_still_unresolved {sum(1 for m in p2h_pre_unres if m.status == SRC_UNRESOLVED)}")
+
+    # ---- authority-form set overlaps, measured not inferred
+    print("--- AUTHORITY-FORM SET OVERLAPS")
+    for name, keys in sorted(authority.items()):
+        print(f"authority {name} distinct {len(keys)} S {sum(1 for k in keys if k.startswith('S'))} "
+              f"R {sum(1 for k in keys if k.startswith('R'))}")
+    names = sorted(authority)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            inter = authority[a] & authority[b]
+            print(f"overlap {a}&{b} {len(inter)}")
+    allk = set().union(*authority.values()) if authority else set()
+    print(f"authority_union {len(allk)}")
+
+    # ---- era and session
+    print("--- RECOVERY BY ERA AND SESSION")
     era_rows: dict[tuple[str, str], dict[str, int]] = {}
     for m in mappings:
-        for s in m.evidence_sources:
-            if not s.era:
-                continue
-            b = era_rows.setdefault((s.era, s.session), {})
-            b[m.status] = b.get(m.status, 0) + 1
-            break
+        b = era_rows.setdefault((m.era or "unknown", m.session or "unknown"), {})
+        b[m.status] = b.get(m.status, 0) + 1
     for (era, sess), b in sorted(era_rows.items()):
         tot = sum(b.values())
-        rec = sum(n for s, n in b.items() if s in (SRC_WORKSHEET, SRC_JUDGING, SRC_CLUSTER, SRC_TABLE, SRC_REPLAY))
+        rec = sum(n for s, n in b.items() if s in recovered_statuses)
         print(f"era {era} session {sess} keys {tot} recovered {rec} " + " ".join(f"{s}={n}" for s, n in sorted(b.items())))
 
-    # artifacts manifest + audit bundles to disk
     exports.mkdir(parents=True, exist_ok=True)
-    mpath = exports / "20260912_v1_r3_recovery_source_manifest.csv"
+    mpath = exports / "20260912_v2_r3_recovery_source_manifest.csv"
     with open(mpath, "w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["filename", "sha256", "bytes", "mtime_utc", "encoding", "era", "session"])
         for a in arts:
             w.writerow([a.relpath, a.sha256, a.size, a.mtime, a.encoding, a.era, a.session])
-    apath = exports / "20260912_v1_r3_recovery_audit_bundles.json"
-    apath.write_text(json.dumps(audit_bundles(mappings), indent=2)[:4_000_000], encoding="utf-8")
+    apath = exports / "20260912_v2_r3_recovery_audit_bundles.json"
+    apath.write_text(json.dumps(audit_bundles(mappings), indent=2)[:8_000_000], encoding="utf-8")
     print(f"manifest {mpath.name} rows {len(arts)}")
     print(f"audit_bundles {apath.name}")
     print(f"RECONCILIATION reviewed_keys {len(mappings)} == sum(status) {sum(by_status.values())}")
-    print("R3-0c-ii END")
+    print("R3-0c-iii END")
     return 0
 
 
 def cli(argv: list[str]) -> int:
     if argv and argv[0] == "r3-census":
-        return census()
+        return census(replay="--no-replay" not in argv)
     print("usage: r3-census")
     return 1
