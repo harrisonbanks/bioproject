@@ -38,7 +38,9 @@ from pathlib import Path
 
 from biointel import config, store
 
-PARSER_VERSION = "REC-v2"
+PARSER_VERSION = "REC-v3"
+INDEX_CACHE_VERSION = "IDX-v1"
+INDEX_CACHE_NAME = "20260912_v1_r3_candidate_index.json"
 RULE_VERSION_REPLAYED = "L3-a3-p2"
 
 # ---------------------------------------------------------------- identifiers
@@ -126,6 +128,7 @@ class Mapping:
     session: str = ""
     rule_version: str = ""
     replay_detail: dict = field(default_factory=dict)
+    replay_order_dependent_tie: bool = False
 
 
 # ---------------------------------------------------------------- artifacts
@@ -485,6 +488,42 @@ def build_candidate_index(con=None, gauge: str = "replay") -> tuple[dict, dict]:
     return index, pop
 
 
+def index_cache_path(out_dir: Path | None = None) -> Path:
+    return Path(out_dir or config.EXPORTS) / INDEX_CACHE_NAME
+
+
+def load_index_cache(out_dir: Path | None = None) -> tuple[dict, dict] | None:
+    """Reuse a previously built index so a rerun does not pay the sweep again.
+    Refused unless the cache records this index version and rule version."""
+    from biointel import priorities as _p
+
+    p = index_cache_path(out_dir)
+    if not p.is_file():
+        return None
+    try:
+        blob = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:  # noqa: BLE001
+        print(f"index_cache unreadable ({type(exc).__name__}: {exc}); rebuilding")
+        return None
+    if blob.get("cache_version") != INDEX_CACHE_VERSION or blob.get("rule_version") != _p.RULE_VERSION_F2:
+        print("index_cache version mismatch; rebuilding")
+        return None
+    return blob["index"], blob["pop"]
+
+
+def save_index_cache(index: dict, pop: dict, out_dir: Path | None = None) -> Path:
+    from biointel import priorities as _p
+
+    p = index_cache_path(out_dir)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"cache_version": INDEX_CACHE_VERSION,
+                             "rule_version": _p.RULE_VERSION_F2,
+                             "parser_version": PARSER_VERSION,
+                             "built_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                             "pop": pop, "index": index}), encoding="utf-8")
+    return p
+
+
 def level3_replay(unresolved: list[str], index: dict, versions: dict[str, str]) -> dict[str, dict]:
     """Join the unresolved remainder against the pre-suppression index.
 
@@ -608,6 +647,10 @@ def resolve(arts: list[Artifact], table_map: dict[str, dict] | None = None,
             m.sentence_source_class = SRC_REPLAY
             m.replay_detail = r.get("detail", {})
             d = m.replay_detail
+            # An identity whose production winner depended on sweep order at equal
+            # maximum length is weaker than one decided by length alone; it is
+            # flagged, never silently treated as equal-confidence.
+            m.replay_order_dependent_tie = bool(d.get("tie_at_max_length"))
             m.evidence_sources.append(EvidenceSource(
                 filename=f"replay:frozen_extractor:{d.get('doc_id', '')}", sha256="",
                 parser=f"replay/{PARSER_VERSION}", era="", session="",
@@ -643,12 +686,14 @@ def audit_bundles(mappings: list[Mapping], per_class: int = 3, seed: int = 20260
             "original_category": p.original_category, "resulting_category": p.resulting_category,
             "resulting_key": p.resulting_key, "status": p.status, "reason": p.reason,
             "parser_version": p.parser_version,
+            "replay_order_dependent_tie": p.replay_order_dependent_tie,
             "evidence_sources": [asdict(s) for s in p.evidence_sources],
         } for p in picks]
     return out
 
 
-def census(root: Path | None = None, con=None, replay: bool = True, out_dir: Path | None = None) -> int:
+def census(root: Path | None = None, con=None, replay: bool = True, out_dir: Path | None = None,
+           rebuild_index: bool = False) -> int:
     arts = manifest(root)
     con = con or store.connect()
 
@@ -666,19 +711,29 @@ def census(root: Path | None = None, con=None, replay: bool = True, out_dir: Pat
     index: dict | None = None
     pop: dict = {}
     if replay:
-        print("--- LEVEL 3 PRE-SUPPRESSION INDEX")
-        try:
-            index, pop = build_candidate_index(con)
-        except Exception as exc:  # noqa: BLE001
-            print(f"LEVEL3 INDEX UNAVAILABLE {type(exc).__name__}: {exc}")
-            index = None
+        print("--- LEVEL 3 PRE-SUPPRESSION INDEX", flush=True)
+        cached = None if rebuild_index else load_index_cache(out_dir)
+        if cached is not None:
+            index, pop = cached
+            cp = index_cache_path(out_dir)
+            print(f"index_source cache {cp.name} bytes {cp.stat().st_size}", flush=True)
+            print(f"index_cache_sha256 {hashlib.sha256(cp.read_bytes()).hexdigest()}", flush=True)
+        else:
+            try:
+                print("index_source sweep (no usable cache); this pays the full corpus sweep", flush=True)
+                index, pop = build_candidate_index(con)
+                cp = save_index_cache(index, pop, out_dir)
+                print(f"index_cache_written {cp.name} sha256 {hashlib.sha256(cp.read_bytes()).hexdigest()}", flush=True)
+            except Exception as exc:  # noqa: BLE001
+                print(f"LEVEL3 INDEX UNAVAILABLE {type(exc).__name__}: {exc}")
+                index = None
 
     mappings, stats, extra = resolve(arts, table_map, index, versions)
     authority = extra["authority"]
     pre_status = extra["transitions"]["pre_status"]
 
     exports = Path(out_dir or config.EXPORTS)
-    print(f"R3-0c-iii RECOVERY CENSUS parser {PARSER_VERSION}")
+    print(f"R3-0c-iv RECOVERY CENSUS parser {PARSER_VERSION}")
     print(f"generated_utc {datetime.now(timezone.utc).isoformat(timespec='seconds')}")
     print(f"artifacts {len(arts)} total_bytes {sum(a.size for a in arts)}")
     for k, v in sorted(stats.items()):
@@ -747,13 +802,19 @@ def census(root: Path | None = None, con=None, replay: bool = True, out_dir: Pat
     uniq = set(keys_by_sentence)
     consistent_pos = sum(1 for s in uniq if verd_by_sentence.get(s) == {"correct"})
     consistent_neg = sum(1 for s in uniq if verd_by_sentence.get(s) == {"wrong"})
+    unsure_only = sum(1 for s in uniq if verd_by_sentence.get(s) == {"unsure"})
     conflicting = sum(1 for s in uniq if len(verd_by_sentence.get(s, set())) > 1)
     no_verdict = sum(1 for s in uniq if not verd_by_sentence.get(s))
     print(f"denominator unique_recovered_sentences {len(uniq)}")
     print(f"unique_sentences_consistent_positive {consistent_pos}")
     print(f"unique_sentences_consistent_negative {consistent_neg}")
     print(f"unique_sentences_conflicting_verdicts {conflicting}")
+    print(f"unique_sentences_unsure_only {unsure_only}")
     print(f"unique_sentences_without_verdict {no_verdict}")
+    _ssum = consistent_pos + consistent_neg + conflicting + unsure_only + no_verdict
+    print(f"SENTENCE_CLASS_IDENTITY {consistent_pos} + {consistent_neg} + {conflicting} + "
+          f"{unsure_only} + {no_verdict} == {len(uniq)} -> {_ssum == len(uniq)}")
+    print(f"clean_binary_training_pool {consistent_pos + consistent_neg}")
     print(f"unique_sentences_multi_category {sum(1 for s in uniq if len(cats_by_sentence.get(s, set())) > 1)}")
     print(f"unique_sentences_multiple_reviewed_keys {sum(1 for s in uniq if len(keys_by_sentence[s]) > 1)}")
     dup: dict[int, int] = {}
@@ -764,6 +825,20 @@ def census(root: Path | None = None, con=None, replay: bool = True, out_dir: Pat
         print(f"duplicate_frequency sentences_under_{n}_keys {dup[n]}")
     print("class_note mapping-level verdict observations are NOT a sentence-level training-class "
           "balance; the sentence-level lines above are the ones a training corpus may use.")
+
+    # ---- order-dependent tie identities (operator ruling 2026-09-12)
+    print("--- ORDER-DEPENDENT TIE IDENTITIES")
+    indexed_ties = int(pop.get("keys_won_on_tie", 0)) if pop else 0
+    tie_maps = [m for m in mappings if m.replay_order_dependent_tie]
+    tie_recovered = [m for m in tie_maps if m.status in recovered_statuses]
+    tie_sentences = {m.sentence for m in tie_recovered if m.sentence}
+    print(f"indexed_keys_won_on_tie {indexed_ties}")
+    print(f"tie_flagged_mappings {len(tie_maps)}")
+    print(f"tie_flagged_recovered_mappings {len(tie_recovered)}")
+    print(f"tie_flagged_distinct_recovered_sentences {len(tie_sentences)}")
+    print("tie_note these identities were decided by sweep order at equal maximum length. "
+          "They remain in the recovered corpus, carry replay_order_dependent_tie=true, and R3-1 "
+          "must either exclude them initially or report a sensitivity check on their inclusion.")
 
     # ---- Level 3 transitions, explicit equations
     print("--- LEVEL 3 TRANSITIONS")
@@ -820,23 +895,23 @@ def census(root: Path | None = None, con=None, replay: bool = True, out_dir: Pat
         print(f"era {era} session {sess} keys {tot} recovered {rec} " + " ".join(f"{s}={n}" for s, n in sorted(b.items())))
 
     exports.mkdir(parents=True, exist_ok=True)
-    mpath = exports / "20260912_v2_r3_recovery_source_manifest.csv"
+    mpath = exports / "20260912_v3_r3_recovery_source_manifest.csv"
     with open(mpath, "w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["filename", "sha256", "bytes", "mtime_utc", "encoding", "era", "session"])
         for a in arts:
             w.writerow([a.relpath, a.sha256, a.size, a.mtime, a.encoding, a.era, a.session])
-    apath = exports / "20260912_v2_r3_recovery_audit_bundles.json"
+    apath = exports / "20260912_v3_r3_recovery_audit_bundles.json"
     apath.write_text(json.dumps(audit_bundles(mappings), indent=2)[:8_000_000], encoding="utf-8")
     print(f"manifest {mpath.name} rows {len(arts)}")
     print(f"audit_bundles {apath.name}")
     print(f"RECONCILIATION reviewed_keys {len(mappings)} == sum(status) {sum(by_status.values())}")
-    print("R3-0c-iii END")
+    print("R3-0c-iv END")
     return 0
 
 
 def cli(argv: list[str]) -> int:
     if argv and argv[0] == "r3-census":
-        return census(replay="--no-replay" not in argv)
+        return census(replay="--no-replay" not in argv, rebuild_index="--rebuild-index" in argv)
     print("usage: r3-census")
     return 1

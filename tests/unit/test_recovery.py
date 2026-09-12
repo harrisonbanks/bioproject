@@ -295,3 +295,69 @@ def test_pool_select_keeps_the_first_candidate_on_a_length_tie():
     best, overflow = P.pool_select([(k, a), (k, b)])
     assert best[k]["statement"] == "AAAA"
     assert [o["statement"] for o in overflow] == ["BBBB"]
+
+
+# ---- 14. order-dependent tie identities are flagged, never silently equal-confidence
+def test_replay_flags_an_order_dependent_tie_identity():
+    key = R.s_key("CIK:9", "2020-01-01", "platform")
+    arts = [_art("20260910_v48ah_rulings_and_run_evidence.txt",
+                 f"JUDGED {key} wrong; retired 1 relabeled 0\r\n", "f" * 64)]
+    tied = {key: {"statement": "AAAA", "category": "platform", "entity_key": "CIK:9",
+                  "stated_at": "2020-01-01", "rule_version": "L3-a3-p2",
+                  "tie_at_max_length": True, "candidate_count": 2, "winner_length": 4,
+                  "runner_ups": [{"statement": "BBBB", "length": 4}], "doc_id": "c1"}}
+    maps, _s, _x = R.resolve(arts, index=tied, versions={key: "L3-a3-p2"})
+    m = maps[0]
+    assert m.status == R.SRC_REPLAY
+    assert m.replay_order_dependent_tie is True
+
+
+def test_a_length_decided_replay_is_not_flagged_as_a_tie():
+    key = R.s_key("CIK:9", "2020-01-02", "platform")
+    arts = [_art("20260910_v48ah_rulings_and_run_evidence.txt",
+                 f"JUDGED {key} wrong; retired 1 relabeled 0\r\n", "f" * 64)]
+    idx = {key: {"statement": "a much longer candidate", "category": "platform",
+                 "entity_key": "CIK:9", "stated_at": "2020-01-02", "rule_version": "L3-a3-p2",
+                 "tie_at_max_length": False, "candidate_count": 2, "winner_length": 23,
+                 "runner_ups": [], "doc_id": "c1"}}
+    maps, _s, _x = R.resolve(arts, index=idx, versions={key: "L3-a3-p2"})
+    assert maps[0].replay_order_dependent_tie is False
+
+
+def test_audit_bundle_carries_the_tie_flag():
+    key = R.s_key("CIK:9", "2020-01-01", "platform")
+    arts = [_art("20260910_v48ah_rulings_and_run_evidence.txt",
+                 f"JUDGED {key} wrong; retired 1 relabeled 0\r\n", "f" * 64)]
+    tied = {key: {"statement": "AAAA", "category": "platform", "entity_key": "CIK:9",
+                  "stated_at": "2020-01-01", "rule_version": "L3-a3-p2",
+                  "tie_at_max_length": True, "candidate_count": 2, "winner_length": 4,
+                  "runner_ups": [], "doc_id": "c1"}}
+    maps, _s, _x = R.resolve(arts, index=tied, versions={key: "L3-a3-p2"})
+    bundles = R.audit_bundles(maps)
+    assert any(row["replay_order_dependent_tie"] for rows in bundles.values() for row in rows)
+
+
+# ---- 15. the index cache is reused, and refused when its versions do not match
+def test_index_cache_round_trips(tmp_path):
+    idx = {"Sdeadbeefdeadbeef": {"statement": "x", "category": "platform",
+                                 "entity_key": "CIK:1", "stated_at": "2020-01-01",
+                                 "rule_version": "L3-a3-p2"}}
+    pop = {"documents_read": 7, "distinct_keys": 1}
+    R.save_index_cache(idx, pop, out_dir=tmp_path)
+    got = R.load_index_cache(out_dir=tmp_path)
+    assert got is not None
+    assert got[0] == idx and got[1] == pop
+
+
+def test_index_cache_is_refused_on_a_version_mismatch(tmp_path):
+    import json as _j
+
+    p = R.index_cache_path(tmp_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(_j.dumps({"cache_version": "IDX-v0", "rule_version": "L3-a3-p2",
+                           "pop": {}, "index": {}}), encoding="utf-8")
+    assert R.load_index_cache(out_dir=tmp_path) is None
+
+
+def test_missing_index_cache_returns_none(tmp_path):
+    assert R.load_index_cache(out_dir=tmp_path) is None
