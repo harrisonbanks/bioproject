@@ -2,6 +2,66 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.33. Supersedes v1.32. R3-0c CLOSED as a measured result
+(docs/20260912_v1_R3_0c_Final_Recovery_Record.md, block v57p, HEAD be4b72c).
+The Level 1-2 interim figures recorded in v1.32 are SUPERSEDED by the final
+figures below.
+- Final R3-0c: 4,678 recovered mappings of 4,834 authoritative reviewed keys, 29
+  ambiguous, 127 unresolved. RECONCILIATION_EQUATION 4834 == 2936 + 1742 + 29 +
+  0 + 127 -> True; TRANSITION_EQUATION 1869 == 1742 + 0 + 127 -> True. Replay
+  created zero new ambiguity and overwrote zero direct recoveries. Level 3
+  resolved all 1,639 previously unresolved p2h keys.
+- Recovery by source: table_direct 2,193, extractor_replay 1,742,
+  judging_evidence_direct 548, worksheet_direct 118, cluster_direct 77.
+- The 127 unresolved: 90 lack authoritative verdict evidence and 37 were
+  recorded under rule versions not reproduced by the Level 3 index. Of the 90
+  no-verdict keys, 60 are the regenerated 2026-09-12 R2 worksheet entries that
+  were never judged; the remaining 30 are other no-verdict-evidence cases.
+  These are NOT lost labels.
+- Sentence-level truth, denominator 3,352 unique recovered sentences:
+  SENTENCE_CLASS_IDENTITY 1632 + 1680 + 27 + 13 + 0 == 3352 -> True, being
+  consistent positive, consistent negative, conflicting, unsure-only, and
+  without verdict. Clean binary training pool 3,312, before any resolution of
+  the 27 conflicts or treatment of the 13 unsure-only sentences. 748 sentences
+  appear under more than one reviewed key, 39 under more than one category.
+- Mapping-level classes carry their own denominators and are NOT a
+  sentence-level class balance: of 4,678 recovered mappings, 2,281 correct,
+  2,372 wrong, 25 unsure, 0 without a usable verdict; of 29 ambiguous mappings,
+  28 verdict-bearing; of 127 unresolved, 37 verdict-bearing.
+- Order-dependent ties: 18 indexed keys were decided by sweep order at equal
+  maximum length; 7 became recovered mappings covering 4 distinct sentences,
+  each carrying replay_order_dependent_tie=true. R3-1 policy: exclude those
+  from the initial training corpus or include them with a reported sensitivity
+  check; never treat them as equal-confidence labels by default.
+- Authority-form populations, measured by set overlap rather than inferred:
+  judged 4,495 S keys, r2_judged 240 R keys, header 606 S, worksheet 120 S and
+  60 R, cluster 80 S; union 4,834; judged&r2_judged overlap 0, so the 300 R
+  keys are 240 judged plus 60 never-judged worksheet entries, disjoint.
+- Replay input population: 6,992 documents read, 3,604 with rows, 6,942
+  candidates, 4,742 distinct keys, 2,200 overflow rows. The index is a
+  RECONSTRUCTION from the current frozen corpus under rule L3-a3-p2, not a
+  byte-identical historical replay, because the historical input set was never
+  recorded as a manifest. Cached at
+  data\exports\20260912_v1_r3_candidate_index.json, sha256 7adadaab...ca59bcae1.
+- Runtime anchors of record: cold sweep over 6,992 references about 83 minutes
+  (v57o stage timestamps); a census reusing the cache about 1 second (v57p);
+  unit suite at 375 tests about 3 minutes. Correction: v57o's own stage line
+  printed 23m28s because the block's duration formatter dropped the hour
+  component of the TimeSpan; the true elapsed was 83m28s, and the formatter is
+  fixed in the block committing this version.
+- Gate history: R3-0c-ii commit 5eae6b6, R3-0c-iii commit 87778a8, R3-0c-iv
+  commit be4b72c. Suite 375 collected and 375 passed on the operator's machine;
+  ruff unchanged at exactly 3 pre-existing findings; schema 0.22 unchanged; no
+  table of record written, enforced by a locking test.
+- Not established by R3-0c: true p2 recall, stable sentence identity, immutable
+  adjudication, and a resolution policy for the 27 conflicting and 13
+  unsure-only sentences. Order from here: R3-0b SEG-v1, R3-0d immutable
+  adjudication ledger, dataset manifests, R3-1.
+- Standing queue unchanged behind R3: gold set, Console Sep-11 cost row, F1-era
+  stakes retire-path repair before the 52 deferred stakes verdicts, 707 open M3
+  entries, successor-name stamping via aliases, GUI build order, scripts\
+  folder disposition, Harrison blocked.
+
 Version 1.32. Supersedes v1.31. R3-0c LEVEL 1-2 RECOVERY CENSUS DONE
 (2026-09-12, block v57k, HEAD 5eae6b6); architecture of record adopted
 (docs/20260912_v1_Document_Processing_and_Evidence_Architecture.md); R3-0d
