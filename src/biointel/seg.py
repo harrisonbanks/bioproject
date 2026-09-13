@@ -17,11 +17,18 @@ semantics cannot shift because of SEG-v1. The two paths are related by a
 COMPATIBILITY INVARIANT, tested on fixtures and measured across the corpus by
 the census:
 
-    efts.normalize_text(seg_item1_slice(seg_normalize(capture)))
+    _compare_norm(seg_item1_slice(seg_normalize(capture)))
         == priorities.item1_slice(efts.normalize_text(capture))
 
+The SEG side is FLATTENED, not re-normalized. It has already been through
+script/style removal, tag stripping and `html.unescape` inside `seg_normalize`,
+so running the incumbent normalizer over it a second time is not idempotent and
+destroys evidence; `_compare_norm` performs only the character folds and
+whitespace collapse both sides share.
+
 Mismatches are reported, never absorbed: they mean SEG-v1 and p2 disagree about
-where Item 1 begins or ends for that document.
+the flattened Item 1 representation for that document, whether in its extent or
+in its content.
 
 Paragraph context is genuine at this version: `paragraph_start_offset` and
 `paragraph_end_offset` bound the blank-line-delimited block containing the
@@ -204,15 +211,37 @@ class Segment:
         return asdict(self)
 
 
+def _compare_norm(text: str) -> str:
+    """Flatten the SEG slice for comparison. Destroys nothing.
+
+    The SEG slice reaching here has ALREADY been through script/style removal,
+    tag stripping and `html.unescape` inside `seg_normalize`. Running the
+    incumbent normalizer over it a second time is therefore not idempotent: by
+    that point an entity-encoded `&lt; 40%` has become a literal `< 40%`, and
+    the incumbent's generic `<[^>]+>` consumes it together with every character
+    up to the next `>` in plain evidence text. Measured on the three captures of
+    record, that deleted 3,441, 871 and 1,758 characters from the SEG side while
+    the p2 side, normalized only once, kept them.
+
+    This performs only the steps that are idempotent and that the p2 side has
+    also had: the three character folds and the whitespace collapse. It does not
+    strip tags and does not unescape.
+    """
+    t = text.replace("\u200b", " ").replace("\u00a0", " ").replace("\u2011", "-")
+    return re.sub(r"\s+", " ", t).strip()
+
+
 def compatibility(raw_capture_text: str) -> tuple[bool, str, str]:
     """Compare the SEG-v1 Item 1 region against the incumbent p2 region.
 
-    Returns (agree, seg_side, p2_side). The two sides are compared after the
-    SEG slice is put through the incumbent normalizer, and after stripping
-    leading and trailing whitespace on both, because `item1_slice` does not
-    strip its own slice edges while `seg_normalize` does. Nothing else is
-    normalized away: a difference anywhere inside the region is a real
-    disagreement about where Item 1 begins or ends, and is reported.
+    Returns (agree, seg_side, p2_side). The SEG side is flattened with
+    `_compare_norm` rather than re-normalized, because it is already normalized
+    (see that function); the p2 side runs the incumbent path on the raw capture
+    exactly as production does and is not touched here. Both are stripped at the
+    edges because `item1_slice` does not strip its own slice edges while
+    `seg_normalize` does. Nothing else is normalized away: a difference anywhere
+    inside the region is a real disagreement about where Item 1 begins or ends,
+    and is reported.
 
     Imported lazily so this module still imports nothing from the package at
     definition time and cannot inherit p2 candidate semantics.
@@ -220,7 +249,7 @@ def compatibility(raw_capture_text: str) -> tuple[bool, str, str]:
     from biointel.efts import normalize_text as _p2_norm
     from biointel.priorities import item1_slice as _p2_slice
 
-    seg_side = _p2_norm(seg_item1_slice(seg_normalize(raw_capture_text))).strip()
+    seg_side = _compare_norm(seg_item1_slice(seg_normalize(raw_capture_text)))
     p2_side = _p2_slice(_p2_norm(raw_capture_text)).strip()
     return seg_side == p2_side, seg_side, p2_side
 

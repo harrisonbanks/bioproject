@@ -427,3 +427,73 @@ def test_segmentation_never_calls_p2_selection():
                     names = [a.name for a in getattr(sub, "names", [])]
                     assert not name.startswith("biointel"), f"{node.name} imports {name}"
                     assert not any(n.startswith("biointel") for n in names), node.name
+
+
+# ---- compatibility comparison transform (defect of record 2026-09-12) --------
+# `compatibility()` used to run the incumbent normalizer over the SEG slice a
+# SECOND time. By that point `seg_normalize` has already stripped tags and run
+# `html.unescape`, so an entity-encoded `&lt; 40%` in the filing has become a
+# literal `< 40%`, and the incumbent's generic `<[^>]+>` consumed it along with
+# every character up to the next `>` in plain evidence text. The SEG substrate
+# never lost the text: the checker did. Measured on the three captures of
+# record, the deletions were 3,441, 871 and 1,758 characters.
+#
+# ENTITY ENCODING AND A DOWNSTREAM TAG ARE BOTH REQUIRED to reproduce it: with
+# a literal `<` in the source the operator is consumed on the FIRST pass by both
+# sides alike, and with no later `>` the pattern cannot match at all.
+
+COMPARISON_HTML = (
+    "<html><p>Item 1. Business</p>"
+    "<p>Our strategy is to grow. Effects are most favorable in patients with low left "
+    "ventricular ejection fraction (LVEF) (&lt; 40%); and we see an opportunity to "
+    "initiate therapy pre-operatively with a <b>50% risk reduction</b> in mortality.</p>"
+    "<p>The trial enrolled PD-L1&gt;1% and &lt;1% patient populations. The safety profile "
+    "was <i>consistent</i> with prior studies.</p>"
+    # The incumbent slicer refuses a region under 500 characters, so the fixture
+    # carries the same ordinary padding the pathology fixture uses.
+    "<p>" + ("padding sentence about ordinary operations. " * 20) + "</p>"
+    "<p>Item 1A. Risk Factors</p><p>risk text</p></html>"
+)
+
+
+def test_the_seg_substrate_carries_the_operators_before_any_comparison():
+    """The substrate is not where the loss was; pin that first."""
+    body = seg.seg_item1_slice(seg.seg_normalize(COMPARISON_HTML))
+    assert "(LVEF) (< 40%); and we see an opportunity to initiate therapy" in body
+    assert "PD-L1>1% and <1% patient populations." in body
+
+
+def test_compatibility_agrees_when_the_region_carries_comparison_operators():
+    agree, seg_side, p2_side = seg.compatibility(COMPARISON_HTML)
+    assert agree, f"seg_side={seg_side!r}\np2_side={p2_side!r}"
+    assert "< 40%" in seg_side and "< 40%" in p2_side
+    assert "<1% patient populations." in seg_side
+
+
+def test_the_old_double_normalization_is_what_deleted_the_evidence():
+    """Mechanism pin, not a behaviour requirement: re-running the incumbent
+    normalizer over an already-normalized slice still destroys it, which is why
+    `compatibility` must not do that."""
+    from biointel.efts import normalize_text as _p2_norm
+
+    body = seg.seg_item1_slice(seg.seg_normalize(COMPARISON_HTML))
+    twice = _p2_norm(body)
+    assert "< 40%" in body
+    assert "< 40%" not in twice
+    assert "opportunity to initiate therapy" not in twice
+    assert len(twice) < len(body)
+
+
+def test_compare_norm_is_idempotent():
+    body = seg.seg_item1_slice(seg.seg_normalize(COMPARISON_HTML))
+    once = seg._compare_norm(body)
+    assert seg._compare_norm(once) == once
+
+
+def test_compare_norm_neither_strips_tags_nor_unescapes():
+    """It flattens whitespace and folds three characters. Nothing else."""
+    assert seg._compare_norm("a <b> c") == "a <b> c"
+    assert seg._compare_norm("&lt; 40%") == "&lt; 40%"
+    assert seg._compare_norm("&amp; x") == "&amp; x"
+    assert seg._compare_norm("a\u200bb\u00a0c\u2011d") == "a b c-d"
+    assert seg._compare_norm("  a \n\n b  ") == "a b"
