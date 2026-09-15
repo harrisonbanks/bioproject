@@ -2,6 +2,57 @@ docs/PROJECT_STATUS.md
 
 # Bioindustry Intelligence Platform — Project Status
 
+Version 1.35. Supersedes v1.34. R3-0b CLOSED, SEG-v1 FROZEN, R3-0d UNBLOCKED
+(2026-09-15). Record: docs/20260913_v1_R3_0b_Census_and_Closeout_Record.md,
+committed with this version and nothing else; no code changes.
+- Frozen implementation: src/biointel/seg.py sha256 4b992b38... at commit
+  81bdfe23 over ITEM1_STRUCT-v1. Implementation commits a7e4e51 (SEG-v1) and
+  81bdfe23 (compatibility repair: the checker re-normalized the SEG side and
+  destroyed evidence the substrate preserved) produced the measured behaviour;
+  the closeout commit records it. Any material change is SEG-v2.
+- Census of record (Block A, BUILD-v5 cache sha256 02cd6568..., complete):
+  6,992 references over 6,991 captures; 6,500 10k_strategy, 492 investor_day;
+  zero integrity failures, zero unreadable, zero drift. Compatibility with the
+  incumbent 6,992/6,992, zero mismatches, zero SEG-only Item 1 absence. Valid
+  Item 1 slices 5,956; absent 1,036, every one also absent for p2 and refused
+  by the incumbent's own rules today: 10-K 555 = 408 under the 500-character
+  floor + 112 XBRL tag soup + 35 no Item 1A terminator; investor_day 481 all
+  no Item 1A terminator.
+- SEG-v1 quality (B1 sha256 a3483fcd..., exact, nearest-rank): 8,074,351
+  segments over 5,956 slices, mean 1,355.7 per slice; length mean 145.73,
+  median 132, p25 42, p75 212, p90 297, p95 362, p99 535, min 1, max 6,291;
+  coverage gaps 0, segmentation errors 0, zero-segment slices 0,
+  offset-invariant failures 0; bullet-merge proxy 49,101/8,074,351 (0.61%),
+  the ratified Option A limitation, measured, not an error rate. All ten
+  freeze checks PASS; B2_ASSESSMENT NO_DEFECT_FOUND.
+- p2 stratum under the Block B G1/G4 erratum (commit a4ab24b): the frozen G1
+  was unmeasurable because stated_priorities carries no rule_version column
+  and is a post-adjudication projection (v60r: last ok priorities-write wrote
+  4,742 rows under L3-a3-p2 on 2026-09-10; live table 2,890; 2,232 S-keyed
+  wrong/relabel reviews postdate the write). The substrate of record is the
+  B1b deterministic replay of the write() selection path (artifact sha256
+  0f58ff75..., two agreeing passes, 4,742 selected rows = rows_written, 3,598
+  pairs, pair manifest e9c550ed...). Stratum: 3,650/6,992 references
+  (3,522/6,500 10-K; 128/492 investor_day); 3,598/6,863 distinct reference
+  pairs. The live projection (2,492 pairs, all inside the replay set) is a
+  diagnostic only, never a substrate.
+- Report of record: data\exports\segv1_census_report_BUILD-v5_rerun.md sha256
+  810733e1...; the first execution's report (de185dcb...) stays on disk with
+  its section 6 superseded. Runtimes of record: Block A 5h39m10s (stopped at
+  3,726 rows on a transient os.replace denial) + 7h37m51s resume; B1
+  12h54m46s at a flat 7.7 slices/min; B1b 2h49m39s; B2 23 s / rerun 22 s.
+- Rulings carried forward: checkpoint replace retried with bounded backoff and
+  every long-run payload logs its own traceback; evidence files cited by hash
+  are permanent provenance and are never edited after emission; an
+  interrupted run with an intact incomplete cache resumes by rerunning the
+  same approved block.
+- Next: R3-0d immutable adjudication ledger is UNBLOCKED by R3-0b, and its
+  implementation is HELD until an independent parser benchmark and substrate
+  decision determine whether persistence binds to ITEM1_STRUCT-v1/SEG-v1 or a
+  successor substrate (R3-0d persists segment identities; decide before
+  adjudications are tied to them). That benchmark is an architecture decision
+  gate before R3-0d begins, not a renumbering. Formal gate order of record
+  unchanged: R3-0d, R3-0e, R3-1, R3-2, R3-3.
 Version 1.34. Supersedes v1.33. DOCUMENTATION CORRECTION ONLY: no measured
 figure changes. v1.33's recovery, sentence-class, tie, authority-overlap and
 runtime figures all stand as recorded. Three statements in v1.33 are corrected
